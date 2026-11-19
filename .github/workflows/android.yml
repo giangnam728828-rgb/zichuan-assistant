@@ -72,7 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: zichuan-assistant-${{ steps.v.outputs.name }}
-          path: dist/*.apk
+          path: dist/zichuan-assistant-${{ steps.v.outputs.name }}.apk
 
       - name: 发布 Release
         uses: softprops/action-gh-release@v2
@@ -82,4 +82,4 @@ jobs:
           body: |
             固定签名：SHA-256 `05d1265d870c5b72e53c8a745dbe8fe12edb791ea17f7bdaf40234904c4d5057`
             可直接覆盖安装旧版本，无需卸载。
-          files: dist/*.apk
+          files: dist/zichuan-assistant-${{ steps.v.outputs.name }}.apk
