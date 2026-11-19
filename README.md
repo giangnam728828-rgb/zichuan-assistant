@@ -1,5 +1,12 @@
 # 子川助手 · Android
 
+[![Android CI](https://github.com/giangnam728828-rgb/zichuan-assistant/actions/workflows/android.yml/badge.svg)](https://github.com/giangnam728828-rgb/zichuan-assistant/actions/workflows/android.yml)
+
+仓库：<https://github.com/giangnam728828-rgb/zichuan-assistant>（private）
+下载：<https://github.com/giangnam728828-rgb/zichuan-assistant/releases>
+
+> 私有仓库的 Release 资产需要登录后才能下载；本机 `dist/` 里也有同样的 APK。
+
 把本机运行的 **DeepSeek Harness Web UI** 装进一个原生壳：全屏 WebView、长按改地址、断连重试、返回键回退。
 
 引擎仍在 `proot` 环境里跑（`dsh web`，默认 `127.0.0.1:3080`；本项目的 DSH 套件在 `3081`），这个 APK 只负责呈现，**不做任何网络代理、不收集数据**。
@@ -64,6 +71,12 @@ research/                21 个 DSH 生态项目的功能矩阵与证据报告
 docs/                    构建与签名、融合设计说明
 .github/workflows/       CI：构建 + 用同一把 key 签名 + 上传 artifact / Release
 ```
+
+## 发布流水线
+
+`main` 上改动 `app/**` 或 `build-apk.sh` 会触发 **Android CI**：装 build-tools 34 → `build-apk.sh` 构建 → **校验签名指纹必须等于上面那个 SHA-256**（不等就 fail）→ 上传 artifact → 发 Release（tag `v<版本>`，只带本次构建的 APK）。
+
+实测：CI 跑出的 `v1.0.2`（versionCode 2）与本机 `1.0.0/1.0.1` 签名者 SHA-256 相同，可直接覆盖安装。
 
 ## 已知限制
 
