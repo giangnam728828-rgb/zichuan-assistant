@@ -1,0 +1,25 @@
+{
+  "name": "zichuan-suite",
+  "version": "1.0.0",
+  "description": "子川助手套件：把写代码、跑构建、交付到手机、操作手机四件事收进一个工作台（DeepSeek Harness bundle + client 面板）",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "keywords": ["deepseek", "harness", "dsh", "dsh-plugin", "zichuan", "assistant"],
+  "engines": {
+    "dsh": ">=0.2.2-rc.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

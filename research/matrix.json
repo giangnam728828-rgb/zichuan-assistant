@@ -1,0 +1,650 @@
+[
+  {
+    "repo": "deepseek-ai/deepseek-harness",
+    "stars_note": "284,174 ★（2026-11-20 抓取 GitHub 页面计数）",
+    "platform": "Web（node/CLI 启动本地 Web UI；仓库同时含 Desktop/开发命令）",
+    "positioning": "官方上游：基于 Cordis「一切皆插件」的开源 agent harness（dsh），生态全部项目的基础。",
+    "features": [
+      "npm 一行启动本地 Web UI：`npx @deepseek-ai/dsh web`，默认 http://127.0.0.1:3080 并自动开浏览器，`--no-open` 可只跑服务",
+      "从源码运行：clone → pnpm install → pnpm run build → pnpm dsh web（build 产物与运行分离）",
+      "一切皆插件的 Cordis 架构，插件仓库打 `dsh-plugin` topic 供生态发现",
+      "`pnpm run dev:web` 单终端完成构建/启动/源码改动后重建 client bundle；`make help` 列 Web 与 Desktop target",
+      "官方文档站 + docs/user/guide、docs/architecture.md、docs/development.md，AGENTS.md 面向 agent 的开发规范",
+      "GitHub Discussions 反馈、Discord 社区；MIT 许可"
+    ],
+    "integration": "`npx @deepseek-ai/dsh web`；或从源码 pnpm install → pnpm run build → pnpm dsh web。",
+    "dsh_mechanisms": [
+      "Cordis 插件架构（bundle/loader）",
+      "client bundle 重建与 dev:web 流程",
+      "Web UI 与本地 Host 服务",
+      "profile/工作区由 CLI 启动链提供（README 未展开）"
+    ],
+    "limitations": [
+      "开发者预览阶段，明确会有破坏兼容性的变更",
+      "运行前须先读 SAFETY.md 安全说明",
+      "README 未给出插件 API 的稳定性承诺"
+    ]
+  },
+  {
+    "repo": "NanGePlus/my-deepseek-harness",
+    "stars_note": "19 ★（2026-11-20 抓取）",
+    "platform": "Web（浏览器）+ 桌面（Electron），同一 SPA",
+    "positioning": "NanGeAGI：dsh 的开源 AI Coding 工作台 fork，把官方右侧详情栏重做成「工具箱五段」。",
+    "features": [
+      "资源管理器：Monaco 多 Tab、Markdown 预览/源码、语法高亮、LSP 诊断、显式保存、Git 行尾徽章、拖拽移动",
+      "Git 面板：变更列表 + 提交历史图、差异预览、按块暂存/丢弃、提交与推送、Git 操作守卫",
+      "人类终端：多 Tab 交互式 Shell（xterm），与 Agent 的 `terminal_*` 工具完全分离",
+      "内嵌浏览器：多 Tab 导航，Web 为有头 Chromium 窗口、桌面为面板内 WebView，Agent `browser_*` 与人类共用实例",
+      "工具详情面板：查看工具调用详情，点击消息流工具行可跳转",
+      "对话区增强：Mermaid 渲染与缩放、Markdown/图片 ZoomPan、选区 Add to Chat、消息内文件路径直达编辑器",
+      "桌面与 Web 功能对等（同一 SPA + 同一 Host 能力），桌面走 Electron IPC 不占 loopback 端口",
+      "守卫规则：未保存 Tab 时切 Session 或退出会提示保存/丢弃"
+    ],
+    "integration": "clone → `git checkout custom/main` → corepack enable → pnpm install → pnpm run build；Web: `pnpm dsh web`；桌面: `pnpm run dev:desktop` 或 `pnpm dsh desktop`。",
+    "dsh_mechanisms": [
+      "Host apiproxy RPC（文件/Git/终端/Playwright 浏览器/LSP）",
+      "client 插件：ui-conversation、ui-file-editor、ui-git、ui-terminal、ui-browser、ui-tool",
+      "desktop profile + Electron IPC；web profile HTTP + SSE/WebSocket",
+      "Cordis 插件行与 bundle 打包（改动需 bundle + 硬刷新）"
+    ],
+    "limitations": [
+      "fork 需手工对齐上游（集成分支 custom/main）",
+      "文件编辑器无自动保存；单文件约 5MB、单层目录 listing 1000 条上限",
+      "Linux 桌面壳不在 V5 范围（Linux 只能用 Web）",
+      "桌面壳 V5 不含自动更新、多窗口、远程 Host 一体启动",
+      "官方 `npx @deepseek-ai/dsh web` 不含这些定制，必须本仓库构建"
+    ]
+  },
+  {
+    "repo": "murongg/daban",
+    "stars_note": "13 ★（2026-11-20 抓取）",
+    "platform": "桌面：macOS（Apple Silicon，VM 与本机桌面两种模式）、Windows x64（QEMU/WHPX 或本机桌面）；Electron + TypeScript",
+    "positioning": "Daban：基于 dsh 的桌面 AI 工作区，每个 Bot 拥有独立 Linux 桌面并可被随时接管。",
+    "features": [
+      "Bot 广场与自定义 Bot：设置职责、模型、工作偏好；可积累偏好、资料、便笺与技能，内置 find-skills 查找并确认安装",
+      "多供应商模型接入：DeepSeek/Claude/Gemini 等，加载模型列表、测试调用、自动匹配上下文与图片能力、展示推理与工具调用声明",
+      "内置浏览器：无需 Linux 与屏幕权限即可浏览、输入中文、登录与填验证码，再交给 Bot 读网页/填表/下载报表/上传文件",
+      "各有屏幕、共享环境：多个 Bot 各自操作独立桌面，共用工作文件、已装软件与浏览器登录状态",
+      "接管机制：随时查看执行过程、接管某个 Bot 的电脑、处理完交还，其他 Bot 继续工作；本机桌面模式一次仅一位 Bot，Ctrl+Alt / Option+Esc 暂停",
+      "协作与定时：多 Bot 群聊协作、共享待办、定时任务",
+      "`/plan` 只读计划模式（计划进收件箱审批后才恢复执行）、`/goal` 原生目标自动续行（本次最多三轮）、`/ptc` 用 TypeScript 程序组合工具（受限解释器，无宿主 Node/文件/网络 API）",
+      "连接 Linux 工作区后按需加载 Office 技能：Word/Excel/PPT 生成编辑、PDF 导出、公式重算、图片预览"
+    ],
+    "integration": "下载打包客户端按引导安装基础运行组件（无需自装 Docker/Node/DSH）；UI 预览：`npm ci && npm run dev:web` → http://127.0.0.1:5173（不跑真实模型任务）；完整 Electron 见 docs/development.md。",
+    "dsh_mechanisms": [
+      "内置 dsh 作为 agent 引擎（首次下载后台 + Node + DSH）",
+      "沿用 dsh 的会话/工具/审批与工具权限规则（Linux 高风险命令请求确认）",
+      "Linux 虚拟机（Lima/QEMU）隔离执行 + 独立浏览器配置",
+      "任务预算、只读子任务（最多两个并行）、计划模式与目标语义"
+    ],
+    "limitations": [
+      "早期预览（early preview），当前优先完善桌面客户端",
+      "云端执行、手机端、跨设备上下文同步列入后续计划",
+      "PDF 与 Office 解析需要 Linux 工作区；无 Linux 只能处理文本与图片",
+      "Mac 首装建议预留 40GB 磁盘；Windows 需另下约 1.6GB QEMU/Debian 环境",
+      "本机桌面模式使用真实桌面，无 VM 隔离，也不自动提权",
+      "web 预览只用于界面开发，不执行真实模型任务",
+      "AGPL-3.0-only"
+    ]
+  },
+  {
+    "repo": "HypoxanthineOvO/Tandem",
+    "stars_note": "2 ★（2026-11-20 抓取）",
+    "platform": "Windows / macOS / Linux（安装脚本 + 本地 Web 交付）；插件形态为 web client",
+    "positioning": "Tandem：基于 dsh 的多模型 Agent 团队扩展——主线委派验收、成员各有角色与模型、结论回主线。",
+    "features": [
+      "九个角色分工：Executor、Executor·Light、Mentor、Reviewer、Consultant、Writer、Frontend、Media、Computer，在设置里为角色搭配已注册 provider/model",
+      "Tandem 模式主线按工作模式拆解任务、选择专家、验收结果；直接模式由当前 Agent 自做，两种方式共用同一会话",
+      "可直接与任一成员对话补充上下文/讨论审查；经确认的结论同步回主线，执行细节留在成员会话，保持主线上下文干净",
+      "协作树展示团队关系与任务状态；定时问用户集中呈现待决定问题；巡检提示异常工作状态",
+      "Sidebar + 音视频预览（sidebar / sidebar-audio / sidebar-video 三个包，fork 自 Better Sidebar）",
+      "配套 Hypo-Workflow（外部模块）维护项目规范、进度与交接，提供 P0–P3 问题分级与审查流程",
+      "一键安装/启停脚本（Install.bat / Install.command / install.sh），安装器按 manifest.lock.json 从 GitHub Release 拉平台包"
+    ],
+    "integration": "Windows 双击 Install.bat→Start.bat；macOS Install.command→Start.command；Linux `./install.sh`→`./start.sh`；也可让 Codex/Claude Code 按 docs/SETUP-FOR-AGENTS.md 安装；`--local-artifacts` 用于离线安装。",
+    "dsh_mechanisms": [
+      "Tandem-Core：单独维护的 dsh 核心 fork，仅保留扩展所需接口补丁",
+      "agent-teams 包声明 dsh.bundle.patch + client.inject（connection/ui-workspace/ui-renderer/ui-settings/ui-conversation）",
+      "profile 默认 Tandem/Work mode、插件模型选择器",
+      "侧栏服务 ctx.betterSidebar 的 tab 注册（fork 生态）"
+    ],
+    "limitations": [
+      "v0.1.0 早期预览：能用，但接口与配置可能变化",
+      "packages/providers 与 packages/proxy 仅为预留，账号管理与中转模块不在本次发布范围",
+      "macOS x64（Intel）与 Linux arm64 全流程待实机验证，manifest 平台槽位为空",
+      "真实模型请求与真实 delegate 派发待用户配 API key 后验证",
+      "真实鼠标双击、默认浏览器自动打开、Gatekeeper 人工批准尚未验证"
+    ]
+  },
+  {
+    "repo": "ccch1mneyyy/dsh-Go",
+    "stars_note": "28,134 ★（2026-11-20 抓取；Trendshift 全语言日榜 #1 · 2026-10-30）",
+    "platform": "Android 8+（Flutter + Kotlin 原生）；仓库含开发中的 iOS（Swift/WidgetKit）与鸿蒙（ohos）目录",
+    "positioning": "DSH Go：把 dsh 装进 Android 手机的原生客户端——本机 PRoot 引擎 + 远程主机双模式。",
+    "features": [
+      "本机运行：App 内安装 Ubuntu、Node.js 与 dsh 运行环境，免 Root、免 Termux",
+      "远程连接：SSH 或 DSHarness Remote（liguobao/ds-harness-remote）使用电脑/服务器上的 dsh",
+      "聊天与工具：切换模型、图片、语音输入、工具审批与提问；原生界面与网页版一键切换且停在同段对话",
+      "原生插件界面：适配 DSH Go 的工具卡、表单与面板，仓库提供 SDK（sdk/plugin-kit）、教程与 examples/plugins",
+      "手机操控：开启权限后让本机引擎读屏、点按、输入，三档确认，敏感操作默认交还用户；不打扰模式需 Android 14+ 与 Shizuku/ADB",
+      "分享与外观：分享卡、整段对话回放链接（端到端加密，密钥只在链接里）、导出；六套主题色/跟随壁纸、四款图标、桌宠（Deepy/鲸娘）",
+      "横屏与平板重排（侧栏常驻、内容居中），全界面中英双语",
+      "插话与打断：生成中排队消息可「立即发送」，过程折叠成一行"
+    ],
+    "integration": "GitHub Releases / go.dshtui.com 下载 APK（arm64 常见，x86_64 模拟器包在发布说明末尾）；首启选本机安装或远程主机；源码构建面向 Linux x86_64：`bash tooling/setup-toolchain.sh` → `source tooling/env.sh` → `bash runtime/build-runtime.sh arm64-v8a` → `DSH_BETA_TOKEN_FILE= bash tooling/build-apk.sh -f arm64`。",
+    "dsh_mechanisms": [
+      "PRoot 内跑 `dsh web --patch /etc/dsh-app/dsh-web.patch.yml`（引擎补丁在 runtime/patches）",
+      "dsh-go-bridge：Cordis 插件，暴露 /dsh-go/v1/*（原生插件协议/伙伴/删除/配置）",
+      "packages/dsh_client（DSH Web API 的 Dart 客户端）+ packages/dsh_remote（Remote 协议）",
+      "原生插件协议与 plugin-kit SDK；无障碍/Shizuku/ADB 通道；HTTP+WS 连接本机 127.0.0.1:3080 或远程"
+    ],
+    "limitations": [
+      "iOS 版仍在开发与真机测试，没有公开安装包（需 Mac 自行签名）；鸿蒙仍推进中",
+      "仓库没有 32 位 ARM 构建；签名不同的包不能覆盖安装，卸载会清空对话、Linux 环境与设置",
+      "DSH Remote 渠道：只支持图片附件、不能在 App 内打开网页版、插件管理仅开关、不支持 DS Bot 与对话日志导出",
+      "在本机跑引擎需预留约 1GB 空间；当前 Android 构建以 APK 侧载为目标，不是 Google Play 发布配置",
+      "本地引擎默认 PRoot 兼容启动，直接启动为实验开关；后台易被省电策略杀（提供放行引导）",
+      "「发送匿名使用统计」默认开启（可在隐私与分享关闭）",
+      "AGPL-3.0；名称/标识/Deepy/鲸娘不在授权范围"
+    ]
+  },
+  {
+    "repo": "ShawnSun-debug/dsh-go",
+    "stars_note": "0 ★（2026-11-20 抓取）",
+    "platform": "Android 8+（Flutter + Kotlin）；无 iOS/ohos 目录",
+    "positioning": "与 ccch1mneyyy/dsh-go 同一代码库的早期快照/fork：Android 客户端，自带本机引擎也能连远程 dsh。",
+    "features": [
+      "本机运行环境：App 内安装 Ubuntu、Node.js 与 dsh，免 Root / 免 Termux",
+      "远程连接：SSH 或 DSH Remote 使用电脑/服务器上的 dsh",
+      "聊天与工具：切模型、图片、语音输入、工具审批与提问；聊天界面与网页模式",
+      "原生插件界面：工具卡/表单/面板 + sdk/plugin-kit 与 examples/plugins",
+      "手机操控：读屏/点按/输入三档确认，付款、密码、验证码交还用户",
+      "分享卡、对话回放与端到端加密链接；主题与图标；中英界面",
+      "工程目录：app / packages(dsh_client, dsh_remote) / runtime / sdk / examples / tooling / services / site / infra"
+    ],
+    "integration": "源码：`bash tooling/setup-toolchain.sh` → `source tooling/env.sh` → `bash runtime/build-runtime.sh arm64-v8a` → `tooling/build-apk.sh`；README 的 APK 下载链接与 Releases 指向 ccch1mneyyy/dsh-go（app 版本 1.0.1）。",
+    "dsh_mechanisms": [
+      "dsh web 引擎 + runtime 侧引擎补丁与 App 桥接",
+      "packages/dsh_client（Web API Dart 客户端）、packages/dsh_remote（Remote 协议）",
+      "原生插件协议（plugin-kit）与 PRoot 运行环境",
+      "无障碍/Shizuku/ADB 通道"
+    ],
+    "limitations": [
+      "相对当前上游缺少 iOS/ohos 目录与 dsh_tavern 等包，属较早快照",
+      "README 本身未单列限制；功能边界与上游差异未在仓库说明",
+      "文档中的下载/发布入口指向 ccch1mneyyy/dsh-go，本仓库不是发布源"
+    ]
+  },
+  {
+    "repo": "ccch1mneyyy/dsh-TUI",
+    "stars_note": "7,995 ★（2026-11-20 抓取；Trendshift 日榜 #7 · TypeScript 口径）",
+    "platform": "终端 TUI（Node ^22.19 || >=24）；Windows 免管理员 exe；VS Code 集成终端 / Herdr 窗格",
+    "positioning": "dsh-TUI：面向 dsh 的全屏交互式终端界面——像素鲸鱼、流式思考、时间回溯、上下文/TPS 仪表，零核心改动只消费公开导出。",
+    "features": [
+      "首次四步向导（账号与模型接入/语言主题/模型工作区/快捷键）+ 带真输入框的落地页，`/setup` 可重跑",
+      "终端原生体验：流式 Markdown、工具卡、`/` 与 `@` 补全、`#L12-14` 行区间、历史搜索、中英界面、原生光标",
+      "渲染能力：Kitty/Sixel 图片（缩放平移）、Mermaid→Unicode 图、LaTeX→Unicode/图片、分栏 diff",
+      "实时状态：工作动画、上下文条、TPS、缓存命中率、推理强度、token、本会话费用估算（含子代理）、Git 与会话信息",
+      "时间轴与时间回溯（双击 Esc 回退）、8 个内置侧栏面板（Ctrl+B，`sidePanel.panels` 可含插件面板）",
+      "会话工作流：`/new` `/compact` `/export` `/btw`、模型热切换、fork、回溯、vim、全屏草稿；唯一会话管理（`/resume`/`/home`/`/agentview`/`/bg`）",
+      "通知四类（任务完成/等待授权/等待回答/计划评审）+ 多终端投递方式（OSC 777/99/9、标题、响铃、Windows toast）",
+      "自动化与迁移：`dst -p \"任务\"`、`dst run --json`、`dst session list --json`；`dsh-tui migrate` 导入 Claude Code/Codex/OMP/zcode/Grok Build 历史"
+    ],
+    "integration": "`npm i -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui` → `dsh-tui`（别名 `dst`）；或 `dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui`；Windows 下载 `dsh-tui-setup-win-x64.exe`。",
+    "dsh_mechanisms": [
+      "dsh.bundle.patch：cordis.patch.yml 在 dsh-base 之上重写 surface 值（persona/system-prompt）",
+      "独立 profile `dsh-tui`；`dsh --profile dsh-tui` 等价入口",
+      "消费 dsh 公开导出与服务：session/event → Channel projection → Ink 渲染；模型/工具/持久化归 DSH",
+      "presets、skills、MCP、goal、todo、子代理、问卷；shell API、V4 会话消息、声明式预设、profile 设置"
+    ],
+    "limitations": [
+      "不支持 Git URL 安装，必须装 registry 包（workspace 依赖 + vendor 子模块）",
+      "Windows profile 默认 `danger-full-access`、approval `never`，工具访问不受限（README 明文警告）",
+      "`@` 补全候选缓存 2 秒；注入的插件上下文无独立展示",
+      "`Ctrl+V` 需平台剪贴板工具；后台会话活在本进程、TUI 退出即停止",
+      "minimal 预设不挂压缩服务、不剪枝工具结果，长会话可能撞上下文上限",
+      "费用/`≈¥` 均为估算，以平台账单为准",
+      "ConPTY sixel 光标、输入排空等平台细节存在已知边界与缓解而非彻底修复"
+    ]
+  },
+  {
+    "repo": "anywhere-labs/dsh-desktop",
+    "stars_note": "36,428 ★（2026-11-20 抓取）",
+    "platform": "Windows x64（NSIS）、macOS Universal（DMG）、Linux x64/arm64（deb / AppImage / tar.gz）",
+    "positioning": "DSH Desktop：把 dsh 的本地 Web UI、Host 与插件系统封进原生桌面，且桌面壳本身也作为 dsh 插件接入。",
+    "features": [
+      "Desktop：自动启动与管理本地 Harness 服务，集成系统托盘与原生窗口，用户无需装 Node.js 或敲命令",
+      "手机远程控制（Agents-Anywhere）：iOS/Android 连桌面发起任务、看进度、继续跟进（2.0.9+ 内置）",
+      "内置插件市场 DSH Community Market：发现、详情、安装、管理；开放 Schema，任何符合规范的数据源都可接入",
+      "原生 Setup Wizard（按 profile 记录）：窗口模式与材质、插件市场、通知、系统浏览器打开、Web 访问范围；完成前不启动 Host",
+      "Web 服务默认只监听回环，可选局域网访问；「用浏览器打开」只影响打开方式不改变暴露范围",
+      "自动更新：固定版本检查请求携带 `X-DSH-Desktop-Version` / `-Channel`（macOS/Windows 另带随机 Installation-Id）",
+      "给第三方插件开放 Desktop 服务接口（查看/切换工作配置、安装/更新/移除插件）",
+      "插件生态倡议书 + DSH Community Fabric Draft 统一插件契约"
+    ],
+    "integration": "官网/Release 下载安装（Windows NSIS、macOS DMG、Linux deb/AppImage/tar.gz）；源码：`git submodule update --init --recursive` → `corepack yarn install --immutable` → `corepack yarn dev`。",
+    "dsh_mechanisms": [
+      "固定上游版本原样运行（deepseek-harness 子模块），不改上游源码",
+      "桌面壳以 DSH 插件方式接入同一运行时（窗口/托盘/终端/更新/工作配置）",
+      "profile 级 Setup Wizard 与恢复助手；profile 快照回滚",
+      "插件市场 + 桌面插件服务 API；市场与 profile bundles 结合"
+    ],
+    "limitations": [
+      "局域网访问不提供鉴权：同网段任何人都能打开 DSH 并操作电脑（README 标为「危险」）",
+      "Linux 版不能在应用内更新，需按同一格式手动覆盖安装",
+      "桌面内置的 dsh 版本可能比 npm 最新版旧（市场文档提到 #139）",
+      "Linux 显示/Wayland 等平台问题需看用户指南与 FAQ"
+    ]
+  },
+  {
+    "repo": "dataelement/dsh-desktop",
+    "stars_note": "20,040 ★（2026-11-20 抓取）",
+    "platform": "macOS（Apple Silicon / Intel，签名并公证）、Windows x64（代码签名 NSIS）；不支持 Windows ARM64 与 Linux",
+    "positioning": "DSH Desktop by Dataelem：桌面 Agent 应用（开源版 + 企业版），重点补模型适配、Office 三件套模板、启动异常恢复与工作台。",
+    "features": [
+      "主流模型适配：优化 provider 配置与首次接入，补模型搜索、图片输入、推理能力配置，改善第三方模型兼容性",
+      "Office 三件套模板：Word 原生套版、Excel 案例工作簿、PPT 16 套模板 / 192 种版式，输出可继续编辑的 DOCX/XLSX/PPTX；桌面端随附 Python 与 Office 依赖",
+      "启动异常与插件故障恢复：结合 Runtime 与前端诊断定位问题插件，提供引导恢复、安全模式（`--safe-mode`）与修复 Agent，尽量保留会话与配置",
+      "工作台：集中浏览/安装/打开业务界面应用，支持市场安装与本地导入，复用 Harness 会话交互",
+      "Agent Preset 迁移：`.dshpreset` 包导入导出，安装前检查冲突并提示信任风险",
+      "手机连接：扫码配对，局域网直连或经 Cloudflare Quick Tunnel（Pinggy 备用）公网隧道；互联网隧道需 6 位连接密码",
+      "原生桌面体验：自动管理 Harness 启停、系统目录选择、原生菜单与窗口；升级保留用户数据，自动更新先灰度再全量"
+    ],
+    "integration": "官网下载（自动更新）；开发校验 `npm test`、`npm run typecheck`、`npm run build`；工程文档见 docs/development.md、docs/architecture.md、docs/release-runbook.md、docs/preset-packages.md。",
+    "dsh_mechanisms": [
+      "复用 dsh 的 Agent Runtime、Web UI 与基础模型接入",
+      "Electron 壳管理 Harness 启停；Profile 概念（安全模式屏蔽第三方插件）",
+      "Preset 包契约（.dshpreset）与 Agent Preset 迁移",
+      "配对 Bridge 转发手机访问，Harness 始终只在随机 127.0.0.1 端口"
+    ],
+    "limitations": [
+      "Windows ARM64、Linux 当前不支持",
+      "Harness 始终运行在随机 127.0.0.1 端口，手机访问依赖独立配对 Bridge；桌面断开则手机会话立即失效",
+      "Pinggy 备用通道约 60 分钟后失效；Cloudflare 失败才回退，需手动切换线路",
+      "长效连接密码需勾选同意后才在本机生成，临时密码只存在内存 5 分钟",
+      "内置侧栏浏览器与应用权限隔离，普通外链交系统浏览器"
+    ]
+  },
+  {
+    "repo": "dsh-tauri/deepseek-harness-desktop",
+    "stars_note": "3,683 ★（2026-11-20 抓取）",
+    "platform": "Windows 10+、macOS 12+、Linux x64（AppImage/deb）；移动端 Android APK + iOS（TestFlight/未签名 IPA）",
+    "positioning": "DSH Tauri 桌面版：Tauri 2（Electron Runtime）+ React 19 内嵌本地 Harness，免装 Node/pnpm/Docker，并配移动端扫码远连。",
+    "features": [
+      "运行时管理：安装依赖、选择内核版本、提供桌面端与内核更新入口（推荐内核 0.2.1-rc.4）",
+      "插件管理：12 个内置插件；本地路径安装、内置插件停用、社区插件安装/升级/卸载/错误查看",
+      "档案配置：插件与设置分档管理，支持一键迁移、备份、克隆",
+      "数据目录：安装时（Windows）可选存放位置，设置里整体迁移与回滚",
+      "命令行集成：托管 shim 提供 `dsh` / `pnpm`（不是全局 npm 内核安装）",
+      "桌宠：`dsh-pet-lite` 预设插件；个性化 8 种配色、界面缩放、终端模式、透明度与磨砂",
+      "内置插件覆盖工作树（Worktree）、官方插件管理与市场+Skills+MCP（Extension）、聊天归档（Archive）、模型（Model）、SSH 远端与分享（Remote）、原生通知（Notification）",
+      "移动端支持：桌面顶部「远程」开启分享，手机扫码配对，走局域网或 Cloudflare 公网隧道"
+    ],
+    "integration": "Releases 下载安装包（Windows exe/msi、macOS dmg、Linux AppImage/deb，`_Bundle_` 为离线包）；macOS `brew install dsh-tauri/desktop/deepseek-harness`；Fedora Copr；开发见 docs/DEVELOPMENT.zh.md。",
+    "dsh_mechanisms": [
+      "固定内核基线 0.2.1-rc.4（最低同版本），按资源清单 manifest.jsonc 与插件声明版本范围选择内核",
+      "dsh 插件机制（内置插件均为一方插件）+ 插件市场",
+      "托管 CLI shim 与 profile 管理",
+      "SSH 远端 Harness 连接与局域网/隧道分享"
+    ],
+    "limitations": [
+      "普通安装包首启需联网下载运行时与内核；本地运行不等于完全离线（模型、插件、更新、桌宠素材仍可能联网）",
+      "上游 dsh 快速迭代，升级前须确认兼容性；不保证任意最新上游版本兼容",
+      "桌面代理只用于依赖/内核下载、更新检查与插件元数据，不改变模型请求与插件子进程网络",
+      "移动端只在官方移动服务推出前维护",
+      "Windows 可能出现 STARTUP_LOW_INTEGRITY（低完整性标签导致无法写入用户数据）",
+      "Git 功能需要可用的 Git；正式版 CLI 集成需重开终端"
+    ]
+  },
+  {
+    "repo": "omdsh-dev/DSH-better-sidebar",
+    "stars_note": "5,248 ★（2026-11-20 抓取；生态另有 30+ 基于其扩展点的插件）",
+    "platform": "Web（web profile 插件）；<768px 自动切全宽抽屉",
+    "positioning": "DSH 双工作台：原生右侧栏 + 自绘底部面板，并把 `ctx.betterSidebar` 服务开放给所有插件。",
+    "features": [
+      "文件管理：懒加载目录树、Git 变更着色、实时 watch 刷新、全局搜索、拖拽上传、多选批量操作、「打开方式」双源菜单",
+      "Git：Source Control 三组（Merge/Staged/Changes）+ 本轮 AI 改动视角 + 只读提交图 Git Graph（泳道、分支与 tag 徽章、分支筛选、提交详情）",
+      "可编辑 CodeMirror 编辑器（官方预览是只读）+ Markdown/Mermaid/浮动目录、HTML 沙箱预览、`.jsonl` 记录卡片、超大文件分页预览",
+      "任务管理：子代理拓扑实时预览（工作流图/树双模式）+ 后台任务清单（退出码、实时输出、强制终止）",
+      "侧边对话（beta）：Codex 风格侧线程，继承主会话完整上下文独立运行、实时推送、排队可撤回、每线程独立选模型、可提升为顶层会话",
+      "底部工作台：与右侧栏同时展开、拖拽分栏、多终端页签、按会话持久化布局",
+      "`sidebar_open` 工具让模型主动打开侧边栏；启动只拉 ~325KB 核心、重依赖按需加载；多语言跟随 DSH",
+      "对插件开放 5 个扩展点：registerTab / registerFileViewer / registerFileIcon / registerFileAction / registerTabAction"
+    ],
+    "integration": "`dsh plugin --profile web add dsh-better-sidebar@<与宿主匹配的版本>` 后硬刷新（Cmd/Ctrl+Shift+R）；一键脚本 `bash scripts/install.sh <版本>`；也可把安装提示词丢给 DSH 自己装。",
+    "dsh_mechanisms": [
+      "单 npm 包 host/client 双半：host 提供 `/sidebar/api/*` JSON API、媒体/HTML 预览/上传路由与两条 WebSocket",
+      "client 注册原生右侧栏 tab 与底部工作台；状态按会话持久化 localStorage",
+      "`ctx.betterSidebar` 服务五个扩展点（内置 6 tab + 5 viewer 与第三方同一套 API）",
+      "dsh.bundle.patch（cordis.patch.yml）+ `dsh.client.inject`（locale/ui-slots/ui-conversation/ui-sidebar-right/client-modules）",
+      "聚合包双挂载退让（避免 duplicate prefix route）、旧手动挂载行需清理"
+    ],
+    "limitations": [
+      "插件版本必须与宿主线严格匹配（v0.32.1 要 DSH 0.2.2-rc.2+；0.2.2-rc.1 需 0.32.0；0.2.1 线需 0.28.2 等），市场安装器不按宿主选版本",
+      "v0.23.0 起文件系统路由不做工作区包含检查：能读写宿主用户可访问的任意路径",
+      "Git 无 push/pull/fetch；文件树只对已展开目录做 watch；Markdown 预览渲染已保存文件",
+      "终端由 DSH 自身提供（插件不自带 PTY），宿主未挂终端控制器时不可用",
+      "移动端（<768px）无底部面板，标签页并入全宽抽屉",
+      "profile 混装 `@deepseek-ai/dsh-*` 副本会导致桌面启动 fatal，需检查 host tree"
+    ]
+  },
+  {
+    "repo": "dsh-market/dsh-market",
+    "stars_note": "12,982 ★（2026-11-20 抓取）",
+    "platform": "Web（dsh web ≥0.1.0-rc.6；dsh 0.2.1 起为「插件 → 插件市场」页签）+ DSH Desktop",
+    "positioning": "dshmarket：装在 dsh 里的可视化插件市场（逛/搜/装/更新/主题/备份/诊断/热禁用）。",
+    "features": [
+      "逛与搜：完整社区目录（10000+ 插件，每日增长）、分类筛选、star 数、最热/最新排序、中英描述跟随界面语言",
+      "按宿主发现：读 `engines.dsh` 或同版本线 `@deepseek-ai/dsh-*` peer 声明，兼容筛选只隐藏明确不匹配的插件，取不到清单时保持未知",
+      "App Store 式截图轮播 + 大图；作者策展列表直接显示，无策展时安装弹窗内从 README 抽取",
+      "评论：每张卡片就地打开该插件讨论（GitHub Discussions via giscus），与 dshmarket.com / 目录站共用同一条讨论",
+      "收藏、分组（可整组开关、混合态、每组最多一个主题）、备注（代替作者简介显示）",
+      "主题页：装完立即生效、点一下切换、互斥、跨重启保留、卸载即恢复",
+      "一键安装带实时进度；备份与恢复（JSON 导入导出、WebDAV 每日自动备份、私有 Gist 同步，恢复为合并式 + 校验 + 失败回滚）",
+      "更新体系：逐插件检测（npm 版本或锁定 commit 对比 HEAD）、一键/全部更新、更新内容链接、本次不再提醒、后台更新提醒（默认关闭）、公共更新 API v1",
+      "热禁用/启用写 profile 的 `cordis.patch.yml`（约 1 秒 HMR 重组，无需重启）；按需重启 + 重启失败恢复（标红问题插件、默认取消勾选、重启助手脱离终端）",
+      "诊断与修复：bundle 栈、重复 loader 条目、依赖版本不一致、多版本共存、残留目录；加载顺序拖拽 + 静态组合校验；一键生成 AI 修复 prompt（apply/rollback 脚本）"
+    ],
+    "integration": "Desktop：设置 → 插件搜 `dshmarket`；普通 `dsh web`：`dsh plugin --profile web add dshmarket` 后重启；源码 `add github:dsh-market/dsh-market` 或 Release 预构建 tgz；索引源 `https://cdn.jsdelivr.net/npm/dsh-plugin-catalog/index.json`。",
+    "dsh_mechanisms": [
+      "dsh.bundle.patch + `dsh.client.inject`（locale/ui-settings/ui-theme）",
+      "写 profile `cordis.patch.yml` 做热禁用（`- id: … disabled: true|false`），依赖宿主 HMR 重组",
+      "与宿主 Plugins 页、loader 诊断、Discover 索引源、`plugin_market` 工具集成",
+      "profile `state.json` 存收藏/分组/备注等本地状态；重启用原入口/参数/环境/工作目录重拉进程",
+      "按 pnpm ≥10 规则默认禁止构建脚本，需按包显式放行"
+    ],
+    "limitations": [
+      "需 dsh web ≥0.1.0-rc.6，宿主太旧会自我禁用并只在控制台说明原因",
+      "桌面端 profile 不由 CLI 管理：用 CLI 装进 profiles/web 的插件不会出现在桌面端",
+      "只允许安装 awesome-dsh-plugin 精选列表内的来源，其它一律拒绝",
+      "需要本地编译的插件在 dsh 进程环境里构建（GUI/systemd/开始菜单启动不继承终端环境，需 `buildEnv` 或界面配置）",
+      "systemd 主进程场景需关 `allowRestart`（否则重启会连带杀掉 cgroup 内的接管进程）",
+      "备份可能包含 profile 密钥；WebDAV 仅 https 且拒绝内网地址",
+      "收录 ≠ 背书：插件是第三方代码"
+    ]
+  },
+  {
+    "repo": "bowenliang123/dsh-context",
+    "stars_note": "5,318 ★（2026-11-20 抓取；获 dsh 团队成员推荐）",
+    "platform": "Web（web/desktop profile 均可，client platform: web）",
+    "positioning": "dsh-context：dsh 的上下文洞察与管理插件——Context 仪表盘 + `/context` 命令 + Context 浏览器 + Fleet 多 Agent 视图。",
+    "features": [
+      "上下文洞察页（一级侧栏面板）：KPI 栏（计费 Token、预估成本、缓存命中率、轮次）、7 天用量柱图、8 周活动热力图、技能/工具/命令汇总、Context Composition、可筛选会话卡片",
+      "Context 标签页：Context Stats / Token Stats / Timing Stats / Current Context / Context Trend / Context Browser / Context Events / File Activity / 命令执行",
+      "Context Trend：每个模型请求一根堆叠柱、步骤摘要（User/In/Response）、压缩与清理事件标记、Step/Turn 粒度、Total/Delta 模式、总览压缩、悬停联动",
+      "Context Browser：七个可折叠类别、逐项 Token 开销、可展开内容（系统提示词、工具 JSON schema、消息、推理、工具参数与输出）、工具来源标签（tool-*/dsh-*/mcp:<server>/插件）、DNA 模式平铺",
+      "Fleet 标签页：Agent 网络（父子卡片 + 谱系连线 + 实时上下文占用）、跨 Agent 协作泳道、协作任务（blocked-by 依赖链）、事件检查（谁对谁说了什么）",
+      "`/context` 弹窗命令：当前组成 + Context 浏览器，不离开聊天；右侧栏 Context 面板同一仪表板",
+      "Preferences 卡片：面板入口、洞察默认时间范围、趋势粒度/模式、以及拼到每个会话系统提示词前后的 Prefix/Suffix（部署级角色设定）",
+      "File Activity 与命令执行：读取/写入/搜索/图片计数、行数增减、每个命令的状态与耗时、程序分布"
+    ],
+    "integration": "Add plugin 向导搜 `dsh-context` → Install；或 `dsh plugin --profile web add dsh-context` / `dsh plugin --profile web update dsh-context@latest`；无需构建也无需重启。",
+    "dsh_mechanisms": [
+      "dsh.bundle.patch + `dsh.client.inject`（api-remotes、client-connection、locale、ui-conversation、ui-settings、ui-sidebar-right）",
+      "读官方 Token 计量投影 `contextPressure` / `contextBreakdown`，保证与输入框环形图一致",
+      "精简摘要写 dsh 投影缓存，逐事件明细从持久日志重算",
+      "`dsh.compatibility.dshReleases` 声明各宿主版本兼容",
+      "斜杠命令与侧边栏一级面板/右侧栏 tab 注册"
+    ],
+    "limitations": [
+      "需 `@deepseek-ai/dsh` 0.2.0-rc.2+（各系列在其 rc.2/rc.3 上验证）",
+      "明细视图有上限：步骤 1500 / 轮次 300 / 事件 400 / surface 节点 2000 / 存档 400 / 文件操作 400 / 命令 400",
+      "类别数值是 dsh 的固定密度启发式估算，与服务商实际值并列展示",
+      "多语言切换需 dsh 0.2.2+（更早仅中英）",
+      "先装 dsh 且 profile 组合要提供它 inject 的客户端包"
+    ]
+  },
+  {
+    "repo": "Asaiuta/dsh-genui-enhanced",
+    "stars_note": "0 ★（2026-11-20 抓取；上游 @changfenhuang/dsh-genui 0.14.0 的 fork）",
+    "platform": "Web（client 插件，platform: web）",
+    "positioning": "GenUI fork：把模型文本回答升级为 `dsh-ui` 围栏渲染的安全可交互界面（30+ 组件、流式挂载、本地优先交互、Action 回环）。",
+    "features": [
+      "边流边渲染：组件随 token 流式挂载；未安装/禁用时围栏优雅降级为 Markdown 代码块",
+      "30+ 组件：stat（Hero 字号与 Sparkline）、table（本地排序/过滤/分页/导出/单元格 bar·ring·spark）、timeline、diff、steps、file-tree、callout、badge 等",
+      "ECharts 集成：`preset` 数十种图（bar/line/area/pie/scatter/radar/gauge/funnel/treemap/sankey/graph/heatmap…）+ 完整 `option` 模式，按需异步加载 ~1MB 引擎",
+      "`plot` 数学函数绘图：多曲线、动态参数滑块毫秒级前端重绘、可动画循环",
+      "Mermaid/pele 引擎 12 种白名单图型（较 mermaid −70% 体积、切主题实时重排）+ 轻量 3D 场景按需加载；KaTeX 公式",
+      "本地优先交互：排序/过滤/展开/参数重绘/测验判卷都在前端完成；状态按「会话 + 内容指纹」持久化（LRU 200）",
+      "Action 事件回环：button/表单带 `action` 时结构化回传模型；未声明 action 的按钮渲染为禁用态；滑块尾沿防抖",
+      "常驻 Dock 面板（`/panel`、`panel: true`、`append`）与 11 类模板中心、12 项本地成就；导出独立 `.html` 与 `.genui.json`",
+      "安全与自愈：白名单结构、禁 eval、禁收集密码/Key；同回合 Fence Steer Repair 自修 + 节点级降级"
+    ],
+    "integration": "上游 npm：`dsh plugin --profile web add @changfenhuang/dsh-genui`；本 fork 需 `pnpm install` → tsc/tsdown 构建 → `dsh plugin --profile web add link:$PWD`；cordis.patch.yml 里可设 `renderUiTool: false`、`fenceFeedback: false`。",
+    "dsh_mechanisms": [
+      "dsh.bundle.patch（insert genui 行）+ `dsh.client`（platform web）；宿主半教模型围栏语法、client 半注册浏览器渲染器",
+      "fence-registry 扩展点（`[genui] client active; fence-channel=dom` 可验证激活）",
+      "可选注入 `render_ui` 工具；随包 genui skill",
+      "profile `cordis.patch.yml` 的 config 段读取插件配置"
+    ],
+    "limitations": [
+      "本 fork 未发布 npm：`lib/` 不入库，必须源码构建后才能 link",
+      "强依赖 DSH `^0.2.0-rc.1 || ^0.2.1-rc.1`，旧宿主可能白屏",
+      "npm 上存在同名无 Scope 的 `dsh-genui`（Vue/OpenTiny），装错会被 peer 冲突拒绝",
+      "纯 `link:` 不会自动装图示引擎/Three.js/React 等对等依赖",
+      "需 pnpm 在 PATH；pnpm 11 会拦构建脚本，且 npm-script 入口与 E2E 装置不在 fork 快照内",
+      "上游 npm 版不含本 fork 增量（pele、area 图、表格分页、Computed 字段）"
+    ]
+  },
+  {
+    "repo": "Fei2411/DS-Bot",
+    "stars_note": "8,467 ★（2026-11-20 抓取）",
+    "platform": "独立桌面应用（Windows/macOS/Linux，自带 dsh）+ dsh 插件（Desktop/Web）+ Docker（NAS/Linux 服务器）",
+    "positioning": "DS Bot：把 dsh 改造成「bot 团队」形态（Main bot + 私聊 bot + 群聊 + 本地 Agent 接入），桌面应用与插件双形态。",
+    "features": [
+      "Bot：详情页看信息、按 bot 选模型与思考强度、记忆管理（会记住偏好）、独立工作文件夹与权限、随时插话、`/side` 侧边对话不打断、回复内画图表/表格/表单、定时任务",
+      "Main bot（默认 Chief）：极高权限，可管理其他 bot 与群聊，引导完成配置",
+      "群聊：管理员默认回复并代为调用其他 bot、@ 直达、引用对话、群独立记忆与工作文件夹、Goal 目标先对齐标准再分阶段验收",
+      "隐私 bot：独立文件夹、其他 bot 读不到它的文件夹/记忆/聊天、对外发消息或写外部文件需批准；删除后仍受保护直到手动解除",
+      "本地 Agent 接入：Claude Code、Codex CLI、Cursor CLI、GitHub Copilot、Devin CLI、OpenCode、Gemini CLI、Antigravity、Kimi/Kilo CLI 直接当 bot 用（用 CLI 自己的登录与套餐）",
+      "每 bot 独立浏览器：登录态互不干扰、可从文件或本机浏览器导入 Cookie；发帖/上传/下载/删除需批准，登录/验证码/付款发卡片交还",
+      "电脑操控：按 bot 设档位（只看/后台操作/可动前台）与应用白名单，顶部指示条，可暂停或接管",
+      "IM 接入：微信/飞书/钉钉/企微/QQ/Telegram/Discord/Slack 配对，支持提问卡与审批卡；连接器（GitHub、邮箱、远程 MCP、从 Claude Desktop/Cursor/VS Code 导入）；Office 三件套创建与修改；用量按时间/ bot /模型查看"
+    ],
+    "integration": "Releases 下载桌面安装包（自带 dsh）；dsh Desktop 插件页填 `ds-bot`（大陆选镜像源）并启用；dsh Web：`npx @deepseek-ai/dsh@0.2.2-rc.1 plugin --profile web add ds-bot` → `npx @deepseek-ai/dsh@0.2.2-rc.1 web`；Docker 见 docker/README.md。",
+    "dsh_mechanisms": [
+      "`dsh.bundle.patch` + `dsh.client`（platform web）；插件行 id `bot` / 包名 `ds-bot`",
+      "每个 bot 都在 dsh 会话里工作，使用 dsh 的工具与模型；凭据进 dsh 密钥存储（bot 看不到明文）",
+      "web-search provider（auto 选为 profile 后端）、MCP、host RPC、会话与记忆持久化",
+      "从 dsh 主目录 `~/.dsh` 的 `bot/` 与 `sessions/` 存数据（插件形态）"
+    ],
+    "limitations": [
+      "v0.3 预览；浏览器功能仅桌面应用与 dsh Desktop 可用（dsh Web 没有）",
+      "只有桌面应用在退出后保留网页登录状态、支持导入 Cookie；Windows 上 Chrome/Edge v20 加密 Cookie 需扩展导出文件",
+      "电脑操控所有 bot 与你共用同一桌面，同一应用/前台鼠标同时只能一个 bot；Windows 后台应用常收不到点击、无法操作管理员权限应用；macOS 需 14+ 与辅助功能/屏幕录制；Linux 仅 X11",
+      "IM 仅电脑开机且 ds bot 运行时收发；微信只支持私聊；微信/QQ 有时限；密钥卡不能在聊天软件里填",
+      "隐私 bot 只防团队内其他 bot，不是系统沙箱（有终端/联网权限仍可读写系统文件）",
+      "本地 Agent 走 CLI 自己的工具与上下文、切换运行方式会新开对话、Cursor CLI 会把模型存成全局默认",
+      "dsh Web 未打包 Office 环境：只能检查修改已有文档，从零建文件/渲染页面要用桌面应用"
+    ]
+  },
+  {
+    "repo": "T-Auto/dsh-ops",
+    "stars_note": "5,944 ★（2026-11-20 抓取）",
+    "platform": "Windows x64 / Linux x64 / macOS arm64+x64；profile: desktop / web / tui（含 dsh-TUI 的 dsh-tui profile）",
+    "positioning": "dsh-ops：以提升 token 效率为目标的工具面插件——新增 ops 系列工具、隐藏部分官方工具，低改动面、低侵入、广兼容。",
+    "features": [
+      "Bash 与宿主 Shell 隐藏独立配置；Windows 可用 `ops_bash` 替代 pwsh，也可保留官方 Shell（Bash 由单行开关控制，关闭替换时原版工具仍可用）",
+      "Native/PTC 消费者预设发布共享的有界工具面；第五个内置模式 `ops-ptc` 继承 PTC 工具面（随包片段 presets/ops-ptc.patch.yml 注册）",
+      "可开 `batchingGuidance` 批量调用教学：会话首轮注入一次英文教学，之后按根 `run_code` 程序形状（bypass/plan/shape）以 additionalContexts 纠偏，不阻断不改写程序",
+      "启用 DSH 预留的 `tools_addition` 动态工具加载 + 渐进式披露工具（PDF/Word 读取、超多文件批量修改），减少常见场景 token 且不撑大系统提示词",
+      "Native 模式返回紧凑、带行号、错误反馈更好的工具，遏制报错循环减少轮次；PTC 模式返回结构化 JSON 值，降低写 TypeScript 的 token 与心智负担",
+      "PTC SDK 目录 18 个 API：15 个文件/文档工具，加批处理、结果引用和加载器",
+      "可选 OPS 只读侧栏（dsh-TUI 的 `dsh-ops/tui` 行）：不抢焦点、不额外工具调用，f 筛选 / n·p 本地翻页 / a 确认跨会话提醒",
+      "自用 benchmark 与 token 效率跑分（README 给出对比图）"
+    ],
+    "integration": "市场搜 `dsh-ops`（自定义地址华为云 npm 镜像，npmmirror 有 bug）；`npx --yes dsh-ops@latest install --profile desktop|web|tui`（可 `--dry-run` 预演）；或官方 `dsh plugin --profile web add dsh-ops`；`status` / `uninstall` 管理。",
+    "dsh_mechanisms": [
+      "`dsh.bundle.patch` 单行 + `dsh.client`（inject api-gateway、ui-renderer、locale、ui-plugin-manager、ui-primitives；immediately）",
+      "`dsh-plugin.json`（manifest v0.15：host facet、requires contracts `tools.dsh/v1alpha1`、permissions 声明 subprocess/fs）",
+      "DSH 预留的 `tools_addition` 动态工具加载与工具准入/执行器接口",
+      "presets 装配（内置与外部预设共用流程）、profile 包管理器管随包二进制",
+      "dsh-TUI 的 tuiPanels 侧栏扩展点"
+    ],
+    "limitations": [
+      "宿主需从 DSH 0.2.2-rc.1 起（0.5 系列不再支持 0.2.0/0.2.1 与更早的 0.2.2 预览）",
+      "安装必须显式选 profile；普通 DSH CLI 不能管理保留的 `desktop` profile",
+      "不支持 `git+https` 与未构建源码安装（缺完整运行时）",
+      "不推荐用 npmmirror 安装（有 bug）；只装 registry 发行包或完整打包 tarball",
+      "旧组件行（mode-*/discovery/compat/panel/tui/shell/file/ptc/hide-official/background）须迁入单行，兼容开关已移除",
+      "Windows 低完整性标签下 full-access 仍可能产生 Low 子进程、无法改既有 Medium 文件（需 icacls 检查）",
+      "随包二进制由包管理器管理，显式 provision 的副本不随 npm 卸载"
+    ]
+  },
+  {
+    "repo": "xmanrui/dsh-im",
+    "stars_note": "3,717 ★（2026-11-20 抓取；获 DeepSeek Harness 官方 Token 赞助）",
+    "platform": "Web（web profile）+ DSH Desktop；宿主跨平台",
+    "positioning": "DSH-IM：把微信/飞书/企微/钉钉/QQ/Slack/Telegram/Discord/WhatsApp/iMessage/Matrix 接入 dsh，并让本机 Harness 主动连公网 AI Office。",
+    "features": [
+      "11 个内置 IM 渠道，各有匹配的接入方式（扫码/App Manifest/凭据/回调）与消息能力（长连接/长轮询/HTTP 回调、原生流式卡片、分段发送、正在输入）",
+      "每渠道支持多个机器人，各机器人连接状态、工作区、模型与会话绑定彼此独立；iMessage 为 macOS Messages.app 本机身份接入",
+      "AI Office Connector：本机 Harness 主动连接公网 AI Office（设备凭据、Job 租约、审批等待与并发上限）",
+      "群聊天记录与群文件：六渠道自动保存实际收到的群消息与附件（默认滚动保留 14 天），@ 机器人即可查询/总结/读文件",
+      "超时后结果补发：等待模型超时后继续跟踪原任务，完成即补发最终文字；重启或连接恢复后继续检查",
+      "结果文件与图片回传：把 Harness 可读文件作为渠道原生附件回传，图片优先原生图片消息，失败回退文件",
+      "图片输入：JPEG/PNG/WebP（含 GIF 当图片）默认 30MB/张、20 张/条，模型副本压缩到 5MB/20MB，四项限制可在设置调整",
+      "插话/打断：排队（默认）或自动插话模式，也可 `/steer 补充内容`；会话双向同步把 DSH Web/CLI 与私聊当前 Session 打通"
+    ],
+    "integration": "`dsh plugin --profile desktop add -w @xmanrui/dsh-im`（Desktop 内置终端）或 `dsh plugin --profile web add -w @xmanrui/dsh-im`（启动 Harness 的终端）→ 重启 → 设置 → IM机器人；GitHub 源 `npx -y github:xmanrui/dsh-im install`；代理需 HTTPS_PROXY / NODE_USE_ENV_PROXY。",
+    "dsh_mechanisms": [
+      "`dsh.bundle.patch` + `dsh.client.inject`（client-connection、client-runtime、ui-settings、ui-slots、locale）",
+      "经 Typert Gateway 调 Session Controller 与 Workspace Controller（本机不走 HTTP 端口）；`harnessBaseUrl` 仅留给旧版远程 HTTP/WS",
+      "凭据只提交本机 Host 并写受保护凭据存储；状态接口不回传凭据",
+      "插件设置 order:21 插入一级设置菜单；`dsh.compatibility` 声明 profile 与宿主版本",
+      "rpcAuthority（trusted-host / loopback）与 DSH 的 Host/Origin 校验配合"
+    ],
+    "limitations": [
+      "Matrix 加密仅供非敏感测试：无交互式设备验证、密钥备份、SSSS、媒体加密，本次未验证真实 homeserver/Element 互通",
+      "iMessage 首版仅文本私聊，不支持文件/附件回传",
+      "群记录：Telegram 文件未验证，Discord/Slack 待真实群验收",
+      "微信只支持和扫码账号私聊、不支持群聊；微信与 QQ 受平台限制只在发消息后一段时间内可回复",
+      "长连接不读取 ALL_PROXY / NO_PROXY；飞书需要额外租户权限（im:message:readonly、im:resource 等）",
+      "文件与图片受各平台配额/大小限制（飞书 30MB、QQ 当日配额等），被拒时按平台返回提示",
+      "会话双向同步首版仅当前 Host 私聊文字，群聊/Topic/Thread 与显式远程不支持"
+    ]
+  },
+  {
+    "repo": "omdsh-dev/dsh-deep-research",
+    "stars_note": "32 ★（2026-11-20 抓取）",
+    "platform": "任意 dsh profile（tui / headless / web 或自建），只要 profile 提供 workflows provider",
+    "positioning": "@dsh-external/dsh-deep-research：把 deep-research 做成 dsh 扩展插件（plugin 而非 skill），跑在官方 workflow 引擎上，按控制论+信息论设计自适应研究闭环。",
+    "features": [
+      "规划代理先定义答案空间（`scope`：研究支撑什么判断/决策）与每个子问题的验收标准（`acceptance`），再开始研究",
+      "按 Ashby 必要多样性定律枚举信息维度、每个子问题映射一个维度，并输出覆盖率自检 `coverage_gaps`",
+      "研究子代理维护三态证据 confirmed / uncertain / gaps；每轮「预测→搜索→更新→边际增益验证」，连续一轮零增益即停 + 轮次硬上限",
+      "闭环再规划：每轮收集 high-priority 缺口自动派发下一轮补充研究；规划声明的盲区做定向侦察验证；简单主题一轮收敛、复杂主题自动扩展",
+      "综合子代理把证据有损压缩为最终报告（保留置信度与矛盾，不掩盖不确定性）",
+      "可选对抗性审查（`review: true`）：引用抽查 URL 可达性/支撑性、覆盖度审计、矛盾与过度自信标注",
+      "`deep_research` 工具参数：topic / purpose / questions / depth(1–3) / synthesize / review；已有问题清单可跳过自动拆解",
+      "模型分级降本：planner / researcher / synthesizer / reviewer 各配模型；取消传播到 workflow run，单个子问题失败只在该节标注"
+    ],
+    "integration": "`dsh plugin --profile <profile> add git+https://github.com/dsh-external/dsh-deep-research.git` → `dsh --profile <profile>` 重启；更新 `dsh plugin --profile <profile> update`；卸载 `remove @dsh-external/dsh-deep-research`；开发 `pnpm run typecheck`。",
+    "dsh_mechanisms": [
+      "`dsh.bundle.patch`（cordis.patch.yml 按包名插入插件行）",
+      "官方 workflow 引擎 `ctx.workflows` / `@deepseek-ai/dsh-workflow-workerthread`（worker 隔离、并发与总数 caps、取消、进度事件、wf-runs 记录）",
+      "内置 `web_search` / `web_fetch`（插件零网络逻辑、零自研编排）",
+      "peer `@deepseek-ai/dsh-tools` 等由组合提供；源码即运行时（tsx hook / Node ≥22.18 原生类型剥离）",
+      "刻意不注册 skills、不注入 TUI prompt（避免 prompt 槽位 disposed 崩溃）"
+    ],
+    "limitations": [
+      "profile 组合必须含 workflows provider；部分 Web profile 组合缺失时 Loader 保持 pending",
+      "要求 erasable-only TS 语法（无 enum/命名空间），`node --test` 与 typecheck 会挡不可移植写法",
+      "profile `autoInstallPeers: false` 可避免向 registry 查未发布的 `@deepseek-ai/*`",
+      "pnpm 可能把 https URL 重写成 git+ssh（需显式 git+https 形式）",
+      "需要时手动在 pnpm-workspace.yaml 加 allowBuilds；包为 private（未发布 npm）"
+    ]
+  },
+  {
+    "repo": "stephenlzc/dsh-swarm-panel",
+    "stars_note": "4 ★（2026-11-20 抓取）",
+    "platform": "Web（web profile 插件）；桌面版用 app 自带 launcher 装到独立 profile",
+    "positioning": "dsh-swarm-panel：dsh 的 Conversation Flow 可观测插件 + swarm runtime——看 Orchestrator 如何协调子 Agent、路由消息、拓扑变化。",
+    "features": [
+      "持久化 swarm runtime：父子、点对点、混合三种路由",
+      "从 session event log 经 checkpoint 与 cold resume 恢复状态",
+      "群聊轮次、共享上下文、轻量记忆、人机协作暂停（HITL）",
+      "宿主合成的 Conversation Flow 页面：拓扑、泳道、路由筛选、消息详情、Live 跟随、从 Web UI 打开任意子会话",
+      "响应式布局（桌面总览 / 390×844 窄屏 / 选中消息详情 / 拓扑与人机输入）",
+      "验证状态明确：93 个无密钥插件测试、宿主合成真实 Web shell 的浏览器 E2E、Host/client TypeScript 检查、390×844 手工验证"
+    ],
+    "integration": "Release tarball：`dsh plugin --profile web add /tmp/dsh-swarm-panel-1.0.1.tgz` → `dsh web`；GitHub 子目录 `add 'github:stephenlzc/dsh-swarm-panel#path:dsh-swarm-plugin'`（建议锁 commit）；本地 `add file:./dsh-swarm-panel/dsh-swarm-plugin`；桌面用 launcher 装到 `dswarm` profile（保留 desktop profile 不能装第三方插件）。",
+    "dsh_mechanisms": [
+      "`dsh.bundle.patch` + `dsh.client.inject`（ui-conversation、ui-workspace）",
+      "宿主合成页面：在 Chat 与 Trajectory 旁新增 Conversation Flow 页签",
+      "session event log projection + checkpoint / cold resume",
+      "Harmony：harness `0.2.0-rc.2` workspace API 及兼容版本；Node 22.19+/24"
+    ],
+    "limitations": [
+      "Export 未实现（当前 projection 没有导出数据源）",
+      "未包含 A2A / ACP 外部协议桥接",
+      "暂不支持嵌套 sub-swarm，只有一层 Orchestrator",
+      "Memory 用 Orchestrator 所有的词法检索，尚未自动注入每个 turn prompt",
+      "Conversation Flow 面板目前只有英文 UI 文案",
+      "源码级开发仍需匹配的 Harness workspace",
+      "把 Release URL 直接交给 `add` 会因 pnpm tarball 完整性校验失败（ERR_PNPM_MISSING_TARBALL_INTEGRITY）"
+    ]
+  },
+  {
+    "repo": "kingcharleslzy-ai/dsh-purge",
+    "stars_note": "10,626 ★（2026-11-20 抓取）",
+    "platform": "DSH Desktop（macOS/Windows）+ CLI/Web（Linux）；兼容在 dsh-go 中只读查看面板",
+    "positioning": "dsh-purge Community：dsh 的自托管控件（俗称「破甲」/无限制模式插件），把状态自检、提示词与规则管理、本机备份回滚收敛到一处。",
+    "features": [
+      "左侧栏整页设置面板（不做悬浮按钮）：顶部一句话状态 + 「应用」主操作，其余分区折叠，维护页看最近动作/备份占用/更新偏好",
+      "25 层状态自检 `selfcheck --json`：逐层证据，不适用项单独标注；`status` 看宿主路径与计数，`host-status` 只读核查安装布局与入口",
+      "`diagnose` 锚点漂移诊断（文件、行号、候选落点）+ `reanchor` 把确认过的新锚点钉成本地覆盖（可撤销）",
+      "`probe [new]` 生成运行时探针，验证注入确实送达模型；`audit --limit n` 最近动作台账（审计标签区分 partial_refused / empty_after_retry）",
+      "提示词/规则管理：`boost on|off` 尾部强化段、`preset install` 无限制模式预设落盘、`excludePresets` 按预设排除注入（保留命令/面板/工具）、`retry on|off` 回答中断单次重试",
+      "备份与回滚：应用/安装/回滚前自动快照，`backup` / `rollback <id>` / `usage` / `prune`；86 条宿主补丁",
+      "技能压缩包导入（ZIP/TAR/TGZ）：只接受普通文件与目录，校验路径/条目数/解压大小后才安装",
+      "更新：维护页分别设「自动检查」与「自动安装」，默认只检查、间隔 6 小时，安装完成不自动重启"
+    ],
+    "integration": "界面：插件 → 发现 → 添加索引源 `https://kingcharleslzy-ai.github.io/dsh-purge/index.json` 后安装；CLI：`dsh plugin --profile web add <v1.7.20 release tgz 固定 URL>`；社区安装器 `sh scripts/install.sh --dry-run` 再执行（Windows 用 install.ps1 -DryRun）；命令族 `purge-community …`。",
+    "dsh_mechanisms": [
+      "`dsh.bundle.patch`（cordis.patch.yml：关掉旧 redteam 包行、改 system-prompt 行 `includeHarnessIdentity: false` / personaPrefix）",
+      "`dsh.client.inject`（connection/runtime/locale/ui-slots/ui-settings/ui-sidebar-right）+ `dsh.install.preferred: tarball` 提示",
+      "宿主补丁锚点覆盖（本地覆盖层 + 漂移诊断）、profile 补丁层、Web 面板走回环/受信 Host（PURGE_TRUSTED_HOSTS）",
+      "dsh-go bridge 面板（Global panels / 全部功能 → Purge）只读查看"
+    ],
+    "limitations": [
+      "未验证宿主会标「未验证」，须先看 `diagnose`；红队工具需 Node ≥22.5",
+      "社区安装器会触碰宿主目录（修复 app/runtime 链接，必要时创建用户副本），不是完全不碰",
+      "不自动应用宿主补丁、不自动重启、不改代理/全局 npm 源、不清缓存",
+      "脚本从仓库 master 下载，SHA256 只校验 Release 包、不是对下载脚本的独立签名验证",
+      "退出码非零即失败；dry-run 成功、备份存在、市场卡片出现都不能替代安装成功证据",
+      "dsh-go 侧仅 Android 15 ARM64 模拟器只读验收（真机与写操作未验收）",
+      "Web 面板默认只接受回环与宿主配置的监听地址"
+    ]
+  },
+  {
+    "repo": "Javis603/token-monitor",
+    "stars_note": "3,751 ★（2026-11-20 抓取）",
+    "platform": "Windows 10+、macOS 13+（刘海/小部件）、Linux x64；Electron 桌面 + headless agent",
+    "positioning": "Token Monitor：跨设备聚合 AI 编程工具实时用量与额度的桌面 App——直接只读解析 dsh 的会话日志（~/.dsh/sessions）。",
+    "features": [
+      "54+ 工具的 Token 用量读取；DeepSeek / DeepSeek Harness 走 `~/.dsh/sessions/`（`session.jsonl`、`session.jsonl.zstd`，受 `$DSH_HOME` 覆盖）",
+      "实时速率（tok/s 输出速度、tok/min 总消耗）与 session 明细（逐条提问的 token、每次回复拆分与所用工具）",
+      "缓存命中统计：点击工具或模型展开输入（命中/未命中）、输出与命中率",
+      "成本与多币别（USD/CNY/TWD/HKD/KRW/JPY/BRL，汇率每日更新可覆写）、自定义扫描路径、WSL 用量约 5 分钟并入",
+      "额度检测：34+ 提供方的 session/每日/每周/账单/credits 窗口，多账号并列，Codex 账号一键切换本机账号，Codex 重置预测",
+      "保留已删除会话用量：本地不设期限归档已观测每日用量，源文件被清后热力图与趋势仍完整",
+      "趋势与仪表板（活跃热力图、连续天数、按工具/模型堆叠 + K 线）、固定时间范围（本周/近 7/近 30 天）、状态页追踪、CSV+JSON 导出",
+      "多设备与呈现：Hub SSE 秒级推送 / iCloud Drive / 自托管 hub / Cloudflare Worker / headless agent；刘海面板、侧边栏、菜单栏/托盘、悬浮小窗、macOS 原生小部件"
+    ],
+    "integration": "`brew install --cask token-monitor` 或 Releases 下载（macOS/Windows/Linux）；启动即追踪本机用量，无需配置 hub；多设备在「设置 → 多设备同步」选模式；服务器/SSH 用 headless agent 上报。",
+    "dsh_mechanisms": [
+      "只读解析 dsh 的会话日志（`$DSH_HOME/sessions` 下 session.jsonl / .jsonl.zstd）与回合信号",
+      "不经 dsh 插件接口：无 bundle/patch/client 注入，属外部观测工具",
+      "可选 Hub（SSE）/Worker 同步后端；本地优先，无遥测"
+    ],
+    "limitations": [
+      "只能统计本机日志里存在的用量；来源被工具清理后需开「保留已删除会话用量」本地归档",
+      "Session Detail 明细只在本地读取、不同步到其它设备",
+      "Goose 跨日用量仍计入会话创建日，且不支持远程 goosed 与自定义扫描路径",
+      "部分工具（如 OmO Native）子任务只计入用量、暂不支持 Session Detail",
+      "iCloud Drive 同步仅 macOS 小部件、不支持 headless agent",
+      "WSL 内 SQLite 来源（OpenCode/Hermes 等）需按文档在 WSL 内跑 headless agent"
+    ]
+  }
+]

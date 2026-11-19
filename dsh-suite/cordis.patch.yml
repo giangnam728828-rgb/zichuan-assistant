@@ -1,0 +1,11 @@
+# 子川助手 bundle patch
+#
+# 安装：dsh plugin --profile sichuan add link:/root/zichuan-suite
+# CLI 会把 zichuan-suite 追加进 dsh.profile.bundles，启动时合入本文件，
+# 也就是下面这一行 insert —— 不需要手改 profile 的任何配置。
+- insert:
+    - id: zichuan-suite
+      name: zichuan-suite
+      config:
+        injectWorkflow: true
+        allowHttpBuild: true
