@@ -8,9 +8,17 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SDK="${ANDROID_SDK:-/root/android-sdk}"
-BT="${ANDROID_BUILD_TOOLS:-$SDK/android-14}"
-PLATFORM="$SDK/android-34/android.jar"
+SDK="${ANDROID_SDK:-${ANDROID_HOME:-/root/android-sdk}}"
+# 工具链根目录：优先环境变量，其次 sdkmanager 布局（build-tools/<ver>），最后本机解压布局（android-14）
+if [ -n "${ANDROID_BUILD_TOOLS:-}" ]; then BT="$ANDROID_BUILD_TOOLS"
+elif [ -d "$SDK/build-tools/34.0.0" ]; then BT="$SDK/build-tools/34.0.0"
+else BT="$SDK/android-14"; fi
+
+# android.jar：兼容 platforms/android-XX 与本机解压的 android-XX 两种布局
+if [ -n "${PLATFORM:-}" ]; then :;
+elif [ -f "$SDK/platforms/android-34/android.jar" ]; then PLATFORM="$SDK/platforms/android-34/android.jar"
+elif [ -f "$SDK/android-34/android.jar" ]; then PLATFORM="$SDK/android-34/android.jar"
+else echo "找不到 android.jar：请设置 PLATFORM=/path/to/android.jar"; exit 1; fi
 KS="${KEYSTORE:-$ROOT/keystore/zichuan-release.jks}"
 KS_PASS="${KEYSTORE_PASSWORD:-ZichuanRel2026!}"
 KS_ALIAS="${KEYSTORE_ALIAS:-zichuan}"
