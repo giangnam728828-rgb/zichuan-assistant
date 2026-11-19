@@ -7,9 +7,9 @@
 
 > 私有仓库的 Release 资产需要登录后才能下载；本机 `dist/` 里也有同样的 APK。
 
-把本机运行的 **DeepSeek Harness Web UI** 装进一个原生壳：全屏 WebView、长按改地址、断连重试、返回键回退。
+这是一个 **DeepSeek Harness Web UI 的 Android WebView 壳**，不是独立模型或完整原生助手：实际对话界面由本机 DSH Web 提供。之前的构建默认打开了不带认证的地址，因此会显示 DSH 的认证提示页；1.0.4 起改为首次启动连接页，并能识别认证提示、引导粘贴完整链接。
 
-引擎仍在 `proot` 环境里跑（`dsh web`，默认 `127.0.0.1:3080`；本项目的 DSH 套件在 `3081`），这个 APK 只负责呈现，**不做任何网络代理、不收集数据**。
+引擎仍由 DSH App / `proot` 环境运行。APK 负责呈现 Web UI、保存连接地址、提供连接配置和断连说明；不会启动或代管模型，也不会记录 URL/token 到日志。
 
 - 包名：`app.zichuan.assistant`
 - minSdk 26 / targetSdk 34
@@ -54,10 +54,10 @@ VERSION_NAME=1.0.2 VERSION_CODE=3 bash build-apk.sh
 
 ## 在手机上用
 
-1. 先在手机环境里起引擎：`bash scripts/zstart.sh`（见 `dsh-suite/` 与 `docs/`）。
-2. 安装 `dist/zichuan-assistant-<version>.apk`。
-3. 首次打开会连 `http://127.0.0.1:3080/`；**长按屏幕**可改地址，把 `dsh web` 输出的带 `?token=` 的完整 URL 粘进去最稳（按钮 `3081` 一键切到套件实例）。
-4. 连不上时页面会显示错误原因和一段启动提示，点「重试」即可。
+1. 先让 DSH App / `dsh web` 在本机运行。
+2. 安装 `dist/zichuan-assistant-<version>.apk`；首次打开会显示连接设置页，不再把裸 `127.0.0.1:3080/` 当作已连接。
+3. 在 DSH-Go「设置 → 本机引擎 → 日志」里找到 `dsh web:`，复制后面的**完整 URL**（通常含 `?token=…`）；也可从运行 DSH 的终端复制。回到连接设置页点「从剪贴板粘贴」→「保存并连接」。只填 `http://127.0.0.1:3080/` 会触发 DSH 认证提示。
+4. 若已存地址失效，App 会识别认证页并重新显示连接设置。连接成功后可用右上角「连接设置」更新地址；链接只保存在本机应用私有设置中。
 
 ## 目录
 
@@ -76,7 +76,7 @@ docs/                    构建与签名、融合设计说明
 
 `main` 上改动 `app/**` 或 `build-apk.sh` 会触发 **Android CI**：装 build-tools 34 → `build-apk.sh` 构建 → **校验签名指纹必须等于上面那个 SHA-256**（不等就 fail）→ 上传 artifact → 发 Release（tag `v<版本>`，只带本次构建的 APK）。
 
-实测：CI 跑出的 `v1.0.2`（versionCode 2）与本机 `1.0.0/1.0.1` 签名者 SHA-256 相同，可直接覆盖安装。
+CI 每次成功发布时生成递增 `versionCode`，签名者 SHA-256 固定为上面的证书指纹；可直接覆盖安装。1.0.4 修复连接配置与认证提示页处理。
 
 ## 已知限制
 
