@@ -31,10 +31,15 @@ jobs:
         sudo apt-get install -y zstd xz-utils curl ninja-build
 
     - name: Install Android SDK packages
-      # ubuntu-latest ships a full Android SDK at $ANDROID_HOME with sdkmanager.
+      # Locate sdkmanager from the preinstalled cmdline-tools (not always on PATH).
       run: |
-        yes | sdkmanager --licenses > /dev/null || true
-        sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+        SDKMGR=$(find "$ANDROID_HOME/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)
+        echo "sdkmanager: $SDKMGR"
+        echo "$SDKMGR" | grep -q . || { echo "sdkmanager not found"; exit 1; }
+        BIN=$(dirname "$SDKMGR")
+        echo "$BIN" >> "$GITHUB_PATH"
+        yes | "$SDKMGR" --licenses > /dev/null || true
+        "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
     - name: Assemble arm64 runtime
       run: bash runtime/build-runtime.sh arm64-v8a
