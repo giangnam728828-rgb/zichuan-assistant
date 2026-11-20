@@ -12,6 +12,26 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Free disk space
+      # Runners have ~14GB; Flutter + NDK + 530MB runtime + APK need more.
+      # Clear preinstalled toolchains we do not use (keep Android + JDK + Flutter).
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: false
+        android: false
+        dotnet: true
+        haskell: true
+        java: false
+        large-packages: true
+        docker-images: true
+        node: true
+        php: true
+        python: true
+        rust: true
+        ruby: true
+        scala: true
+        swap-storage: false
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
@@ -48,18 +68,23 @@ jobs:
       timeout-minutes: 45
       run: bash runtime/build-runtime.sh arm64-v8a
 
+    - name: Build tawcroot native lib
+      timeout-minutes: 20
+      run: python3 -I runtime/tawcroot/build.py
+
     - name: Build signed APK
       # build-apk.sh reads keystore/keystore.properties (tracked) for signing.
       # DSH_MAVEN_MIRRORS=0: GitHub runners reach google()/mavenCentral() fast;
       # the Aliyun mirrors the project defaults to are slow from the US.
-      timeout-minutes: 60
+      timeout-minutes: 70
       env:
         DSH_MAVEN_MIRRORS: '0'
-      run: bash build-apk.sh
+      run: bash -x build-apk.sh
 
     - name: Verify signature
       run: |
         APK=$(ls dist/zichuan-assistant-*.apk | head -1)
+        echo "APK: $APK ($(du -h "$APK" | cut -f1))"
         "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" | grep 'SHA-256'
 
     - name: Upload APK
