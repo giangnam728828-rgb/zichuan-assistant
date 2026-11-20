@@ -1,73 +1,43 @@
 #!/bin/bash
-# 构建并签名「子川助手」APK（不依赖 Gradle，用 Android build-tools + JDK）。
+# 构建并签名「子川助手」原生 Flutter/Kotlin APK。
 #
-#   bash build-apk.sh                 # 版本号取环境变量，默认 1.0.0 / 1
-#   VERSION_NAME=1.0.2 VERSION_CODE=3 bash build-apk.sh
+#   bash build-apk.sh                 # 版本名默认 2.0.0，版本号自动递增
+#   VERSION_NAME=2.0.1 VERSION_CODE=12345678 bash build-apk.sh
 #
-# 产物：dist/zichuan-assistant-<version>.apk（用固定 release keystore 签名）
+# 产物：dist/zichuan-assistant-<version>.apk（保留现有 release signer）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SDK="${ANDROID_SDK:-${ANDROID_HOME:-/root/android-sdk}}"
-# 工具链根目录：优先环境变量，其次 sdkmanager 布局（build-tools/<ver>），最后本机解压布局（android-14）
-if [ -n "${ANDROID_BUILD_TOOLS:-}" ]; then BT="$ANDROID_BUILD_TOOLS"
-elif [ -d "$SDK/build-tools/34.0.0" ]; then BT="$SDK/build-tools/34.0.0"
-else BT="$SDK/android-14"; fi
 
-# android.jar：兼容 platforms/android-XX 与本机解压的 android-XX 两种布局
-if [ -n "${PLATFORM:-}" ]; then :;
-elif [ -f "$SDK/platforms/android-34/android.jar" ]; then PLATFORM="$SDK/platforms/android-34/android.jar"
-elif [ -f "$SDK/android-34/android.jar" ]; then PLATFORM="$SDK/android-34/android.jar"
-else echo "找不到 android.jar：请设置 PLATFORM=/path/to/android.jar"; exit 1; fi
 KS="${KEYSTORE:-$ROOT/keystore/zichuan-release.jks}"
 KS_PASS="${KEYSTORE_PASSWORD:-ZichuanRel2026!}"
 KS_ALIAS="${KEYSTORE_ALIAS:-zichuan}"
-VERSION_NAME="${VERSION_NAME:-1.0.0}"
-VERSION_CODE="${VERSION_CODE:-1}"
+VERSION_NAME="${VERSION_NAME:-2.0.0}"
+VERSION_CODE="${VERSION_CODE:-}"
 
-APP="$ROOT/app/src/main"
-WORK="$ROOT/build"
+# Build the independent Flutter/Kotlin app. Gradle reads the existing signer only
+# from the environment; the password is never written to a properties file or log.
+[[ -f "$KS" ]] || { echo "找不到 release keystore" >&2; exit 1; }
+[[ -n "$KS_PASS" && -n "$KS_ALIAS" ]] || { echo "缺少 release signing configuration" >&2; exit 1; }
+build_args=(--no-companion --build-name "$VERSION_NAME")
+if [[ -n "$VERSION_CODE" && "$VERSION_CODE" != 1 ]]; then
+  build_args+=(--build-number "$VERSION_CODE")
+fi
+export KEYSTORE="$KS" KEYSTORE_PASSWORD="$KS_PASS" KEYSTORE_ALIAS="$KS_ALIAS"
+unset KS_PASS VERSION_CODE
+bash "$ROOT/tooling/build-apk.sh" "${build_args[@]}"
+
+apk="$ROOT/app/build/app/outputs/flutter-apk/app-arm64-release.apk"
+[[ -f "$apk" ]] || { echo "没找到 Flutter release APK: $apk" >&2; exit 1; }
 DIST="$ROOT/dist"
-rm -rf "$WORK"
-mkdir -p "$WORK/gen" "$WORK/classes" "$WORK/dex" "$DIST"
-
-echo "== 1-2/6 资源 + manifest 打包 (aapt v1, arm64)"
-"${AAPT:-aapt}" package -f -m \
-  -M "$APP/AndroidManifest.xml" \
-  -S "$APP/res" \
-  -I "$PLATFORM" \
-  -J "$WORK/gen" \
-  -F "$WORK/base.apk" \
-  --version-code "$VERSION_CODE" \
-  --version-name "$VERSION_NAME"
-
-echo "== 3/6 编译 Java (javac --release 8 -Xlint:-options)"
-find "$WORK/gen" "$APP/java" -name "*.java" > "$WORK/sources.txt"
-javac --release 8 -Xlint:-options -encoding UTF-8 -classpath "$PLATFORM" -d "$WORK/classes" @"$WORK/sources.txt"
-
-echo "== 4/6 转 dex (d8)"
-"${D8:-$BT/d8}" --release --lib "$PLATFORM" --min-api 26 --output "$WORK/dex" $(find "$WORK/classes" -name "*.class")
-
-echo "== 5/6 打包 + 对齐"
-python3 - "$WORK/base.apk" "$WORK/dex/classes.dex" <<'PY'
-import shutil, sys, zipfile
-src, dex = sys.argv[1], sys.argv[2]
-shutil.copy(src, src + '.tmp')
-with zipfile.ZipFile(src + '.tmp', 'a', zipfile.ZIP_DEFLATED) as z:
-    z.write(dex, 'classes.dex')
-shutil.move(src + '.tmp', src)
-print('  classes.dex 已写入')
-PY
-"${ZIPALIGN:-zipalign}" -f -p 4 "$WORK/base.apk" "$WORK/aligned.apk"
-
-echo "== 6/6 固定签名 (apksigner, v1+v2+v3)"
+mkdir -p "$DIST"
 OUT="$DIST/zichuan-assistant-$VERSION_NAME.apk"
-"${APKSIGNER:-apksigner}" sign \
-  --ks "$KS" --ks-pass "pass:$KS_PASS" --ks-key-alias "$KS_ALIAS" \
-  --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
-  --out "$OUT" "$WORK/aligned.apk"
-
-"${APKSIGNER:-apksigner}" verify --print-certs "$OUT" | sed -n '1,8p'
-echo
-echo "产物: $OUT"
+cp "$apk" "$OUT"
+verify="$(${APKSIGNER:-apksigner} verify --print-certs "$OUT")"
+printf '%s\n' "$verify" | sed -n '1,8p'
+actual="$(printf '%s\n' "$verify" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | sed 's/://g' | tr -d '[:space:]' | tr 'A-F' 'a-f')"
+expected="05d1265d870c5b72e53c8a745dbe8fe12edb791ea17f7bdaf40234904c4d5057"
+[[ "$actual" == "$expected" ]] || { echo "release signer fingerprint mismatch" >&2; exit 1; }
+echo "\n产物: $OUT"
 echo "大小: $(du -h "$OUT" | cut -f1)"
+exit 0

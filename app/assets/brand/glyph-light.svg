@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="26 26 56 56">
+<!-- Original 子川 river mark, drawn from the existing 子川助手 launcher icon. -->
+<defs>
+  <linearGradient id="tail" gradientUnits="userSpaceOnUse" x1="31" y1="36" x2="77" y2="73"><stop offset="0" stop-color="#C91D40"/><stop offset="1" stop-color="#F34B61"/></linearGradient>
+  <linearGradient id="fin" gradientUnits="userSpaceOnUse" x1="38" y1="43" x2="45" y2="65"><stop offset="0" stop-color="#F64B97"/><stop offset="1" stop-color="#FF9BC2"/></linearGradient>
+  <linearGradient id="belly" gradientUnits="userSpaceOnUse" x1="50" y1="35" x2="58" y2="72"><stop offset="0" stop-color="#FF5AA8"/><stop offset="1" stop-color="#FFB9D6"/></linearGradient>
+  <linearGradient id="bubble" gradientUnits="userSpaceOnUse" x1="63" y1="43" x2="70" y2="65"><stop offset="0" stop-color="#F64B97"/><stop offset="1" stop-color="#FF9BC2"/></linearGradient>
+</defs>
+<path id="body" fill="url(#tail)" d="M54 29C67.807 29 79 40.193 79 54C79 67.807 67.807 79 54 79C40.193 79 29 67.807 29 54C29 40.193 40.193 29 54 29Z"/>
+<path id="fin-layer" fill="url(#fin)" d="M41.5 40C43.433 40 45 41.567 45 43.5C45 48 45 60 45 64.5C45 66.433 43.433 68 41.5 68C39.567 68 38 66.433 38 64.5C38 60 38 48 38 43.5C38 41.567 39.567 40 41.5 40Z"/>
+<path id="belly-layer" fill="url(#belly)" d="M54 32C56.098 32 57.8 33.702 57.8 35.8C57.8 44 57.8 64 57.8 72.2C57.8 74.298 56.098 76 54 76C51.902 76 50.2 74.298 50.2 72.2C50.2 64 50.2 44 50.2 35.8C50.2 33.702 51.902 32 54 32Z"/>
+<path id="bubble-layer" fill="url(#bubble)" d="M66.5 40C68.433 40 70 41.567 70 43.5C70 48 70 60 70 64.5C70 66.433 68.433 68 66.5 68C64.567 68 63 66.433 63 64.5C63 60 63 48 63 43.5C63 41.567 64.567 40 66.5 40Z"/>
+</svg>

@@ -1,0 +1,16 @@
+{
+  "starPromptTitle": "{hours, plural, =0{Zhichuan Assistant has kept you company for half an hour now~} =1{Zhichuan Assistant has kept you company for an hour now~} other{Zhichuan Assistant has kept you company for {hours} hours now~}}", 
+  "@starPromptTitle": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "starPromptBody": "Zhichuan Assistant is built on DeepSeek Harness. Visit the GitHub project page for source and release notes. Thanks for using the app.",
+  "starPromptPlea": "Explore the project, and thank you for your support.",
+  "starPromptStar": "Open GitHub repository",
+  "starPromptDone": "Got it",
+  "starPromptLater": "Maybe later",
+  "starSettingsTitle": "View the Zhichuan Assistant project"
+}

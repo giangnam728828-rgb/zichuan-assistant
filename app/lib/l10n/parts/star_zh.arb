@@ -1,0 +1,17 @@
+{
+  "starPromptTitle": "{hours, plural, =0{知川助手已经陪你半个小时啦⁠~} =1{知川助手已经陪你一个小时啦⁠~} other{知川助手已经陪你 {hours} 个小时啦⁠~}}", 
+  "@starPromptTitle": {
+    "description": "The star prompt's first line. hours is the whole hours of use so far, rounded down; 0 is half an hour (the first ask comes after 30 minutes). The word joiner keeps the ~ on the line of the word before it.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "starPromptBody": "知川助手基于 DeepSeek Harness 构建，项目源代码与版本说明可在 GitHub 仓库查看。感谢你使用这款应用。",
+  "starPromptPlea": "欢迎了解项目，也谢谢支持！",
+  "starPromptStar": "查看 GitHub 仓库",
+  "starPromptDone": "知道了",
+  "starPromptLater": "下次再说",
+  "starSettingsTitle": "查看知川助手项目"
+}

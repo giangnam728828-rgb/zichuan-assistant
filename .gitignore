@@ -1,3 +1,28 @@
+# Build outputs
 build/
+*.apk
+*.aab
 *.tmp
 .DS_Store
+
+# Gradle
+.gradle/
+local.properties
+Android/local.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+prefers/
+
+# Runtime
+runtime/out/
+runtime/assets/runtime/rootfs-*.tar.xz
+
+# Keystore (keep in repo, but ignore properties)
+keystore/keystore.properties

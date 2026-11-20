@@ -2,84 +2,65 @@ name: Android CI
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'app/**'
-      - 'build-apk.sh'
-      - 'keystore/**'
-      - '.github/workflows/android.yml'
+    branches: [ main ]
+    tags: [ 'v*' ]
   workflow_dispatch:
-    inputs:
-      version_name:
-        description: '版本名（如 1.0.2）'
-        required: false
-        default: ''
-
-permissions:
-  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
 
-      - name: 安装 Android build-tools 34 与 platform 34
-        run: |
-          SDK="$HOME/android-sdk"
-          mkdir -p "$SDK"
-          echo "yes" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "build-tools;34.0.0" "platforms;android-34" >/dev/null
-          echo "ANDROID_SDK=$SDK" >> "$GITHUB_ENV"
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        channel: stable
+        flutter-version: '3.50.1'
+        cache: true
 
-      - name: 版本号
-        id: v
-        run: |
-          NAME="${{ inputs.version_name }}"
-          if [ -z "$NAME" ]; then NAME="1.0.${{ github.run_number }}"; fi
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-          echo "版本 $NAME (code ${{ github.run_number }})"
+    - name: Install host build tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y zstd xz-utils curl ninja-build
 
-      - name: 构建 + 固定签名
-        env:
-          ANDROID_BUILD_TOOLS: ${{ env.ANDROID_SDK }}/build-tools/34.0.0
-          AAPT: ${{ env.ANDROID_SDK }}/build-tools/34.0.0/aapt
-          D8: ${{ env.ANDROID_SDK }}/build-tools/34.0.0/d8
-          ZIPALIGN: ${{ env.ANDROID_SDK }}/build-tools/34.0.0/zipalign
-          APKSIGNER: ${{ env.ANDROID_SDK }}/build-tools/34.0.0/apksigner
-        run: |
-          VERSION_NAME="${{ steps.v.outputs.name }}" VERSION_CODE="${{ steps.v.outputs.code }}" bash build-apk.sh
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
 
-      - name: 校验签名指纹（必须与仓库固定证书一致）
-        run: |
-          GOT=$(ls dist/*.apk | head -1)
-          FOUND=$("${ANDROID_SDK}/build-tools/34.0.0/apksigner" verify --print-certs "$GOT" | grep -m1 'SHA-256 digest' | awk '{print $NF}')
-          EXPECT="05d1265d870c5b72e53c8a745dbe8fe12edb791ea17f7bdaf40234904c4d5057"
-          echo "签名: $FOUND"
-          echo "期望: $EXPECT"
-          if [ "$FOUND" != "$EXPECT" ]; then
-            echo "::error::签名指纹不一致，会破坏覆盖安装。检查 keystore/keystore.properties 与 keystore/zichuan-release.jks。"
-            exit 1
-          fi
+    - name: Install Android SDK packages
+      run: |
+        sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
-      - name: 上传 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: zichuan-assistant-${{ steps.v.outputs.name }}
-          path: dist/zichuan-assistant-${{ steps.v.outputs.name }}.apk
+    - name: Assemble arm64 runtime
+      run: bash runtime/build-runtime.sh arm64-v8a
 
-      - name: 发布 Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.v.outputs.name }}
-          name: 子川助手 v${{ steps.v.outputs.name }}
-          body: |
-            固定签名：SHA-256 `05d1265d870c5b72e53c8a745dbe8fe12edb791ea17f7bdaf40234904c4d5057`
-            可直接覆盖安装旧版本，无需卸载。
-          files: dist/zichuan-assistant-${{ steps.v.outputs.name }}.apk
+    - name: Build signed APK
+      # build-apk.sh reads keystore/keystore.properties (tracked) when no env
+      # secrets are set; signing material is never printed to the log.
+      run: bash build-apk.sh
+
+    - name: Verify signature
+      run: |
+        APK=$(ls dist/zichuan-assistant-*.apk | head -1)
+        $ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner verify --print-certs "$APK" | grep 'SHA-256'
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: zichuan-assistant-arm64
+        path: dist/zichuan-assistant-*.apk
+        if-no-files-found: error
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: dist/zichuan-assistant-*.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

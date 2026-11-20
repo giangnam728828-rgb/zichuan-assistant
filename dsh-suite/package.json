@@ -1,7 +1,7 @@
 {
   "name": "zichuan-suite",
   "version": "1.0.0",
-  "description": "子川助手套件：把写代码、跑构建、交付到手机、操作手机四件事收进一个工作台（DeepSeek Harness bundle + client 面板）",
+  "description": "知川助手套件：把写代码、运行构建、交付到手机和手机操控收进一个工作台（DeepSeek Harness runtime + native client）",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -20,6 +20,34 @@
     },
     "client": {
       "platform": "web"
+    }
+  },
+  "dshGo": {
+    "v": 1,
+    "minApp": "2.0.0",
+    "title": { "zh": "知川开发", "en": "Zhichuan Dev" },
+    "icon": "code",
+    "contributes": {
+      "composer.actions": [
+        {
+          "id": "build-project",
+          "label": { "zh": "构建项目", "en": "Build" },
+          "icon": "code",
+          "effect": {
+            "type": "insert",
+            "text": "请检查当前工作区的项目结构与构建入口，使用 zichuan_build 依项目运行测试、构建和必要的类型检查；失败时先修复再重试。完成后报告命令、退出码、产物绝对路径和大小。不要自动交付，等待我点“交付产物”。"
+          }
+        },
+        {
+          "id": "deliver-build",
+          "label": { "zh": "交付产物", "en": "Deliver" },
+          "icon": "archive",
+          "effect": {
+            "type": "insert",
+            "text": "请选择最近一次验证成功的 APK 或归档文件，使用 zichuan_deliver 将文件复制到 /sdcard/Download/DSH-Go/，并核对返回的绝对路径、字节数及源文件 SHA-256；报告核验结果。"
+          }
+        }
+      ]
     }
   }
 }
