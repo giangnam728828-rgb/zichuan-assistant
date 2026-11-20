@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: ${{ env.ANDROID_HOME }}
     steps:
     - uses: actions/checkout@v4
 
@@ -30,28 +32,23 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y zstd xz-utils curl ninja-build
 
-    - name: Set up Android SDK
-      uses: android-actions/setup-android@v3
-      with:
-        java-version: '21'
-
     - name: Install Android SDK packages
+      # ubuntu-latest ships a full Android SDK at $ANDROID_HOME with sdkmanager.
       run: |
-        sdkmanager --licenses || true
+        yes | sdkmanager --licenses > /dev/null || true
         sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
     - name: Assemble arm64 runtime
       run: bash runtime/build-runtime.sh arm64-v8a
 
     - name: Build signed APK
-      # build-apk.sh reads keystore/keystore.properties (tracked) when no env
-      # secrets are set; signing material is never printed to the log.
+      # build-apk.sh reads keystore/keystore.properties (tracked) for signing.
       run: bash build-apk.sh
 
     - name: Verify signature
       run: |
         APK=$(ls dist/zichuan-assistant-*.apk | head -1)
-        $ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner verify --print-certs "$APK" | grep 'SHA-256'
+        "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" | grep 'SHA-256'
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
