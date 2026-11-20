@@ -31,10 +31,13 @@ jobs:
         sudo apt-get install -y zstd xz-utils curl ninja-build
 
     - name: Set up Android SDK
-      uses: android-actions/setup-android@v3
+      uses: android/actions/setup-android@v3
+      with:
+        java-version: '21'
 
     - name: Install Android SDK packages
       run: |
+        sdkmanager --licenses || true
         sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
     - name: Assemble arm64 runtime
