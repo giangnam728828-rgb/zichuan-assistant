@@ -45,10 +45,16 @@ jobs:
         echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
 
     - name: Assemble arm64 runtime
+      timeout-minutes: 45
       run: bash runtime/build-runtime.sh arm64-v8a
 
     - name: Build signed APK
       # build-apk.sh reads keystore/keystore.properties (tracked) for signing.
+      # DSH_MAVEN_MIRRORS=0: GitHub runners reach google()/mavenCentral() fast;
+      # the Aliyun mirrors the project defaults to are slow from the US.
+      timeout-minutes: 60
+      env:
+        DSH_MAVEN_MIRRORS: '0'
       run: bash build-apk.sh
 
     - name: Verify signature
