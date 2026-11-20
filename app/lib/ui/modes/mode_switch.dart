@@ -29,6 +29,11 @@ Widget appModePage(AppMode mode) => switch (mode) {
   AppMode.work => throw ArgumentError.value(mode, 'mode', '工作 is the home, not a page'),
 };
 
+/// 知川助手：小酒馆(tavern) 已下线。用户可见的模式只有工作与伙伴。
+/// 保留 [AppMode.tavern] 枚举值只为兼容历史启动偏好与既有代码引用；
+/// UI、启动进入、路由一律不允许到达它。
+const visibleModes = <AppMode>[AppMode.work, AppMode.companion];
+
 const _modeRoutePrefix = 'mode:';
 
 /// Shows [mode]: back to the home, then that mode's page carried in over it on a
@@ -102,7 +107,8 @@ class ModeSheet extends ConsumerWidget {
           SheetGroup(
             margin: const EdgeInsets.fromLTRB(SheetTitleBar.inset, 0, SheetTitleBar.inset, 12),
             children: [
-              for (final mode in AppMode.values)
+              // 知川助手：小酒馆(tavern) 已下线，只保留工作与伙伴两种模式。
+              for (final mode in visibleModes)
                 Semantics(
                   key: ValueKey('mode-row-${mode.name}'),
                   selected: mode == current,
@@ -127,8 +133,8 @@ class ModeSheet extends ConsumerWidget {
                 key: const ValueKey('mode-startup'),
                 title: l10n.modeStartup,
                 tinted: false,
-                segments: [for (final mode in AppMode.values) PillSegment(mode, appModeShortLabel(l10n, mode))],
-                selected: startup,
+                segments: [for (final mode in visibleModes) PillSegment(mode, appModeShortLabel(l10n, mode))],
+                selected: visibleModes.contains(startup) ? startup : AppMode.work,
                 onChanged: (mode) => unawaited(ref.read(appModeProvider.notifier).setStartup(mode)),
               ),
             ],

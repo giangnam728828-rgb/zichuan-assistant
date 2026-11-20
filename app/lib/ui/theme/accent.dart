@@ -68,6 +68,7 @@ class AppAccent {
   String get label =>
       _label ??
       switch (id) {
+        'river' => appL10n.phoneAccentRiver,
         'mist' => appL10n.phoneAccentMist,
         'daiqing' => appL10n.phoneAccentDaiqing,
         'dusk' => appL10n.phoneAccentDusk,
@@ -257,8 +258,32 @@ class AppAccent {
     hazeDark: Color(0xFF4A4D52),
   );
 
-  /// 设置页里的顺序。
-  static const presets = [mist, daiqing, dusk, turquoise, amber, graphite];
+  /// 知川红:知川助手的专属主色,暖玫瑰红(色相 22°),与 river mark 呼应。
+  /// 相比 mist 的 DeepSeek 蓝,它有明确辨识度,不与 dsh-Go 的默认外观撞色。
+  /// 色阶按 accent.dart 顶部同一套 OKLCH 明度/彩度规则推导,对比度另行测试。
+  static const river = AppAccent(
+    id: 'river',
+    seed: Color(0xFFB23F43),
+    pressed: Color(0xFF9B2F34),
+    container: Color(0xFFFFDFDD),
+    onContainer: Color(0xFF60171B),
+    bubble: Color(0xFFFFDAD8),
+    glow: Color(0xFFFFAAA6),
+    seedDark: Color(0xFFF29491),
+    pressedDark: Color(0xFFDE827F),
+    onSeedDark: Color(0xFF341010),
+    containerDark: Color(0xFF5F2B2B),
+    onContainerDark: Color(0xFFF8D8D6),
+    bubbleDark: Color(0xFF452827),
+    glowDark: Color(0xFF9E4D4C),
+    tintHue: 18,
+    tintChroma: 0.9,
+    haze: Color(0xFFF4CBD9),
+    hazeDark: Color(0xFF673F4F),
+  );
+
+  /// 设置页里的顺序。知川红排第一,作为默认主色。
+  static const presets = [river, mist, daiqing, dusk, turquoise, amber, graphite];
 
   static const customId = 'custom';
   static const wallpaperId = 'wallpaper';

@@ -25,7 +25,7 @@ enum AccentSource {
 class AppearanceSettings {
   const AppearanceSettings({
     this.source = AccentSource.preset,
-    this.presetId = 'mist',
+    this.presetId = 'river',
     this.customColor = defaultCustom,
     this.loaded = false,
   });

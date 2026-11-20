@@ -6919,6 +6919,7 @@
   "phoneSafeStartSettingsHint": "不加载插件，排查启动问题",
   "phoneSafeAutoSettings": "自动进入安全模式",
   "phoneSafeAutoSettingsHint": "连续启动失败时自动启用",
+  "phoneAccentRiver": "知川红",
   "phoneAccentMist": "雾蓝",
   "phoneAccentDaiqing": "黛青",
   "phoneAccentDusk": "暮紫",
@@ -10896,6 +10897,7 @@
     }
   },
   "shellChatGone": "这个对话已不在了",
+  "shellAccentRiver": "知川红",
   "shellAccentMist": "雾蓝",
   "shellAccentDaiqing": "黛青",
   "shellAccentDusk": "暮紫",

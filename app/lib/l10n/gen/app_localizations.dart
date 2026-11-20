@@ -22910,6 +22910,12 @@ abstract class L10n {
   /// **'连续启动失败时自动启用'**
   String get phoneSafeAutoSettingsHint;
 
+  /// No description provided for @phoneAccentRiver.
+  ///
+  /// In zh, this message translates to:
+  /// **'知川红'**
+  String get phoneAccentRiver;
+
   /// No description provided for @phoneAccentMist.
   ///
   /// In zh, this message translates to:
@@ -33565,6 +33571,12 @@ abstract class L10n {
   /// In zh, this message translates to:
   /// **'这个对话已不在了'**
   String get shellChatGone;
+
+  /// No description provided for @shellAccentRiver.
+  ///
+  /// In zh, this message translates to:
+  /// **'知川红'**
+  String get shellAccentRiver;
 
   /// No description provided for @shellAccentMist.
   ///

@@ -39,11 +39,16 @@ class AppModeController extends Notifier<AppModeState> {
     } catch (_) {
       // No preferences backend (tests) or an unreadable store: 工作.
     }
+    // 知川助手：小酒馆(tavern) 已下线。历史启动偏好若指向它，回退到工作，
+    // 避免升级后仍自动进入一个已从 UI 移除的模式。
+    if (startup == AppMode.tavern) startup = AppMode.work;
     // A choice made while reading back wins over the stored value.
     if (!state.loaded) state = AppModeState(startup: startup, loaded: true);
   }
 
   Future<void> setStartup(AppMode mode) async {
+    // 知川助手：小酒馆已下线，任何设置 tavern 为启动模式的请求一律改回工作。
+    if (mode == AppMode.tavern) mode = AppMode.work;
     state = AppModeState(startup: mode, loaded: true);
     try {
       final prefs = await SharedPreferences.getInstance();

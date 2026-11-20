@@ -5,6 +5,7 @@ import '../l10n/l10n.dart';
 import 'ui_config_model.dart';
 
 Map<String, String> get _presetNames => {
+  'river': appL10n.shellAccentRiver,
   'mist': appL10n.shellAccentMist,
   'daiqing': appL10n.shellAccentDaiqing,
   'dusk': appL10n.shellAccentDusk,

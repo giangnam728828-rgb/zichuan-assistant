@@ -368,7 +368,8 @@ class _RootGateState extends ConsumerState<RootGate> {
           chooseRuntime: _chooseRuntime,
           beside: _beside,
           onLocal: _chooseRuntime ? _chooseLocal : null,
-          onTavern: _chooseRuntime ? _chooseTavern : null,
+          // 知川助手：小酒馆已下线，引导页不再显示"和角色聊天"入口。
+          onTavern: null,
           onAppearanceDone: _afterAppearance,
           onAccessDone: _afterAccess,
           onFinished: _afterFinishing,

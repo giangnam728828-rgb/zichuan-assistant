@@ -61,10 +61,10 @@ void main() {
     near(d.bubbleDark, m.bubbleDark, 'bubbleDark');
   });
 
-  test('presets: unique ids and names, mist first', () {
-    expect(AppAccent.presets.first, AppAccent.mist);
-    expect(AppAccent.presets.map((p) => p.id).toSet(), hasLength(6));
-    expect(AppAccent.presets.map((p) => p.label), ['雾蓝', '黛青', '暮紫', '松石', '琥珀', '石墨']);
+  test('presets: unique ids and names, river first', () {
+    expect(AppAccent.presets.first, AppAccent.river);
+    expect(AppAccent.presets.map((p) => p.id).toSet(), hasLength(7));
+    expect(AppAccent.presets.map((p) => p.label), ['知川红', '雾蓝', '黛青', '暮紫', '松石', '琥珀', '石墨']);
     expect(AppAccent.preset('nope'), AppAccent.mist);
     expect(AppAccent.preset('amber'), AppAccent.amber);
   });
