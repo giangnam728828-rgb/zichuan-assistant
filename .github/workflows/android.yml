@@ -9,8 +9,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      ANDROID_HOME: ${{ env.ANDROID_HOME }}
     steps:
     - uses: actions/checkout@v4
 
