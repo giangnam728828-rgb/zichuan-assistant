@@ -40,6 +40,9 @@ jobs:
         echo "$BIN" >> "$GITHUB_PATH"
         yes | "$SDKMGR" --licenses > /dev/null || true
         "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+        # Ensure ANDROID_NDK_HOME points to the pinned version for tawcroot
+        export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+        echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
 
     - name: Assemble arm64 runtime
       run: bash runtime/build-runtime.sh arm64-v8a
