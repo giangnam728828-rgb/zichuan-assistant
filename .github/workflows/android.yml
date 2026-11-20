@@ -76,10 +76,14 @@ jobs:
       # build-apk.sh reads keystore/keystore.properties (tracked) for signing.
       # DSH_MAVEN_MIRRORS=0: GitHub runners reach google()/mavenCentral() fast;
       # the Aliyun mirrors the project defaults to are slow from the US.
+      # apksigner lives in build-tools; expose it to build-apk.sh's verify step.
       timeout-minutes: 70
       env:
         DSH_MAVEN_MIRRORS: '0'
-      run: bash -x build-apk.sh
+      run: |
+        echo "$ANDROID_HOME/build-tools/36.0.0" >> "$GITHUB_PATH"
+        export APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+        bash -x build-apk.sh
 
     - name: Verify signature
       run: |
