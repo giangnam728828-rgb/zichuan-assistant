@@ -77,15 +77,15 @@ abstract final class BrandGlyph {
     ..cubicTo(60.667, 18, 47.333, 18, 34, 18)
     ..close();
 
-  static final Shader tileFill = ui.Gradient.linear(Offset(18, 18), Offset(90, 90), const [Color(0xFF92213E), Color(0xFF481427)], const [0, 1]);
+  static final Shader tileFill = ui.Gradient.linear(Offset(18, 18), Offset(90, 90), const [Color(0xFF0A4F49), Color(0xFF062B27)], const [0, 1]);
 
   /// Gradients of the colour glyph: for light backgrounds, then for dark ones.
-  static final Shader tailLight = ui.Gradient.linear(Offset(31, 36), Offset(77, 73), const [Color(0xFFC91D40), Color(0xFFF34B61)], const [0, 1]);
-  static final Shader finLight = ui.Gradient.linear(Offset(38, 43), Offset(45, 65), const [Color(0xFFF64B97), Color(0xFFFF9BC2)], const [0, 1]);
-  static final Shader bellyLight = ui.Gradient.linear(Offset(50, 35), Offset(58, 72), const [Color(0xFFFF5AA8), Color(0xFFFFB9D6)], const [0, 1]);
-  static final Shader bubbleLight = ui.Gradient.linear(Offset(63, 43), Offset(70, 65), const [Color(0xFFF64B97), Color(0xFFFF9BC2)], const [0, 1]);
-  static final Shader tailDark = ui.Gradient.linear(Offset(31, 36), Offset(77, 73), const [Color(0xFFFF536B), Color(0xFFFF9FB8)], const [0, 1]);
-  static final Shader finDark = ui.Gradient.linear(Offset(38, 43), Offset(45, 65), const [Color(0xFFFFD5E3), Color(0xFFFFF0F5)], const [0, 1]);
-  static final Shader bellyDark = ui.Gradient.linear(Offset(50, 35), Offset(58, 72), const [Color(0xFFFFE4ED), Color(0xFFFFFFFF)], const [0, 1]);
-  static final Shader bubbleDark = ui.Gradient.linear(Offset(63, 43), Offset(70, 65), const [Color(0xFFFFD5E3), Color(0xFFFFF0F5)], const [0, 1]);
+  static final Shader tailLight = ui.Gradient.linear(Offset(31, 36), Offset(77, 73), const [Color(0xFF0E7C72), Color(0xFF25968A)], const [0, 1]);
+  static final Shader finLight = ui.Gradient.linear(Offset(38, 43), Offset(45, 65), const [Color(0xFF4FD1C0), Color(0xFFA8E8DE)], const [0, 1]);
+  static final Shader bellyLight = ui.Gradient.linear(Offset(50, 35), Offset(58, 72), const [Color(0xFF7FDDD0), Color(0xFFC6F0EA)], const [0, 1]);
+  static final Shader bubbleLight = ui.Gradient.linear(Offset(63, 43), Offset(70, 65), const [Color(0xFF4FD1C0), Color(0xFFA8E8DE)], const [0, 1]);
+  static final Shader tailDark = ui.Gradient.linear(Offset(31, 36), Offset(77, 73), const [Color(0xFF4FD1C0), Color(0xFF8FE0D5)], const [0, 1]);
+  static final Shader finDark = ui.Gradient.linear(Offset(38, 43), Offset(45, 65), const [Color(0xFFC6F0EA), Color(0xFFF0FBF9)], const [0, 1]);
+  static final Shader bellyDark = ui.Gradient.linear(Offset(50, 35), Offset(58, 72), const [Color(0xFFDDF7F3), Color(0xFFFFFFFF)], const [0, 1]);
+  static final Shader bubbleDark = ui.Gradient.linear(Offset(63, 43), Offset(70, 65), const [Color(0xFFC6F0EA), Color(0xFFF0FBF9)], const [0, 1]);
 }

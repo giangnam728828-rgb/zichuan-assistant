@@ -218,10 +218,10 @@ class AppIconArt {
     // The default icon; on the phone its glyph is the original art, here the
     // brand master's glass (the same fit).
     // 知川助手：默认图标的底色换成月白 → 淡紫，与 res/drawable/ic_launcher_background.xml 一致。
-    AppIcon.mist => const AppIconArt._(Color(0xFFF7F4FA), Color(0xFFB9A9D4), AppIconGlyph.glassDark),
-    AppIcon.night => const AppIconArt._(Color(0xFF762542), Color(0xFF38101F), AppIconGlyph.glassDark),
-    AppIcon.frost => const AppIconArt._(Color(0xFFFFFDFB), Color(0xFFF6E5E9), AppIconGlyph.glassLight),
-    AppIcon.ink => const AppIconArt._(Color(0xFF3A1827), Color(0xFF160A12), AppIconGlyph.mono, Color(0xFFF5F7FB)),
+    AppIcon.mist => const AppIconArt._(Color(0xFFF2F7F6), Color(0xFFA8D5CF), AppIconGlyph.glassDark),
+    AppIcon.night => const AppIconArt._(Color(0xFF14655C), Color(0xFF08211E), AppIconGlyph.glassDark),
+    AppIcon.frost => const AppIconArt._(Color(0xFFFDFFFE), Color(0xFFE5F2EF), AppIconGlyph.glassLight),
+    AppIcon.ink => const AppIconArt._(Color(0xFF0E2622), Color(0xFF060F0D), AppIconGlyph.mono, Color(0xFFF5F7FB)),
   };
 }
 

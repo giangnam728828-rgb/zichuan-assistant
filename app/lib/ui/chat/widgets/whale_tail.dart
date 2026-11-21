@@ -10,10 +10,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 /// 子川标记的主红，浅色玻璃上保持清晰的图形对比。
-const riverMarkLight = Color(0xFFC91D40);
+const riverMarkLight = Color(0xFF0E7C72);
 
 /// 深色模式使用品牌玫粉，避免红色在深色底上发闷。
-const riverMarkDark = Color(0xFFFF9BC2);
+const riverMarkDark = Color(0xFF4FD1C0);
 
 /// 按亮度取河川标记的品牌颜色。
 Color riverMarkColorFor(Brightness brightness) => brightness == Brightness.dark ? riverMarkDark : riverMarkLight;

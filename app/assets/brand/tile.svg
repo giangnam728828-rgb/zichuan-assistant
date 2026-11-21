@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72">
 <!-- 子川 app tile, paired with the existing 子川助手 launcher mark. -->
 <defs>
-  <linearGradient id="tile-bg" gradientUnits="userSpaceOnUse" x1="18" y1="18" x2="90" y2="90"><stop offset="0" stop-color="#92213E"/><stop offset="1" stop-color="#481427"/></linearGradient>
-  <linearGradient id="tail" gradientUnits="userSpaceOnUse" x1="31" y1="36" x2="77" y2="73"><stop offset="0" stop-color="#FF536B"/><stop offset="1" stop-color="#FF9FB8"/></linearGradient>
-  <linearGradient id="fin" gradientUnits="userSpaceOnUse" x1="38" y1="43" x2="45" y2="65"><stop offset="0" stop-color="#FFD5E3"/><stop offset="1" stop-color="#FFF0F5"/></linearGradient>
-  <linearGradient id="belly" gradientUnits="userSpaceOnUse" x1="50" y1="35" x2="58" y2="72"><stop offset="0" stop-color="#FFE4ED"/><stop offset="1" stop-color="#FFFFFF"/></linearGradient>
-  <linearGradient id="bubble" gradientUnits="userSpaceOnUse" x1="63" y1="43" x2="70" y2="65"><stop offset="0" stop-color="#FFD5E3"/><stop offset="1" stop-color="#FFF0F5"/></linearGradient>
+  <linearGradient id="tile-bg" gradientUnits="userSpaceOnUse" x1="18" y1="18" x2="90" y2="90"><stop offset="0" stop-color="#0A4F49"/><stop offset="1" stop-color="#062B27"/></linearGradient>
+  <linearGradient id="tail" gradientUnits="userSpaceOnUse" x1="31" y1="36" x2="77" y2="73"><stop offset="0" stop-color="#4FD1C0"/><stop offset="1" stop-color="#8FE0D5"/></linearGradient>
+  <linearGradient id="fin" gradientUnits="userSpaceOnUse" x1="38" y1="43" x2="45" y2="65"><stop offset="0" stop-color="#C6F0EA"/><stop offset="1" stop-color="#F0FBF9"/></linearGradient>
+  <linearGradient id="belly" gradientUnits="userSpaceOnUse" x1="50" y1="35" x2="58" y2="72"><stop offset="0" stop-color="#DDF7F3"/><stop offset="1" stop-color="#FFFFFF"/></linearGradient>
+  <linearGradient id="bubble" gradientUnits="userSpaceOnUse" x1="63" y1="43" x2="70" y2="65"><stop offset="0" stop-color="#C6F0EA"/><stop offset="1" stop-color="#F0FBF9"/></linearGradient>
 </defs>
 <path id="tile" fill="url(#tile-bg)" d="M34 18C25.163 18 18 25.163 18 34C18 47.333 18 60.667 18 74C18 82.837 25.163 90 34 90C47.333 90 60.667 90 74 90C82.837 90 90 82.837 90 74C90 60.667 90 47.333 90 34C90 25.163 82.837 18 74 18C60.667 18 47.333 18 34 18Z"/>
 <path id="body" fill="url(#tail)" d="M54 29C67.807 29 79 40.193 79 54C79 67.807 67.807 79 54 79C40.193 79 29 67.807 29 54C29 40.193 40.193 29 54 29Z"/>
