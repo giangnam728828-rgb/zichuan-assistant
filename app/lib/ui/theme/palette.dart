@@ -32,15 +32,15 @@ import 'surfaces.dart';
 /// 走 [NeutralTones](同明度、换色调),界面代码一律从主题取色,不直接用
 /// 这些常量;暮紫 tertiary 和错误色是语义色,不随配色转。
 abstract final class DshPalette {
-  // ══ 浅色:晨雾 ══════════════════════════════════════════
-  /// 页面渐变顶 · 晨雾蓝(与 DSH 官方 deepseek-50 同族)。
-  static const mistTop = Color(0xFFEBF1FE);
+  // ══ 浅色:川水月白 ══════════════════════════════════════
+  /// 页面渐变顶 · 月白(川水主底;略带紫,与知川紫呼应)。
+  static const mistTop = Color(0xFFF6F3FA);
 
-  /// 页面渐变底 · 近白微紫。
-  static const mistBottom = Color(0xFFF6F7FC);
+  /// 页面渐变底 · 月白稍沉,保持极淡竖向层次。
+  static const mistBottom = Color(0xFFF1EDF8);
 
   /// 不透明页面底(渐变的中值;无法铺渐变时用)。
-  static const mist = Color(0xFFF0F4FD);
+  static const mist = Color(0xFFF4F0F9);
 
   /// 面色阶梯(不透明),玻璃关闭或 M3 组件需要实色时用。
   static const mistLowest = Color(0xFFFBFCFF);
@@ -70,10 +70,10 @@ abstract final class DshPalette {
   /// 冷墨阴影基色:阴影带一点蓝,比纯黑阴影干净。
   static const shadowInk = Color(0xFF0B152D);
 
-  // ══ 深色:深海石板 ══════════════════════════════════════
-  static const nightTop = Color(0xFF1D222C);
-  static const nightBottom = Color(0xFF1B1C23);
-  static const night = Color(0xFF1C1F28);
+  // ══ 深色:川水墨 ══════════════════════════════════════
+  static const nightTop = Color(0xFF15111C);
+  static const nightBottom = Color(0xFF1A1521);
+  static const night = Color(0xFF17131E);
   static const nightLowest = Color(0xFF14171E);
   static const nightLow = Color(0xFF232730);
   static const nightContainer = Color(0xFF272C36);

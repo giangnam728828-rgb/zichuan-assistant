@@ -61,6 +61,8 @@ class DshColors extends ThemeExtension<DshColors> {
     required this.info,
     required this.infoContainer,
     required this.onInfoContainer,
+    required this.waterLight,
+    required this.waterDark,
     required this.diffAddBg,
     required this.diffAddFg,
     required this.diffDelBg,
@@ -103,6 +105,11 @@ class DshColors extends ThemeExtension<DshColors> {
   final Color info;
   final Color infoContainer;
   final Color onInfoContainer;
+
+  /// 川水「水光」:只用于「进行中」状态(浅 #26728A / 深 #9FD4E8)。
+  /// 浅色必须够深(#26728A,对比约 5:1)才能在月白底上看清。
+  final Color waterLight;
+  final Color waterDark;
 
   final Color diffAddBg;
   final Color diffAddFg;
@@ -198,6 +205,8 @@ class DshColors extends ThemeExtension<DshColors> {
     info: Color(0xFF2971A7),
     infoContainer: Color(0xFFDBECFC),
     onInfoContainer: Color(0xFF123B5A),
+    waterLight: Color(0xFF26728A),
+    waterDark: Color(0xFF9FD4E8),
     diffAddBg: Color(0xFFDCF4E3),
     diffAddFg: Color(0xFF1F613C),
     diffDelBg: Color(0xFFFFE4E2),
@@ -288,6 +297,8 @@ class DshColors extends ThemeExtension<DshColors> {
     info: Color(0xFF8CBDE8),
     infoContainer: Color(0xFF253C4F),
     onInfoContainer: Color(0xFFD1E4F4),
+    waterLight: Color(0xFF26728A),
+    waterDark: Color(0xFF9FD4E8),
     diffAddBg: Color(0xFF1C3424),
     diffAddFg: Color(0xFF98D5AC),
     diffDelBg: Color(0xFF422423),
@@ -378,6 +389,8 @@ class DshColors extends ThemeExtension<DshColors> {
     Color? info,
     Color? infoContainer,
     Color? onInfoContainer,
+    Color? waterLight,
+    Color? waterDark,
     Color? diffAddBg,
     Color? diffAddFg,
     Color? diffDelBg,
@@ -412,6 +425,8 @@ class DshColors extends ThemeExtension<DshColors> {
       info: info ?? this.info,
       infoContainer: infoContainer ?? this.infoContainer,
       onInfoContainer: onInfoContainer ?? this.onInfoContainer,
+      waterLight: waterLight ?? this.waterLight,
+      waterDark: waterDark ?? this.waterDark,
       diffAddBg: diffAddBg ?? this.diffAddBg,
       diffAddFg: diffAddFg ?? this.diffAddFg,
       diffDelBg: diffDelBg ?? this.diffDelBg,
@@ -453,6 +468,8 @@ class DshColors extends ThemeExtension<DshColors> {
       info: mix(info, other.info),
       infoContainer: mix(infoContainer, other.infoContainer),
       onInfoContainer: mix(onInfoContainer, other.onInfoContainer),
+      waterLight: mix(waterLight, other.waterLight),
+      waterDark: mix(waterDark, other.waterDark),
       diffAddBg: mix(diffAddBg, other.diffAddBg),
       diffAddFg: mix(diffAddFg, other.diffAddFg),
       diffDelBg: mix(diffDelBg, other.diffDelBg),

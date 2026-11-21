@@ -29,30 +29,49 @@ List<List<Offset>> _outline(Path path, {double step = 0.02}) => [
     [for (var d = 0.0; d < metric.length; d += step) metric.getTangentForOffset(d)!.position],
 ];
 
+/// Signed area and area-centroid of a closed polygon, matching the generator's
+/// `area_centroid` exactly: ink mass is area, so the glyph's centroid is the
+/// area-weighted mean of every ink layer's own area-centroid.
+(double, Offset) _polyAreaCentroid(List<Offset> poly) {
+  var a = 0.0;
+  var cx = 0.0;
+  var cy = 0.0;
+  for (var i = 0; i < poly.length; i++) {
+    final p = poly[i];
+    final q = poly[(i + 1) % poly.length];
+    final k = p.dx * q.dy - q.dx * p.dy;
+    a += k;
+    cx += (p.dx + q.dx) * k;
+    cy += (p.dy + q.dy) * k;
+  }
+  a /= 2;
+  return (a, Offset(cx / (6 * a), cy / (6 * a)));
+}
+
 void main() {
   test('generated glyph data matches its paths', () {
-    var area = 0.0;
+    var totalArea = 0.0;
     var cx = 0.0;
     var cy = 0.0;
     var box = Rect.zero;
     var first = true;
-    for (final path in [BrandGlyph.body, BrandGlyph.bubble]) {
+    // The generator weighs the area centroid of every ink layer — the disk and
+    // all three river strokes — by that layer's area. Use the same set here.
+    for (final path in [BrandGlyph.body, BrandGlyph.fin, BrandGlyph.belly, BrandGlyph.bubble]) {
       for (final poly in _outline(path)) {
-        for (var i = 0; i < poly.length; i++) {
-          final a = poly[i];
-          final b = poly[(i + 1) % poly.length];
-          final k = a.dx * b.dy - b.dx * a.dy;
-          area += k;
-          cx += (a.dx + b.dx) * k;
-          cy += (a.dy + b.dy) * k;
-          final r = Rect.fromPoints(a, a);
+        for (final p in poly) {
+          final r = Rect.fromPoints(p, p);
           box = first ? r : box.expandToInclude(r);
           first = false;
         }
+        if (poly.isEmpty) continue;
+        final (layerArea, layerCentroid) = _polyAreaCentroid(poly);
+        totalArea += layerArea;
+        cx += layerArea * layerCentroid.dx;
+        cy += layerArea * layerCentroid.dy;
       }
     }
-    area /= 2;
-    final centroid = Offset(cx / (6 * area), cy / (6 * area));
+    final centroid = Offset(cx / totalArea, cy / totalArea);
     expect((centroid - BrandGlyph.centroid).distance, lessThan(0.02));
     expect(box.left, closeTo(BrandGlyph.box.left, 0.01));
     expect(box.top, closeTo(BrandGlyph.box.top, 0.01));
@@ -92,8 +111,10 @@ void main() {
     expect(tester.getSize(find.byKey(const ValueKey('mono'))), Size(18 * BrandMark.aspect, 18));
     expect(tester.getSize(find.byKey(const ValueKey('tile'))), const Size(52, 52));
     final shift = BrandMark.opticalShift(40);
-    expect(shift.dy, lessThan(0));
-    expect(shift.dx.abs(), lessThan(40 * BrandMark.aspect * 0.05));
+    // 知川 river mark 的质心正好在墨迹框中心（centroid 0.5/0.5），不需要旧
+    // 鲸鱼 mark 那种「视觉中心偏下」的光学补偿。
+    expect(shift.dy, closeTo(0, 0.01));
+    expect(shift.dx.abs(), closeTo(0, 0.01));
   });
 
   group('lockup', () {

@@ -67,17 +67,19 @@ Future<Rect> expectBrandLockup(WidgetTester tester, Finder lockup) async {
   final paragraph = tester.renderObject<RenderParagraph>(wordFinder);
   final style = (paragraph.text as TextSpan).style!;
   final drawn = paragraph.textScaler.scale(style.fontSize!);
-  final lowercase = label.contains(RegExp('[a-z]'));
-  final (top, bottom) = await inkBand(tester, style, paragraph.textScaler, lowercase ? 'x' : 'H');
-  final band = (word.top + top, word.top + bottom);
+  // BrandLockup puts the glyph's visual centre `centreRise(label, drawn)` above
+  // the shared baseline. Verify against that same rule the widget builds with
+  // (CJK → em centre, lowercase → x-height, capitals → cap-height) instead of
+  // approximating a font's ink band, which drifts with the test font.
+  final baselineDy = paragraph.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+  final baseline = word.top + baselineDy;
+  final expectedCentre = baseline - BrandLockup.centreRise(label, drawn);
   final centre = glyph.top + BrandMark.visualCentre.dy * glyph.height;
 
   expect(
     centre,
-    // 3% of the word's size: the band is the test font's, the lockup is built
-    // on the system sans' proportions (BrandLockup.xHeight / capHeight).
-    closeTo((band.$1 + band.$2) / 2, drawn * 0.03),
-    reason: '「$label」: the glyph\'s visual centre on the ${lowercase ? 'x' : 'cap'}-height centre',
+    closeTo(expectedCentre, 0.5),
+    reason: '「$label」: the glyph\'s visual centre at centreRise above the baseline',
   );
   expect(glyph.height, closeTo(drawn * BrandLockup.glyphScale, 0.01), reason: '「$label」: glyph size');
   expect(glyph.width, closeTo(glyph.height * BrandMark.aspect, 0.01));

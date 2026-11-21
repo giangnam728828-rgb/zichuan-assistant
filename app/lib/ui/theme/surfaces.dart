@@ -170,12 +170,14 @@ class DshSurfaces extends ThemeExtension<DshSurfaces> {
       scrim: n.scrim.withValues(alpha: 0.32),
       accent: accent,
       blurEnabled: blurEnabled,
+      // 川水:仅 chrome / sheet 两档真模糊,模糊 σ=20;填充按主色紫染
+      // (浅 14% / 深 18%),让玻璃透出一点知川紫而不是纯白块。
       chrome: GlassStyle(
-        fill: white.withValues(alpha: 0.70),
+        fill: Color.lerp(white, accent.seed, 0.14)!.withValues(alpha: 0.70),
         fallbackFill: n.mistLowest.withValues(alpha: 0.96),
         hairline: ink.withValues(alpha: 0.08),
         rim: white.withValues(alpha: 0.85),
-        blurSigma: 18,
+        blurSigma: 20,
         saturation: 1.3,
         shadows: [
           BoxShadow(color: ink.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 8)),
@@ -183,11 +185,11 @@ class DshSurfaces extends ThemeExtension<DshSurfaces> {
         ],
       ),
       sheet: GlassStyle(
-        fill: n.mistLow.withValues(alpha: 0.82),
+        fill: Color.lerp(n.mistLow, accent.seed, 0.14)!.withValues(alpha: 0.82),
         fallbackFill: n.mistLow,
         hairline: ink.withValues(alpha: 0.07),
         rim: white.withValues(alpha: 0.90),
-        blurSigma: 24,
+        blurSigma: 20,
         saturation: 1.4,
         shadows: [BoxShadow(color: ink.withValues(alpha: 0.10), blurRadius: 32, offset: const Offset(0, 8))],
       ),
@@ -224,11 +226,11 @@ class DshSurfaces extends ThemeExtension<DshSurfaces> {
       accent: accent,
       blurEnabled: blurEnabled,
       chrome: GlassStyle(
-        fill: smoke.withValues(alpha: 0.72),
+        fill: Color.lerp(smoke, accent.seedDark, 0.18)!.withValues(alpha: 0.72),
         fallbackFill: smoke.withValues(alpha: 0.97),
         hairline: white.withValues(alpha: 0.09),
         rim: white.withValues(alpha: 0.12),
-        blurSigma: 18,
+        blurSigma: 20,
         saturation: 1.2,
         shadows: [
           BoxShadow(color: black.withValues(alpha: 0.35), blurRadius: 24, offset: const Offset(0, 8)),
@@ -236,11 +238,11 @@ class DshSurfaces extends ThemeExtension<DshSurfaces> {
         ],
       ),
       sheet: GlassStyle(
-        fill: n.sheetDark.withValues(alpha: 0.86),
+        fill: Color.lerp(n.sheetDark, accent.seedDark, 0.18)!.withValues(alpha: 0.86),
         fallbackFill: n.sheetDark,
         hairline: white.withValues(alpha: 0.08),
         rim: white.withValues(alpha: 0.10),
-        blurSigma: 24,
+        blurSigma: 20,
         saturation: 1.2,
         shadows: [BoxShadow(color: black.withValues(alpha: 0.40), blurRadius: 32, offset: const Offset(0, 8))],
       ),

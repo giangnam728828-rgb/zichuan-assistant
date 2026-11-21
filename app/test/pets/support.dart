@@ -28,9 +28,30 @@ import 'package:flutter_test/flutter_test.dart';
 
 export '../chat/support/harness.dart' show testApp, usePhoneView, testTheme;
 
-/// A shipped pack, from `assets/pets/<id>/pack.json`.
-PetPack diskPack(String id) =>
-    PetPack.parse(jsonDecode(File('assets/pets/$id/pack.json').readAsStringSync()) as Map<String, Object?>);
+/// A fixture pack read from disk. 知川助手 ships no built-in mascots (the
+/// upstream whale art is excluded), so `assets/pets/` is not declared in
+/// pubspec and cannot load through the asset bundle.  Give the parsed pack a
+/// `dir` so sheets are read as files — exactly how an imported (brought) pet
+/// is loaded in the app (PetLibrary.load → PetSheets.load).
+PetPack diskPack(String id) {
+  final dir = 'assets/pets/$id';
+  return PetPack.parse(jsonDecode(File('$dir/pack.json').readAsStringSync()) as Map<String, Object?>, dir: dir);
+}
+
+/// The fixture packs above stand in for pets the person imported. The product
+/// has no built-in pets (`builtInPets` is empty), so the picker lists only
+/// brought pets — feed these in as brought so the fixtures stay testable.
+class FixturePets extends UserPetsController {
+  FixturePets(this.packs);
+
+  final List<PetPack> packs;
+
+  @override
+  Future<List<PetPack>> build() async => packs;
+}
+
+/// Presents [deepy] and [girl] as imported pets, for the picker/prefs tests.
+final broughtPetsOverride = userPetsProvider.overrideWith(() => FixturePets([deepy, girl]));
 
 final deepy = diskPack('deepy-whale');
 final girl = diskPack('whale-girl');
@@ -70,6 +91,7 @@ List<Override> petOverrides({
   double position = PetPrefs.defaultPosition,
   bool quiet = false,
 }) => [
+  broughtPetsOverride,
   petClockProvider.overrideWithValue(clock.call),
   petPackProvider.overrideWith((ref, id) async => id == pack.id ? pack : diskPack(id)),
   petPrefsProvider.overrideWith(

@@ -181,7 +181,7 @@ void main() {
 
     test('quiet, hidden or off the chat page: not on screen (the banner comes back)', () {
       final c = ProviderContainer(
-        overrides: [petPrefsProvider.overrideWith(() => FixedPetPrefs(const PetPrefs(loaded: true)))],
+        overrides: [petPrefsProvider.overrideWith(() => FixedPetPrefs(PetPrefs(loaded: true, packId: deepy.id)))],
       );
       addTearDown(c.dispose);
       c.read(petLayerShownProvider.notifier).set(true);
@@ -217,9 +217,10 @@ void main() {
         testApp(
           const PetSettingsPage(),
           overrides: [
+            broughtPetsOverride,
             petClockProvider.overrideWithValue(clock.call),
             petPackProvider.overrideWith((ref, id) async => diskPack(id)),
-            petPrefsProvider.overrideWith(() => FixedPetPrefs(const PetPrefs(loaded: true))),
+            petPrefsProvider.overrideWith(() => FixedPetPrefs(PetPrefs(loaded: true, packId: deepy.id))),
           ],
         ),
       );
@@ -238,9 +239,10 @@ void main() {
             const PetSettingsPage(),
             brightness: brightness,
             overrides: [
+              broughtPetsOverride,
               petClockProvider.overrideWithValue(TestClock().call),
               petPackProvider.overrideWith((ref, id) async => diskPack(id)),
-              petPrefsProvider.overrideWith(() => FixedPetPrefs(const PetPrefs(loaded: true))),
+              petPrefsProvider.overrideWith(() => FixedPetPrefs(PetPrefs(loaded: true, packId: deepy.id))),
             ],
           ),
         );
@@ -265,9 +267,10 @@ void main() {
         testApp(
           inEnglish(const PetSettingsPage()),
           overrides: [
+            broughtPetsOverride,
             petClockProvider.overrideWithValue(TestClock().call),
             petPackProvider.overrideWith((ref, id) async => diskPack(id)),
-            petPrefsProvider.overrideWith(() => FixedPetPrefs(const PetPrefs(loaded: true))),
+            petPrefsProvider.overrideWith(() => FixedPetPrefs(PetPrefs(loaded: true, packId: deepy.id))),
           ],
         ),
       );

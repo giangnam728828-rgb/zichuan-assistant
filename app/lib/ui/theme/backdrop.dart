@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 
 import 'backdrop_frame.dart';
 import 'surfaces.dart';
+import 'tide_glow.dart';
 
 /// 全屏页面背景:**竖向雾蓝渐变 + 两团极淡的光**。
 ///
@@ -51,14 +52,18 @@ class AppBackdrop extends StatelessWidget {
                   painter: _BackdropPainter(
                     top: s.backdropTop,
                     bottom: s.backdropBottom,
-                    glowPrimary: glow ? s.glowPrimary : null,
-                    glowSecondary: glow ? s.glowSecondary : null,
+                    // 川水:静态光晕降淡(原 0.42/0.28 → 约一半),动态部分交给 TideGlow。
+                    glowPrimary: glow ? s.glowPrimary.withValues(alpha: s.glowPrimary.a * 0.5) : null,
+                    glowSecondary: glow ? s.glowSecondary.withValues(alpha: s.glowSecondary.a * 0.5) : null,
                     picture: picture,
                   ),
                 ),
               ),
             ),
           ),
+          // 川水:背景之上的一层极淡潮汐光斑,独立 ticker,尊重「减少动画」。
+          // 自定义壁纸场景下仍保留(光斑很淡,不遮挡壁纸主体)。
+          if (glow) const Positioned.fill(child: TideGlow()),
           Material(type: MaterialType.transparency, child: child),
         ],
       ),

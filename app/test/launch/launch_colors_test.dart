@@ -30,12 +30,10 @@ void main() {
     expect(LaunchColors.paper, DshPalette.paper);
   });
 
-  test('知川助手：启动页的底色与 App 页面底色现在是两套', () {
-    // 第 1 步（开屏重做）把启动页定为月白/墨，与 colors.xml 完全一致；
-    // App 页面底色要到第 2 步（主题层）才跟着换，所以这里只要求
-    // 「启动页色 == Android 启动窗口色」，不要求与 DshPalette 相同。
-    // 两者不同时，启动层 300 ms 淡出会有一次很轻的过渡，第 2 步消除。
-    expect(LaunchColors.mistTop, isNot(DshPalette.mistTop));
-    expect(LaunchColors.nightTop, isNot(DshPalette.nightTop));
+  test('知川助手：第 2 步后启动页底色与 App 页面底色一致（无淡出色阶）', () {
+    // 第 1 步把启动页定为月白/墨；第 2 步（主题层）把 App 页面底色也换成
+    // 同一个月白/墨。两者一致，启动层 300 ms 淡出不再有色阶跳变。
+    expect(LaunchColors.mistTop, DshPalette.mistTop);
+    expect(LaunchColors.nightTop, DshPalette.nightTop);
   });
 }

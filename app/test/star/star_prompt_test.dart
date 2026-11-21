@@ -105,7 +105,7 @@ const _halfHour = Duration(minutes: 30);
 /// Half an hour in: due.
 const _due = StarPromptRecord(used: _halfHour);
 
-final _github = Uri.parse('https://github.com/ccch1mneyyy/dsh-go');
+final _github = Uri.parse('https://github.com/giangnam728828-rgb/zichuan-assistant');
 
 String _title(int hours) => lookupL10n(AppLocale.zhCN).starPromptTitle(hours);
 
@@ -299,12 +299,12 @@ void main() {
     test('the first line tells the real time: half an hour, then whole hours', () {
       final zh = lookupL10n(AppLocale.zhCN);
       final en = lookupL10n(AppLocale.en);
-      expect(zh.starPromptTitle(0), '本鱼已经在 DSH Go 里陪你半个小时啦⁠~');
-      expect(zh.starPromptTitle(1), '本鱼已经在 DSH Go 里陪你一个小时啦⁠~');
-      expect(zh.starPromptTitle(5), '本鱼已经在 DSH Go 里陪你 5 个小时啦⁠~');
-      expect(en.starPromptTitle(0), 'I’ve kept you company in DSH Go for half an hour now~');
-      expect(en.starPromptTitle(1), 'I’ve kept you company in DSH Go for an hour now~');
-      expect(en.starPromptTitle(6), 'I’ve kept you company in DSH Go for 6 hours now~');
+      expect(zh.starPromptTitle(0), '知川助手已经陪你半个小时啦⁠~');
+      expect(zh.starPromptTitle(1), '知川助手已经陪你一个小时啦⁠~');
+      expect(zh.starPromptTitle(5), '知川助手已经陪你 5 个小时啦⁠~');
+      expect(en.starPromptTitle(0), 'Zhichuan Assistant has kept you company for half an hour now~');
+      expect(en.starPromptTitle(1), 'Zhichuan Assistant has kept you company for an hour now~');
+      expect(en.starPromptTitle(6), 'Zhichuan Assistant has kept you company for 6 hours now~');
     });
 
     test('keeps through JSON; the earlier prompt’s record keeps only whether it was finished', () {
@@ -349,7 +349,7 @@ void main() {
       await bench.settle();
       expect(bench.showing, isTrue);
       expect(find.text(_title(0)), findsOneWidget);
-      expect(find.text('本鱼已经在 DSH Go 里陪你半个小时啦⁠~'), findsOneWidget);
+      expect(find.text('知川助手已经陪你半个小时啦⁠~'), findsOneWidget);
       expect(bench.store.record, const StarPromptRecord(used: _halfHour, shows: 1, askedAt: _halfHour));
     });
 
@@ -474,7 +474,7 @@ void main() {
       expect(await comesBack(bench, const Duration(hours: 4, minutes: 59)), isFalse);
       expect(await comesBack(bench, const Duration(minutes: 1)), isTrue);
       expect(find.text(_title(5)), findsOneWidget);
-      expect(find.text('本鱼已经在 DSH Go 里陪你 5 个小时啦⁠~'), findsOneWidget);
+      expect(find.text('知川助手已经陪你 5 个小时啦⁠~'), findsOneWidget);
       // The back gesture: as 下次再说, the second time.
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
@@ -689,8 +689,8 @@ void main() {
     });
   });
 
-  group('设置 › 关于 DSH Go', () {
-    testWidgets('给 DSH Go 点个 star opens GitHub and ends the prompt', (tester) async {
+  group('设置 › 关于知川助手', () {
+    testWidgets('Repository link opens GitHub', (tester) async {
       usePhoneSurface(tester);
       final bench = _Bench(tester, MemoryStarStore(_due), TestClock());
       await tester.pumpWidget(
@@ -708,15 +708,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final row = find.widgetWithText(SettingsTile, '给 DSH Go 点个 star');
+      final row = find.widgetWithText(SettingsTile, '知川助手源码');
       await tester.scrollUntilVisible(row, 300, scrollable: find.byType(Scrollable).first);
       await tester.pumpAndSettle();
       await tester.tap(row);
       await tester.pumpAndSettle();
       expect(bench.opened, [_github]);
-      final container = ProviderScope.containerOf(tester.element(find.byType(AboutPage)));
-      expect(container.read(starPromptProvider).finished, isTrue);
-      expect(bench.store.record!.finished, isTrue);
+      // 知川助手：关于页的源码外链只负责打开仓库，不再标记 star 提示完成；
+      // 完成状态只由弹窗里的「查看仓库 / 知道了」触发（见 star-go / star-done）。
     });
   });
 
@@ -767,7 +766,12 @@ void main() {
           widths[box.bottom.round()] = (left < box.left ? left : box.left, right > box.right ? right : box.right);
         }
         final lines = [for (final (left, right) in widths.values) right - left];
-        if (scale == 1) expect(lines, hasLength(2));
+        // 知川助手文案更短：普通字号下一行放得下，放大字号时才折成两行。
+        if (scale == 1) {
+          expect(lines, hasLength(1), reason: '$lines');
+        } else {
+          expect(lines, hasLength(2), reason: '$lines');
+        }
         expect(lines.last, greaterThan(lines.first * 0.6), reason: '$lines');
         final go = tester.getRect(_key('star-go'));
         expect(go.left - card.left, moreOrLessEquals(StarPromptDialog.gutter, epsilon: .01));
@@ -801,7 +805,7 @@ void main() {
       await _pumpDialog(tester, width: 360, height: 780, scale: 1.3, locale: const Locale('en'), hours: 6);
       await tester.pumpAndSettle();
       fits(tester);
-      expect(find.text('I’ve kept you company in DSH Go for 6 hours now~'), findsOneWidget);
+      expect(find.text('Zhichuan Assistant has kept you company for 6 hours now~'), findsOneWidget);
     });
 
     testWidgets('animations on: the whale bobs in and comes to rest at full size', (tester) async {

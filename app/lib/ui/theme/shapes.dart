@@ -28,11 +28,29 @@ abstract final class AppShape {
   static const lg = 20.0;
   static const xl = 28.0;
 
+  // 川水新增档:只加不改,旧五档 xs/sm/md/lg/xl 的值保持不变,
+  // 避免把控件(输入框、Chip、列表项)整体变成胶囊。
+  /// 底部导航、输入栏、弹层(28)。
+  static const float = 28.0;
+
+  /// 会话卡片、工具时间线容器(20)。
+  static const panel = 20.0;
+
   static const radiusXs = BorderRadius.all(Radius.circular(xs));
   static const radiusSm = BorderRadius.all(Radius.circular(sm));
   static const radiusMd = BorderRadius.all(Radius.circular(md));
   static const radiusLg = BorderRadius.all(Radius.circular(lg));
   static const radiusXl = BorderRadius.all(Radius.circular(xl));
+  static const radiusFloat = BorderRadius.all(Radius.circular(float));
+  static const radiusPanel = BorderRadius.all(Radius.circular(panel));
+
+  /// 用户气泡:左上/右上/左下 24,右下收成 6(24/24/6/24)。
+  static const bubbleUser = BorderRadius.only(
+    topLeft: Radius.circular(24),
+    topRight: Radius.circular(24),
+    bottomRight: Radius.circular(6),
+    bottomLeft: Radius.circular(24),
+  );
 
   /// 卡片 / 代码井 / 菜单。
   static const card = SquircleBorder(borderRadius: radiusMd);

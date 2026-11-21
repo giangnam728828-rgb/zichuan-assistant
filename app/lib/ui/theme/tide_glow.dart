@@ -22,6 +22,11 @@ import 'surfaces.dart';
 class TideGlow extends StatefulWidget {
   const TideGlow({super.key, this.enabled = true});
 
+  /// 进程级总开关。widget 测试在 `test/support/test_defaults.dart` 里把它
+  /// 设为 false,避免 18 秒的 `repeat()` ticker 让 `pumpAndSettle()` 超时。
+  /// 与 [enabled]、系统「减少动画」三者取与。
+  static bool animationsEnabled = true;
+
   /// 关掉后不创建动画,只画一帧。
   final bool enabled;
 
@@ -35,11 +40,9 @@ class _TideGlowState extends State<TideGlow> with SingleTickerProviderStateMixin
     duration: const Duration(seconds: 18),
   );
 
-  @override
-  void initState() {
-    super.initState();
-    _maybeRun();
-  }
+  // 不在这里读 MediaQuery:initState 阶段依赖 InheritedWidget 是非法时机
+  // (父级重建时会抛 dependOnInheritedWidgetOfExactType before initState completed)。
+  // didChangeDependencies 在 initState 之后首次调用,之后依赖变化也会调用。
 
   @override
   void didChangeDependencies() {
@@ -50,7 +53,7 @@ class _TideGlowState extends State<TideGlow> with SingleTickerProviderStateMixin
   void _maybeRun() {
     if (!mounted) return;
     final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    if (widget.enabled && !reduce) {
+    if (TideGlow.animationsEnabled && widget.enabled && !reduce) {
       if (!_c.isAnimating) _c.repeat();
     } else if (_c.isAnimating) {
       _c.stop();
@@ -73,7 +76,7 @@ class _TideGlowState extends State<TideGlow> with SingleTickerProviderStateMixin
   Widget build(BuildContext context) {
     final surfaces = DshSurfaces.of(context);
     final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    final still = !widget.enabled || reduce;
+    final still = !TideGlow.animationsEnabled || !widget.enabled || reduce;
     final Widget paint = RepaintBoundary(
       child: CustomPaint(
         painter: _TidePainter(
@@ -91,7 +94,7 @@ class _TideGlowState extends State<TideGlow> with SingleTickerProviderStateMixin
 
 class _TidePainter extends CustomPainter {
   _TidePainter({required this.progress, required this.accentA, required this.accentB})
-    : super(repaint: progress is Animation<double> ? progress as Animation<double> : null);
+    : super(repaint: progress is Animation<double> ? progress : null);
 
   final Object progress;
   final Color accentA;
