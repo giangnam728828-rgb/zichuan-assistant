@@ -301,17 +301,31 @@ class LaunchBackground extends StatelessWidget {
   final LaunchSnapshot snapshot;
 
   @override
-  Widget build(BuildContext context) => snapshot.flat
-      ? ColoredBox(color: snapshot.background)
-      : DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [snapshot.background, snapshot.backgroundBottom],
-            ),
+  Widget build(BuildContext context) {
+    // 知川助手：启动画面用猫耳伙伴的形象做背景（用户提供的角色图），
+    // 覆盖在原有渐变之上。图片缺失时（如测试环境）安全回退到纯渐变。
+    final gradient = DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [snapshot.background, snapshot.backgroundBottom],
+        ),
+      ),
+    );
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        snapshot.flat ? ColoredBox(color: snapshot.background) : gradient,
+        if (!snapshot.flat)
+          Image.asset(
+            'assets/brand/launch_bg.jpg',
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => const SizedBox.shrink(),
           ),
-        );
+      ],
+    );
+  }
 }
 
 /// The icon at [frame] (with the light crossing it) and the wordmark under it.
@@ -346,9 +360,17 @@ class LaunchMark extends StatelessWidget {
           rect: frame.icon,
           child: Opacity(
             opacity: iconOpacity,
-            child: CustomPaint(
-              key: iconKey,
-              painter: icon == null || iconOpacity == 0 ? null : _IconPainter(icon, frame.sweep),
+            // 知川助手：中间的启动图标用猫耳伙伴头像（圆形），与启动背景同一形象。
+            // 保留原系统图标截图作为兜底，加载失败时回退。
+            child: ClipOval(
+              child: Image.asset(
+                'assets/brand/companion_avatar.jpg',
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stack) => CustomPaint(
+                  key: iconKey,
+                  painter: icon == null || iconOpacity == 0 ? null : _IconPainter(icon, frame.sweep),
+                ),
+              ),
             ),
           ),
         ),

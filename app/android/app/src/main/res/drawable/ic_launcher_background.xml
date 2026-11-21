@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Launcher background: a warm rose gradient behind the original 子川 river mark. -->
+<!-- Launcher background: a soft lilac gradient behind the Zhichuan cat-eared companion. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
@@ -14,8 +14,8 @@
                 android:startY="-5.87"
                 android:endX="100.43"
                 android:endY="113.87">
-                <item android:offset="0" android:color="#FFFFF3F5" />
-                <item android:offset="1" android:color="#FFF0C7D3" />
+                <item android:offset="0" android:color="#FFF7F4FA" />
+                <item android:offset="1" android:color="#FFB9A9D4" />
             </gradient>
         </aapt:attr>
     </path>

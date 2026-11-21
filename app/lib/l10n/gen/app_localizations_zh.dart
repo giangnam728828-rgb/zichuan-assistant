@@ -12244,7 +12244,7 @@ class L10nZh extends L10n {
   String get phoneSafeAutoSettingsHint => '连续启动失败时自动启用';
 
   @override
-  String get phoneAccentRiver => '知川红';
+  String get phoneAccentRiver => '知川紫';
 
   @override
   String get phoneAccentMist => '雾蓝';
@@ -18271,7 +18271,7 @@ class L10nZh extends L10n {
   String get shellChatGone => '这个对话已不在了';
 
   @override
-  String get shellAccentRiver => '知川红';
+  String get shellAccentRiver => '知川紫';
 
   @override
   String get shellAccentMist => '雾蓝';
@@ -25431,7 +25431,7 @@ class L10nZh extends L10n {
   String get viewGreetingNight => '夜深了';
 
   @override
-  String get viewEmptySubtitle => '今天想做点什么？';
+  String get viewEmptySubtitle => '知川助手，随时为你服务';
 
   @override
   String get viewEmptyStarting => '正在启动引擎…';

@@ -264,9 +264,9 @@ class ChatEmptyState extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // The pet stands on the composer below: one mascot a screen,
-              // so the still whale tail fades while the pet is drawn. Its
-              // room stays, so nothing moves when the pet comes and goes.
+              // 知川助手：空状态页用猫耳伙伴形象取代原鲸尾动画，
+              // 这是与 dsh-Go 视觉区分的核心标志之一。
+              // pet 站在输入栏时淡出伙伴头像，保持「一屏一个吉祥物」。
               enter(
                 Consumer(
                   builder: (context, ref, child) => AnimatedOpacity(
@@ -276,12 +276,16 @@ class ChatEmptyState extends StatelessWidget {
                     child: child,
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.only(bottom: 16),
                     child: Center(
-                      child: WhaleTail(
-                        still: true,
-                        height: 40,
-                        color: riverMarkColorFor(theme.brightness).withValues(alpha: 0.4),
+                      child: ClipOval(
+                        child: Image.asset(
+                          'assets/brand/companion_avatar.jpg',
+                          width: 72,
+                          height: 72,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => SizedBox(width: 72, height: 72),
+                        ),
                       ),
                     ),
                   ),

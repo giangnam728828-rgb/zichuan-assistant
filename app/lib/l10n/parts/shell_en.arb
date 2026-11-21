@@ -129,7 +129,7 @@
   "shellHostChatsAfterConnecting": "This host’s chats appear once connected",
   "shellCurrentHostLabel": "Current host: {name}, {view}. Switch host",
   "shellChatGone": "This chat is gone",
-  "shellAccentRiver": "Zhichuan Red",
+  "shellAccentRiver": "Zhichuan Violet",
   "shellAccentMist": "Mist",
   "shellAccentDaiqing": "Teal",
   "shellAccentDusk": "Dusk",

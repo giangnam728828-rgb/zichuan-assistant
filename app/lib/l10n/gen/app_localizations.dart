@@ -22913,7 +22913,7 @@ abstract class L10n {
   /// No description provided for @phoneAccentRiver.
   ///
   /// In zh, this message translates to:
-  /// **'知川红'**
+  /// **'知川紫'**
   String get phoneAccentRiver;
 
   /// No description provided for @phoneAccentMist.
@@ -33575,7 +33575,7 @@ abstract class L10n {
   /// No description provided for @shellAccentRiver.
   ///
   /// In zh, this message translates to:
-  /// **'知川红'**
+  /// **'知川紫'**
   String get shellAccentRiver;
 
   /// No description provided for @shellAccentMist.
@@ -46505,7 +46505,7 @@ abstract class L10n {
   /// No description provided for @viewEmptySubtitle.
   ///
   /// In zh, this message translates to:
-  /// **'今天想做点什么？'**
+  /// **'知川助手，随时为你服务'**
   String get viewEmptySubtitle;
 
   /// No description provided for @viewEmptyStarting.

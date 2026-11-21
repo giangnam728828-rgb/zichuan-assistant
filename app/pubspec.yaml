@@ -165,8 +165,8 @@ flutter:
     # 子川 river-mark activity sprites (lib/ui/chat/widgets/whale_tail.dart),
     # generated from procedural paths by tool/make_river_sprites.py.
     - assets/whale/
-    # The tavern's own sample card (林晚), offered on its empty home.
-    - assets/tavern/
+    # 知川助手品牌资产：猫耳伙伴启动背景、头像、图标（用户提供的角色形象）。
+    - assets/brand/
     # Engine-side auth bridge (ChatGPT / Claude sign-in), copied into the guest at
     # every engine start by runtime/AppAuthGuest.kt; tests in tool/engine_auth/.
     - assets/engine/auth/

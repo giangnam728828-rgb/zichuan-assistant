@@ -12887,7 +12887,7 @@ class L10nEn extends L10n {
   String get phoneSafeAutoSettingsHint => 'Turn on after repeated startup failures';
 
   @override
-  String get phoneAccentRiver => 'Zhichuan Red';
+  String get phoneAccentRiver => 'Zhichuan Violet';
 
   @override
   String get phoneAccentMist => 'Mist';
@@ -19282,7 +19282,7 @@ class L10nEn extends L10n {
   String get shellChatGone => 'This chat is gone';
 
   @override
-  String get shellAccentRiver => 'Zhichuan Red';
+  String get shellAccentRiver => 'Zhichuan Violet';
 
   @override
   String get shellAccentMist => 'Mist';
@@ -26840,7 +26840,7 @@ class L10nEn extends L10n {
   String get viewGreetingNight => 'It’s late';
 
   @override
-  String get viewEmptySubtitle => 'What would you like to do today?';
+  String get viewEmptySubtitle => 'Zhichuan Assistant, here to help';
 
   @override
   String get viewEmptyStarting => 'Starting engine…';
