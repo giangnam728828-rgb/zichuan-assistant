@@ -31,18 +31,23 @@
     </style>
 
     <!-- Android 13+ (SplashScreen.setSplashScreenTheme, launch/LaunchThemes.kt): the splash of
-         the next launches. Each 桌面图标's own icon, the same one its activity-alias names. -->
+         the next launches. 知川助手：一律不画图标，只有 launch_background_top 的纯色，
+         与 Flutter 第一帧完全一致。 -->
     <style name="LaunchTheme.Mist">
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <!-- 知川助手第 1 步：系统启动页只留纯色，不放图标，避免「方形→圆形」割裂。 -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/launch_icon_none</item>
     </style>
     <style name="LaunchTheme.Night">
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_night</item>
+        <!-- 知川助手第 1 步：系统启动页只留纯色，不放图标，避免「方形→圆形」割裂。 -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/launch_icon_none</item>
     </style>
     <style name="LaunchTheme.Frost">
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_frost</item>
+        <!-- 知川助手第 1 步：系统启动页只留纯色，不放图标，避免「方形→圆形」割裂。 -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/launch_icon_none</item>
     </style>
     <style name="LaunchTheme.Ink">
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_ink</item>
+        <!-- 知川助手第 1 步：系统启动页只留纯色，不放图标，避免「方形→圆形」割裂。 -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/launch_icon_none</item>
     </style>
     <!-- A custom launch screen on white or black: no icon, that colour (the picture fades in over it). -->
     <style name="LaunchTheme.White">

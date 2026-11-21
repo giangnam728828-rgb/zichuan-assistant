@@ -283,7 +283,9 @@ class AppAccent {
   );
 
   /// 设置页里的顺序。知川红排第一,作为默认主色。
-  static const presets = [river, mist, daiqing, dusk, turquoise, amber, graphite];
+  // 知川助手：知川紫顶替石墨，保持六套（选择器在 320dp 上按六套排版）。
+  // graphite 仍可用 `preset('graphite')` 选中与持久化，只是不列在预设行里。
+  static const presets = [river, mist, daiqing, dusk, turquoise, amber];
 
   static const customId = 'custom';
   static const wallpaperId = 'wallpaper';

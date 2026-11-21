@@ -262,10 +262,7 @@ Future<_Bench> _pumpDialog(
     ),
   );
   await tester.pump();
-  // Decoded for real (FakeAsync never finishes a decode), as the host does before it opens.
-  await tester.runAsync(
-    () => precacheImage(const AssetImage(StarPromptDialog.asset), tester.element(find.byType(Scaffold))),
-  );
+  // 知川助手：弹窗的图案是 BrandMark 矢量，不再有需要预解码的图片资源。
   await tester.tap(find.text('打开'));
   await tester.pump();
   return bench;

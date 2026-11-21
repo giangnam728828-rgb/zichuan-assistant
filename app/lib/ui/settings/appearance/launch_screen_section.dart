@@ -24,7 +24,6 @@ import '../../../launch/custom_launch.dart';
 import '../../../launch/launch_import.dart';
 import '../../../launch/launch_media.dart';
 import '../../../launch/launch_motion.dart';
-import '../../../state/app_icon_state.dart';
 import '../../../state/app_info.dart';
 import '../../../state/launch_screen_state.dart';
 import '../../common/brief_notice.dart';
@@ -36,7 +35,6 @@ import '../../launch/launch_preview_page.dart';
 import '../../theme/app_icons.dart';
 import '../../theme/theme.dart';
 import '../settings_widgets.dart';
-import 'app_icon_picker.dart';
 import 'appearance_page.dart';
 
 /// The card's rows.
@@ -350,25 +348,21 @@ class _DefaultMini extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
-    final icon = ref.watch(appIconProvider).value;
     return _Screen(
       child: LayoutBuilder(
         builder: (context, constraints) {
           final size = constraints.biggest;
-          final cover = Rect.fromCenter(
-            center: size.center(Offset.zero),
-            width: LaunchMotion.iconSize,
-            height: LaunchMotion.iconSize,
-          );
-          final layout = LaunchLayout(cover: cover);
-          final settled = layout.settled;
+          // 知川助手第 1 步：开屏不再有图标，预览就是「立绘 + 品牌字」本身。
+          final layout = LaunchLayout(screen: size);
           return ColoredBox(
             color: dark ? LaunchColors.nightTop : LaunchColors.mistTop,
             child: Stack(
+              fit: StackFit.expand,
               children: [
-                Positioned.fromRect(
-                  rect: settled,
-                  child: AppIconPreview(icon?.current ?? AppIcon.mist, size: settled.width, mask: icon?.mask),
+                Image.asset(
+                  LaunchMotion.artAsset,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
                 ),
                 Positioned(
                   left: 0,
@@ -383,7 +377,7 @@ class _DefaultMini extends ConsumerWidget {
                       textScaler: TextScaler.noScaling,
                       style: AppType.wordmark(
                         size: LaunchMotion.wordmarkSize,
-                        color: dark ? LaunchColors.paper : LaunchColors.ink,
+                        color: LaunchColors.ink,
                       ).copyWith(height: LaunchMotion.wordmarkLine),
                     ),
                   ),

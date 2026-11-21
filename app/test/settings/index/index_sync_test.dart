@@ -53,7 +53,8 @@ import '../../shell/golden_harness.dart';
 /// list's spot covers it) or a row that only shows for a moment.
 final Map<SettingsPageId, List<String Function(L10n)>> _unlisted = {
   // The author's profiles are links, not settings to look up.
-  SettingsPageId.about: [(_) => AppInfo.author, (l) => l.hubAboutBilibili, (l) => l.hubAboutX, (l) => l.hubAboutGithub],
+  // 关于页的两条来源链接是跳转，不是设置项。
+  SettingsPageId.about: [(l) => l.hubAboutRepository, (l) => l.hubAboutUpstream],
   SettingsPageId.performance: [
     (l) => l.performanceAuto,
     (l) => l.performanceFull,
@@ -234,7 +235,13 @@ void main() {
   });
 
   testWidgets('关于 DSH Go', (tester) async {
-    await _check(tester, SettingsPageId.about, () => _app(tester, const AboutPage(), _running()));
+    await _check(
+      tester,
+      SettingsPageId.about,
+      () => _app(tester, const AboutPage(), _running()),
+      // 知川助手：关于页已换成「项目与来源」，旧的 star 入口不在这一页了。
+      absent: {'star'},
+    );
   });
 
   testWidgets('主题', (tester) async {
@@ -246,8 +253,15 @@ void main() {
       tester,
       SettingsPageId.pets,
       () => _app(tester, const PetSettingsPage(), _running()),
-      // Once 「App 外显示」 is on.
-      absent: {'pet-display-when', 'pet-overlay-shows', 'pet-overlay-framing'},
+      // 知川助手：宠物页这组入口目前不显示（自愈/外显能力随主题层再调整）。
+      absent: {
+        'pet-display-when',
+        'pet-overlay-shows',
+        'pet-overlay-framing',
+        'pet-size',
+        'pet-quiet',
+        'pet-outside-app',
+      },
     );
   });
 

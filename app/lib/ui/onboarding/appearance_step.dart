@@ -57,8 +57,6 @@ class AppearanceStepPage extends ConsumerWidget {
           margin: EdgeInsets.zero,
           children: [
             const ThemeModePicker(),
-            // The page's column measures intrinsic heights; the palette's
-            // own layout can't answer, so it gets its height here.
             SizedBox(height: PalettePicker.heightFor(context), child: const PalettePicker(custom: false)),
           ],
         ),

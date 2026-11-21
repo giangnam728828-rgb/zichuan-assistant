@@ -6,6 +6,7 @@
 import 'dart:ui' as ui;
 
 import 'package:dsh_app/launch/launch_motion.dart';
+import 'package:dsh_app/launch/custom_launch.dart';
 import 'package:dsh_app/launch/launch_state.dart';
 import 'package:dsh_app/ui/launch/launch_overlay.dart';
 import 'package:flutter/material.dart';
@@ -63,12 +64,15 @@ void main() {
   }
 
   group('first frame', () {
-    testWidgets('is the system splash: 160 square on whole pixels at the centre', (tester) async {
+    testWidgets('第一帧是纯色 + 透明立绘，没有图标也没有方框', (tester) async {
       final c = await start(tester);
-      expect(rectOf(tester, _icon), _systemRect);
-      // Whole physical pixels: the icon's pixels land 1:1 on the screen's.
-      expect(_systemRect.left * 2 % 1, 0);
-      expect(_systemRect.top * 2 % 1, 0);
+      final screen = tester.getRect(find.byType(LaunchOverlay));
+      final art = tester.getRect(_icon);
+      // 立绘以 1.04 起步，所以正好比屏幕大一圈；它是 cover、没有边缘，所以看不出形状。
+      expect(art.width, closeTo(screen.width * 1.04, 1));
+      expect(art.height, closeTo(screen.height * 1.04, 1));
+      expect(art.center.dx, closeTo(screen.center.dx, 0.5));
+      expect(_iconOpacity(tester), 0);
       expect(_wordmark, findsNothing);
       expect(c.phase, LaunchPhase.cover);
       expect(channel.marks, ['firstFrame']);
@@ -80,22 +84,22 @@ void main() {
       final flat = tester.widget<ColoredBox>(
         find.descendant(of: find.byType(LaunchBackground), matching: find.byType(ColoredBox)),
       );
-      expect(flat.color, const Color(0xFFEBF1FE));
+      expect(flat.color, const Color(0xFFF6F3FA));
       await _finish(tester, c);
     });
 
     testWidgets('Android 8–11: gradient, and the motion starts at once', (tester) async {
       final c = await start(tester, sdk: 30, systemSplash: false);
-      final box = tester.widget<DecoratedBox>(
-        find.descendant(of: find.byType(LaunchBackground), matching: find.byType(DecoratedBox)),
+      // 知川助手：8–11 与 12+ 用同一个纯色（不再有渐变），立绘从 0 淡入。
+      final flat = tester.widget<ColoredBox>(
+        find.descendant(of: find.byType(LaunchBackground), matching: find.byType(ColoredBox)),
       );
-      final gradient = (box.decoration as BoxDecoration).gradient! as LinearGradient;
-      expect(gradient.colors, const [Color(0xFFEBF1FE), Color(0xFFF6F7FC)]);
-      expect(rectOf(tester, _icon), _systemRect);
+      expect(flat.color, const Color(0xFFF6F3FA));
+      expect(_iconOpacity(tester), 0);
       await tester.pump();
       expect(c.phase, LaunchPhase.playing);
-      await tester.pump(const Duration(milliseconds: 640));
-      expect(tester.getRect(_icon).width, closeTo(128, 0.01));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(_iconOpacity(tester), closeTo(1, 0.02));
     });
 
     testWidgets('HarmonyOS: the still picture holds until the app is ready, then the motion plays', (tester) async {
@@ -103,12 +107,12 @@ void main() {
       final c = await start(tester, sdk: 26, systemSplash: false, motionAfterReady: true, coldEngine: true);
       await tester.pump(const Duration(milliseconds: 500));
       expect(c.phase, LaunchPhase.cover);
-      expect(rectOf(tester, _icon), _systemRect);
+      expect(_iconOpacity(tester), 0);
       c.ready();
       await tester.pump();
       expect(c.phase, LaunchPhase.playing);
-      await tester.pump(const Duration(milliseconds: 640));
-      expect(tester.getRect(_icon).width, closeTo(128, 0.01));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(_iconOpacity(tester), closeTo(1, 0.02));
       c.engineReady();
       await _finish(tester, c);
     });
@@ -130,19 +134,20 @@ void main() {
       // A parent of another type remounts the layer, as MaterialApp's Theme / AnimatedTheme swap did.
       await tester.pumpWidget(KeyedSubtree(key: UniqueKey(), child: launchApp(c)));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 640));
-      expect(tester.getRect(_icon).width, closeTo(128, 0.01));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(_iconOpacity(tester), closeTo(1, 0.02));
       await _finish(tester, c);
     });
 
-    testWidgets('dark: the night page colour and a light wordmark', (tester) async {
+    testWidgets('dark: 立绘是亮的，所以品牌字仍然是深墨色', (tester) async {
       final c = await start(tester, dark: true, sdk: 30, systemSplash: false);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 700));
       expect(c.phase, LaunchPhase.playing);
       final text = tester.widget<Text>(find.descendant(of: _wordmark, matching: find.byType(Text)));
-      expect(text.style!.color, const Color(0xFFE6E9F0));
-      expect(text.data, 'DSH Go');
+      // 字压在亮调立绘上：两种模式都用 ink，才读得清。
+      expect(text.style!.color, LaunchColors.ink);
+      expect(text.data, '知川助手');
     });
   });
 
@@ -151,7 +156,7 @@ void main() {
       final c = await start(tester);
       await tester.pump(const Duration(milliseconds: 300));
       expect(c.phase, LaunchPhase.cover);
-      expect(rectOf(tester, _icon), _systemRect);
+      expect(_iconOpacity(tester), 0);
       expect(channel.calls, isNot(contains('reveal')));
       await _finish(tester, c);
     });
@@ -162,21 +167,21 @@ void main() {
       const vendor = Rect.fromLTWH(125, 300, 140, 140);
       final handing = c.handOver(vendor);
       await tester.pump();
-      // Redrawn on the measurement while the splash is still on top.
-      expect(rectOf(tester, _icon), vendor);
+      // 立绘铺满整屏，与 splash 量到的方框无关；此时仍不可见。
+      expect(_iconOpacity(tester), 0);
       expect(channel.calls, isNot(contains('reveal')));
       await tester.pump();
       await tester.pump();
       await handing;
       expect(channel.calls, contains('reveal'));
       expect(c.phase, LaunchPhase.playing);
-      expect(rectOf(tester, _icon), vendor);
-      await tester.pump(const Duration(milliseconds: 640));
-      final settled = LaunchLayout(cover: vendor).settled;
+      await tester.pump(const Duration(milliseconds: 500));
+      // 知川助手：立绘铺满整屏，与系统图标的方框无关；落定时它正好是屏幕大小。
+      final screen = tester.getRect(find.byType(LaunchOverlay));
       final r = tester.getRect(_icon);
-      expect(r.width, closeTo(settled.width, 0.01));
-      expect(r.center.dx, closeTo(settled.center.dx, 0.01));
-      expect(r.center.dy, closeTo(settled.center.dy, 0.01));
+      expect(r.width, closeTo(screen.width, 0.5));
+      expect(r.height, closeTo(screen.height, 0.5));
+      expect(_iconOpacity(tester), closeTo(1, 0.02));
     });
 
     testWidgets('a splash exactly where the first frame drew it: no redraw, no fade, plays at once', (tester) async {
@@ -185,9 +190,10 @@ void main() {
       expect(c.phase, LaunchPhase.playing);
       expect(channel.calls, isNot(contains('reveal')));
       await tester.pump();
-      expect(rectOf(tester, _icon), _systemRect);
-      await tester.pump(const Duration(milliseconds: 640));
-      expect(tester.getRect(_icon).width, closeTo(128, 0.01));
+      // 第一帧就是立绘（透明），不是系统图标的方框。
+      expect(_iconOpacity(tester), 0);
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(_iconOpacity(tester), closeTo(1, 0.02));
       await _finish(tester, c);
     });
 
@@ -228,30 +234,31 @@ void main() {
       return c;
     }
 
-    testWidgets('0 / 320 / 640 / 1360 ms', (tester) async {
+    testWidgets('0 / 320 / 500 / 800 / 1400 ms（立绘推近 + 品牌字上浮）', (tester) async {
       await played(tester);
-      final layout = LaunchLayout(cover: _systemRect);
-      final samples = <int, (double width, double cy, double word)>{};
+      final screen = tester.getRect(find.byType(LaunchOverlay));
+      final layout = LaunchLayout(screen: screen.size);
+      final samples = <int, (double artOpacity, double word)>{};
       var t = 0;
-      for (final ms in [0, 320, 640, 1360]) {
+      for (final ms in [0, 320, 500, 800, 1400]) {
         await tester.pump(Duration(milliseconds: ms - t));
         t = ms;
-        final r = tester.getRect(_icon);
         final word = _wordmark.evaluate().isEmpty ? 0.0 : opacityOf(tester, _wordmark);
-        samples[ms] = (r.width, r.center.dy, word);
+        samples[ms] = (_iconOpacity(tester), word);
       }
-      expect(samples[0]!.$1, closeTo(160, 0.01));
-      expect(samples[0]!.$3, 0);
-      expect(samples[320]!.$1, inExclusiveRange(128, 144));
-      expect(samples[320]!.$3, greaterThan(0.3));
-      expect(samples[640]!.$1, closeTo(128, 0.01));
-      expect(samples[640]!.$2, closeTo(layout.settled.center.dy, 0.01));
-      expect(samples[640]!.$3, 1);
-      expect(samples[1360]!.$1, closeTo(128, 0.01));
-      // The wordmark sits under the icon, centred on the screen.
+      // 立绘：从透明淡入到不透明。
+      expect(samples[0]!.$1, 0);
+      expect(samples[320]!.$1, inExclusiveRange(0.3, 1.0));
+      expect(samples[500]!.$1, closeTo(1, 0.02));
+      // 品牌字：350 ms 后才有，800 ms 到位。
+      expect(samples[0]!.$2, 0);
+      expect(samples[320]!.$2, 0);
+      expect(samples[800]!.$2, closeTo(1, 0.02));
+      expect(samples[1400]!.$2, closeTo(1, 0.02));
+      // 品牌字位置：屏幕高度的 72%，水平居中。
       final word = tester.getRect(_wordmark);
-      expect(word.top, closeTo(layout.wordmarkTop, 0.01));
-      expect(word.center.dx, closeTo(195, 0.01));
+      expect(word.top, closeTo(layout.wordmarkTop, 0.5));
+      expect(word.center.dx, closeTo(screen.width / 2, 0.5));
     });
 
     testWidgets('ready leaves at once, mid-motion, and lets taps through while fading', (tester) async {
@@ -310,13 +317,16 @@ void main() {
     });
   });
 
-  testWidgets('减少动画: the icon stays still and the layer is gone the moment the app is ready', (tester) async {
+  testWidgets('减少动画: 立绘与品牌字直接停在终点，不等动画', (tester) async {
     final c = await start(tester, sdk: 30, systemSplash: false, reduceMotion: true);
     await tester.pump();
     expect(c.phase, LaunchPhase.playing);
     await tester.pump(const Duration(milliseconds: 800));
-    expect(rectOf(tester, _icon), _systemRect);
-    expect(_wordmark, findsNothing);
+    // 立绘停在终点：完全不透明、正好屏幕大小。
+    expect(_iconOpacity(tester), 1);
+    final screen = tester.getRect(find.byType(LaunchOverlay));
+    expect(tester.getRect(_icon).width, closeTo(screen.width, 1));
+    expect(_wordmark, findsOneWidget);
     c.ready();
     await tester.pump();
     expect(c.phase, LaunchPhase.gone);

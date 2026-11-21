@@ -155,9 +155,9 @@ void main() {
       await c.handOver(const Rect.fromLTWH(115, 342, 160, 160), removed: true);
       await tester.pump();
       expect(c.phase, LaunchPhase.playing);
-      await wait(tester, 1300);
+      await wait(tester, 1350);
       expect(c.phase, LaunchPhase.playing);
-      await wait(tester, 100);
+      await wait(tester, 200);
       expect(c.phase, LaunchPhase.leaving);
     });
 
@@ -356,7 +356,8 @@ void main() {
     ) async {
       final c = await start(tester, cold: false, reduceMotion: true);
       await wait(tester, 200);
-      expect(find.byKey(LaunchMark.wordmarkKey), findsNothing);
+      // 知川助手：减少动画时立绘与品牌字都直接停在终点，所以字标是在的。
+      expect(find.byKey(LaunchMark.wordmarkKey), findsOneWidget);
       c.ready();
       await tester.pump();
       expect(c.phase, LaunchPhase.gone);

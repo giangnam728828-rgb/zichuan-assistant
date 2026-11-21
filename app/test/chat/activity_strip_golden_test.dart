@@ -206,7 +206,7 @@ void main() {
         StatefulBuilder(
           builder: (context, setState) {
             set = setState;
-            return WhaleTail(level: level, color: deepSeekBlue);
+            return WhaleTail(level: level, color: riverMarkLight);
           },
         ),
       ]);
@@ -247,7 +247,7 @@ void main() {
     });
 
     testWidgets('still: the still frame, no ticker', (tester) async {
-      await pumpSheet(tester, [const WhaleTail(still: true, color: deepSeekBlue)]);
+      await pumpSheet(tester, [const WhaleTail(still: true, color: riverMarkLight)]);
       await tester.pump(const Duration(milliseconds: 100));
       final whale = tester.state<WhaleTailState>(find.byType(WhaleTail));
       expect(whale.shownForm, 1);
@@ -261,7 +261,7 @@ void main() {
       await tester.pumpWidget(
         MediaQuery(
           data: const MediaQueryData(disableAnimations: true),
-          child: Center(child: WhaleTail(level: 4, color: deepSeekBlue)),
+          child: Center(child: WhaleTail(level: 4, color: riverMarkLight)),
         ),
       );
       await tester.pump(const Duration(milliseconds: 100));
@@ -322,9 +322,9 @@ void main() {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                WhaleTail(still: true, color: whaleColorFor(brightness), height: 56),
+                WhaleTail(still: true, color: riverMarkColorFor(brightness), height: 56),
                 for (var level = 2; level <= 4; level++)
-                  WhaleTail(level: level, color: whaleColorFor(brightness), height: 56),
+                  WhaleTail(level: level, color: riverMarkColorFor(brightness), height: 56),
               ],
             ),
           ],

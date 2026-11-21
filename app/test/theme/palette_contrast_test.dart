@@ -63,8 +63,8 @@ void main() {
 
   test('presets: unique ids and names, river first', () {
     expect(AppAccent.presets.first, AppAccent.river);
-    expect(AppAccent.presets.map((p) => p.id).toSet(), hasLength(7));
-    expect(AppAccent.presets.map((p) => p.label), ['知川紫', '雾蓝', '黛青', '暮紫', '松石', '琥珀', '石墨']);
+    expect(AppAccent.presets.map((p) => p.id).toSet(), hasLength(6));
+    expect(AppAccent.presets.map((p) => p.label), ['知川紫', '雾蓝', '黛青', '暮紫', '松石', '琥珀']);
     expect(AppAccent.preset('nope'), AppAccent.mist);
     expect(AppAccent.preset('amber'), AppAccent.amber);
   });

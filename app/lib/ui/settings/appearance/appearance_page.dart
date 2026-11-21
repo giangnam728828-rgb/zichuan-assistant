@@ -496,7 +496,6 @@ class PalettePicker extends ConsumerWidget {
           padding: EdgeInsets.fromLTRB(side, PickerGrid.inset, side, PickerGrid.inset),
           child: custom
               ? Wrap(alignment: WrapAlignment.spaceBetween, runSpacing: PickerGrid.gap, children: slots)
-              // First-run pages measure this six-palette row with heightFor.
               : Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.start,

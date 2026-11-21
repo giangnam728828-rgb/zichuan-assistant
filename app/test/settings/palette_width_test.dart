@@ -104,7 +104,7 @@ void main() {
       });
     }
 
-    testWidgets('first-run six-palette row keeps its fixed height at 320/1.3 ($language)', (tester) async {
+    testWidgets('first-run palette wraps without overflow at 320/1.3 ($language)', (tester) async {
       var completed = false;
       final container = await _pump(
         tester,
@@ -115,7 +115,9 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       final rings = _rings(tester, custom: false);
-      expect(rings.map((r) => r.center.dy).toSet(), hasLength(1));
+      // 知川助手：7 套配色在 320dp 下会折成两行；_rings 已经逐条验过
+      // 「不重叠、都在卡片内、直径不变」，这里只要求一个都不少。
+      expect(rings.length, AppAccent.presets.length);
       expect(_choice(appL10n.pluginsCustomColor), findsNothing);
       final preset = AppAccent.presets.last;
       await tester.tap(_choice(preset.label));

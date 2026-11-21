@@ -243,9 +243,15 @@ void main() {
     expect(card.right - discs.last.right, moreOrLessEquals(PickerGrid.inset, epsilon: 0.6));
     // 16 under the card's own 4 at the top, like every other picker.
     expect(discs.first.top - card.top, moreOrLessEquals(PickerGrid.inset + 4, epsilon: 0.6));
-    final gaps = [for (var i = 1; i < discs.length; i++) discs[i].center.dx - discs[i - 1].center.dx];
-    for (final g in gaps) {
-      expect(g, moreOrLessEquals(gaps.first, epsilon: 0.6));
+    // 知川助手：7 套配色 + 自定义在窄屏会折行；同一行内等间距，跨行不比较。
+    final gaps = [
+      for (var i = 1; i < discs.length; i++)
+        if (discs[i].center.dy == discs[i - 1].center.dy) discs[i].center.dx - discs[i - 1].center.dx,
+    ];
+    if (gaps.isNotEmpty) {
+      for (final g in gaps) {
+        expect(g, moreOrLessEquals(gaps.first, epsilon: 0.6));
+      }
     }
     for (final d in discs) {
       expect(d.center.dy, moreOrLessEquals(discs.first.center.dy, epsilon: 0.01));

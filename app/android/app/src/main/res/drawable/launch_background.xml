@@ -1,18 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Launch window background (Android 8–11; 12+ shows the system splash instead, and some ROMs
-     still show this window there): the Mist Glass page gradient (night variant via values-night)
-     and nothing else. No icon: a window background is the activity's theme, which can't follow
-     the 桌面图标 the person chose (an activity-alias has no theme), so an icon here would be the
-     default one for everybody. Dart's first frame is this same page and brings the chosen icon
-     in (launch/LaunchThemes.kt, app/lib/launch/). -->
+<!-- 知川助手第 1 步：启动窗口背景是一个纯色，不是渐变。
+     与 values-v31 的 windowSplashScreenBackground 用同一个颜色，
+     Kotlin 也把它原样交给 Flutter 的第一帧（LaunchScreen.kt），
+     所以系统页 → Flutter 之间没有颜色跳变，也没有任何图标形状。
+     立绘由 Dart 层淡入并缓慢推近（lib/ui/launch/launch_overlay.dart）。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
-            <gradient
-                android:angle="270"
-                android:endColor="@color/launch_background_bottom"
-                android:startColor="@color/launch_background_top"
-                android:type="linear" />
+            <solid android:color="@color/launch_background_top" />
         </shape>
     </item>
 </layer-list>

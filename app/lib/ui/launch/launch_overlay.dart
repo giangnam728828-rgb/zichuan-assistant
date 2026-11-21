@@ -6,7 +6,6 @@
 
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -140,6 +139,11 @@ class _LaunchOverlayState extends State<LaunchOverlay> with TickerProviderStateM
     _c.addListener(_sync);
     SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // 知川助手：先把立绘解好码再画，第一帧就是有图的（不闪一下纯色）。
+      // 失败不阻塞启动：只剩系统页那个纯色，观感仍然连续。
+      unawaited(
+        precacheImage(const AssetImage(LaunchMotion.artAsset), context, onError: (_, _) {}),
+      );
       _c.firstFrame();
       // A layer remounted under a controller already past the cover won't hear of the phase it
       // missed, and the motion's first frame is a blank page.
@@ -180,7 +184,11 @@ class _LaunchOverlayState extends State<LaunchOverlay> with TickerProviderStateM
       case LaunchPhase.playing:
         if (_c.showsCustom) {
           _startCustom();
-        } else if (!_reduced && !_play.isAnimating && _play.value == 0) {
+        } else if (_reduced) {
+          // 减少动画：不再播放，但立绘与品牌字必须停在各自终点（progress = 1），
+          // 否则会停在 0 —— 那就是一片纯色，什么也看不见。
+          if (_play.value != 1) _play.value = 1;
+        } else if (!_play.isAnimating && _play.value == 0) {
           unawaited(_play.forward().then((_) => _c.motionDone()));
         }
       case LaunchPhase.leaving:
@@ -229,9 +237,11 @@ class _LaunchOverlayState extends State<LaunchOverlay> with TickerProviderStateM
     }
     final snapshot = _c.snapshot;
     final media = MediaQuery.of(context);
-    final layout = LaunchLayout(cover: _c.iconSquare(media.size, media.devicePixelRatio));
+    final layout = LaunchLayout(
+      screen: media.size,
+      cover: _c.iconSquare(media.size, media.devicePixelRatio),
+    );
     final leaving = _c.phase == LaunchPhase.leaving;
-    final cover = _c.phase == LaunchPhase.cover;
     final custom = _c.custom;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: dshSystemOverlay(snapshot.dark ? Brightness.dark : Brightness.light),
@@ -264,16 +274,10 @@ class _LaunchOverlayState extends State<LaunchOverlay> with TickerProviderStateM
                             frame: frame,
                             layout: layout,
                             showWordmark: !_c.showsCustom,
-                            // The system's picture had the icon: it is there from the start. Else
-                            // nothing at first (the page alone, like the system's), then it comes
-                            // in with the motion; a custom picture takes its place instead.
-                            iconOpacity: _c.systemIcon
-                                ? 1
-                                : cover || _c.showsCustom
-                                ? 0
-                                : _reduced
-                                ? 1
-                                : frame.iconFade,
+                            // 知川助手：系统启动页不再画任何东西，所以立绘一律从 0 淡入
+                            // （透明度在 frame.artOpacity 里）。自定义启动图占位时让开。
+                            // 减少动画时立绘直接停在终点，由 frame 里的曲线保证（progress=1）。
+                            iconOpacity: _c.showsCustom ? 0 : 1,
                           );
                         },
                       ),
@@ -294,41 +298,25 @@ class _LaunchOverlayState extends State<LaunchOverlay> with TickerProviderStateM
   }
 }
 
-/// The launch window's page: flat on Android 12+, the gradient before.
+/// The launch window's page: one flat colour, on every Android version.
+///
+/// 知川助手（第 1 步）：系统启动页现在只画 `launch_background_top` 这一个纯色
+/// （values-v31 的 windowSplashScreenBackground，8–11 的 launch_background.xml），
+/// 而 Kotlin 把这个颜色原样交给这一层，所以系统页与 Flutter 第一帧之间没有
+/// 任何颜色或形状的跳变——这正是要消除的那种割裂。
 class LaunchBackground extends StatelessWidget {
   const LaunchBackground({super.key, required this.snapshot});
 
   final LaunchSnapshot snapshot;
 
   @override
-  Widget build(BuildContext context) {
-    // 知川助手：启动画面用猫耳伙伴的形象做背景（用户提供的角色图），
-    // 覆盖在原有渐变之上。图片缺失时（如测试环境）安全回退到纯渐变。
-    final gradient = DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [snapshot.background, snapshot.backgroundBottom],
-        ),
-      ),
-    );
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        snapshot.flat ? ColoredBox(color: snapshot.background) : gradient,
-        if (!snapshot.flat)
-          Image.asset(
-            'assets/brand/launch_bg.jpg',
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => const SizedBox.shrink(),
-          ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => ColoredBox(color: snapshot.background);
 }
 
-/// The icon at [frame] (with the light crossing it) and the wordmark under it.
+/// The full-bleed artwork settling in, and the wordmark rising under it.
+///
+/// 知川助手（第 1 步）：这里不再画任何「图标」——没有方形，也没有圆形。立绘
+/// cover 铺满整屏，所以它没有边缘，也就没有形状可以突变。只动 opacity 与 scale。
 class LaunchMark extends StatelessWidget {
   const LaunchMark({
     super.key,
@@ -344,56 +332,92 @@ class LaunchMark extends StatelessWidget {
   final LaunchLayout layout;
   final bool showWordmark;
 
-  /// How much of the icon shows (it comes in when the system's picture had none).
+  /// Multiplies the artwork's own opacity (1 outside tests).
   final double iconOpacity;
 
+  /// The artwork layer (the wordmark has [wordmarkKey]). Kept under this name so
+  /// existing launch tests keep finding the thing that carries the motion.
   static const iconKey = ValueKey('launch-icon');
   static const wordmarkKey = ValueKey('launch-wordmark');
 
   @override
   Widget build(BuildContext context) {
-    final icon = snapshot.icon;
     return Stack(
       fit: StackFit.expand,
       children: [
-        Positioned.fromRect(
-          rect: frame.icon,
-          child: Opacity(
-            opacity: iconOpacity,
-            // 知川助手：中间的启动图标用猫耳伙伴头像（圆形），与启动背景同一形象。
-            // 保留原系统图标截图作为兜底，加载失败时回退。
-            child: ClipOval(
-              child: Image.asset(
-                'assets/brand/companion_avatar.jpg',
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stack) => CustomPaint(
-                  key: iconKey,
-                  painter: icon == null || iconOpacity == 0 ? null : _IconPainter(icon, frame.sweep),
+        // 立绘层：铺满整屏，推近时超出的部分由 ClipRect 裁掉（不留任何边缘）。
+        Positioned.fill(
+          child: ClipRect(
+            child: Opacity(
+              opacity: (frame.artOpacity * iconOpacity).clamp(0.0, 1.0),
+              child: Transform.scale(
+                scale: frame.artScale,
+                // SizedBox.expand gives the image tight full-screen constraints so
+                // BoxFit.cover actually crops-to-fill; without it the decoder keeps
+                // the asset's own size and the art appears as a centred band.
+                child: SizedBox.expand(
+                  child: Image.asset(
+                    key: iconKey,
+                    LaunchMotion.artAsset,
+                    fit: BoxFit.cover,
+                    // A missing asset (tests, a stripped build) leaves the flat page colour,
+                    // which is still the system splash's own colour.
+                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                  ),
                 ),
               ),
             ),
           ),
         ),
+        // 字下方那层淡渐变：让品牌字压在立绘上仍然读得清（方案第 1 步要求）。
+        if (showWordmark)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: layout.wordmarkScrimHeight,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      LaunchColors.mistTop.withValues(alpha: 0),
+                      LaunchColors.mistTop.withValues(alpha: LaunchMotion.wordmarkScrimPeak),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (showWordmark && frame.wordmarkOpacity > 0)
           Positioned(
             left: 0,
             right: 0,
             top: layout.wordmarkTop + frame.wordmarkRise,
             height: layout.wordmarkHeight,
-            child: Opacity(
-              key: wordmarkKey,
-              opacity: frame.wordmarkOpacity,
-              child: Center(
-                child: Text(
-                  AppInfo.name,
-                  maxLines: 1,
-                  softWrap: false,
-                  // A logo, not a line of reading: the same size at every text scale.
-                  textScaler: TextScaler.noScaling,
-                  style: AppType.wordmark(
-                    size: LaunchMotion.wordmarkSize,
-                    color: snapshot.dark ? LaunchColors.paper : LaunchColors.ink,
-                  ).copyWith(height: LaunchMotion.wordmarkLine),
+            child: IgnorePointer(
+              child: Opacity(
+                key: wordmarkKey,
+                opacity: frame.wordmarkOpacity,
+                child: _WordmarkSweep(
+                  sweep: frame.sweep,
+                  band: layout.sweepBand,
+                  child: Center(
+                    child: Text(
+                      AppInfo.name,
+                      maxLines: 1,
+                      softWrap: false,
+                      // A logo, not a line of reading: the same size at every text scale.
+                      textScaler: TextScaler.noScaling,
+                      // 立绘是一张亮调插画，字压在她脸上：两种模式都用深墨字才读得清。
+                      style: AppType.wordmark(
+                        size: LaunchMotion.wordmarkSize,
+                        color: LaunchColors.ink,
+                      ).copyWith(height: LaunchMotion.wordmarkLine),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -403,51 +427,37 @@ class LaunchMark extends StatelessWidget {
   }
 }
 
-/// The launch icon, and when [sweep] is set a soft band of light across it at that point
-/// (0 → 1, left to right), lit only where the icon is.
-class _IconPainter extends CustomPainter {
-  _IconPainter(this.image, this.sweep);
+/// 一道细光只扫过品牌字本身（不扫全屏），像月光擦过水面。
+class _WordmarkSweep extends StatelessWidget {
+  const _WordmarkSweep({required this.sweep, required this.band, required this.child});
 
-  final ui.Image image;
+  /// 0 → 1 across the wordmark, or null when the light isn't on it.
   final double? sweep;
+  final Rect band;
+  final Widget child;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final dst = Offset.zero & size;
-    final src = Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble());
-    final paint = Paint()..filterQuality = FilterQuality.medium;
+  Widget build(BuildContext context) {
     final sweep = this.sweep;
-    if (sweep == null) {
-      canvas.drawImageRect(image, src, dst, paint);
-      return;
-    }
-    canvas
-      ..saveLayer(dst, Paint())
-      ..drawImageRect(image, src, dst, paint);
-    final w = size.width;
-    final band = w * LaunchMotion.sweepWidth;
-    final x = -0.5 * w + sweep * 2 * w;
-    const white = Color(0xFFFFFFFF);
-    final shader = LinearGradient(
-      colors: [
-        white.withValues(alpha: 0),
-        white.withValues(alpha: LaunchMotion.sweepPeak),
-        white.withValues(alpha: 0),
-      ],
-      transform: const GradientRotation(LaunchMotion.sweepTilt),
-    ).createShader(Rect.fromLTWH(x - band / 2, -size.height, band, size.height * 3));
-    canvas
-      ..drawRect(
-        dst,
-        Paint()
-          ..shader = shader
-          ..blendMode = BlendMode.srcATop,
-      )
-      ..restore();
+    if (sweep == null) return child;
+    return ShaderMask(
+      blendMode: BlendMode.srcATop,
+      shaderCallback: (rect) {
+        final width = band.width * LaunchMotion.sweepBandWidth;
+        final x = -width + sweep * (rect.width * 2 + width);
+        const white = Color(0xFFFFFFFF);
+        return LinearGradient(
+          colors: [
+            white.withValues(alpha: 0),
+            white.withValues(alpha: LaunchMotion.sweepPeak),
+            white.withValues(alpha: 0),
+          ],
+          transform: const GradientRotation(LaunchMotion.sweepTilt),
+        ).createShader(Rect.fromLTWH(x - width / 2, -rect.height, width, rect.height * 3));
+      },
+      child: child,
+    );
   }
-
-  @override
-  bool shouldRepaint(_IconPainter old) => old.image != image || old.sweep != sweep;
 }
 
 /// The user's launch screen: the picture on its background, filling the screen or whole and

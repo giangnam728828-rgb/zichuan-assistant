@@ -296,21 +296,9 @@ void main() {
       }
     });
 
-    testWidgets("墨's glyph colour", (tester) async {
-      final bytes = File('$res/mipmap-xxxhdpi/ic_launcher_ink_foreground.png').readAsBytesSync();
-      final rgba = await tester.runAsync(() async {
-        final frame = await (await ui.instantiateImageCodec(bytes)).getNextFrame();
-        return (await frame.image.toByteData())!;
-      });
-      // Inside the body (108 grid (53.5, 70)), at 4 px per unit.
-      final at = (280 * 432 + 214) * 4;
-      final pixel = [for (var i = 0; i < 4; i++) rgba!.getUint8(at + i)];
-      final mono = AppIconArt.of(AppIcon.ink).mono!;
-      expect(pixel[3], 255);
-      expect(pixel[0], closeTo((mono.r * 255).round(), 2));
-      expect(pixel[1], closeTo((mono.g * 255).round(), 2));
-      expect(pixel[2], closeTo((mono.b * 255).round(), 2));
-    });
+    // 知川助手：默认图标的前景换成了角色立绘，「墨」变体不再保证是矢量单色 glyph，
+    // 原来按 432×432 网格取像素的断言前提已不成立，故移除。图标的实际外观由
+    // app_icon_picker 的金图与 Android 资源本身负责。
   });
 
   goldenBoth(

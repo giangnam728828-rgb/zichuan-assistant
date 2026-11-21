@@ -206,7 +206,7 @@ void main() {
           ),
         );
         final label = failed ? '重新连接' : '在「项目」中';
-        final subtitle = tester.getRect(find.text(failed ? '没能连上引擎' : '今天想做点什么？'));
+        final subtitle = tester.getRect(find.text(failed ? '没能连上引擎' : '知川助手，随时为你服务'));
         final pill = _rect(tester, label);
         return (pill, pill.top - subtitle.bottom);
       }
