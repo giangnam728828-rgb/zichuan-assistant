@@ -64,14 +64,15 @@ void main() {
   }
 
   group('first frame', () {
-    testWidgets('第一帧是纯色 + 透明立绘，没有图标也没有方框', (tester) async {
+    testWidgets('第一帧是纯色 + 一条尚未展开的细线，没有图标也没有方框', (tester) async {
       final c = await start(tester);
       final screen = tester.getRect(find.byType(LaunchOverlay));
-      final art = tester.getRect(_icon);
-      // 立绘以 1.04 起步，所以正好比屏幕大一圈；它是 cover、没有边缘，所以看不出形状。
-      expect(art.width, closeTo(screen.width * 1.04, 1));
-      expect(art.height, closeTo(screen.height * 1.04, 1));
-      expect(art.center.dx, closeTo(screen.center.dx, 0.5));
+      // 细线：此帧 scaleX 与 opacity 都是 0，所以看不见；它居中、1px 高。
+      final scale = tester.widget<Transform>(
+        find.ancestor(of: _icon, matching: find.byType(Transform)).first,
+      );
+      expect(scale.transform.storage[0], 0); // scaleX
+      expect(tester.widget<Container>(_icon).constraints!.maxHeight, 1);
       expect(_iconOpacity(tester), 0);
       expect(_wordmark, findsNothing);
       expect(c.phase, LaunchPhase.cover);
@@ -84,7 +85,7 @@ void main() {
       final flat = tester.widget<ColoredBox>(
         find.descendant(of: find.byType(LaunchBackground), matching: find.byType(ColoredBox)),
       );
-      expect(flat.color, const Color(0xFFF6F3FA));
+      expect(flat.color, LaunchColors.mistTop);
       await _finish(tester, c);
     });
 
@@ -94,7 +95,7 @@ void main() {
       final flat = tester.widget<ColoredBox>(
         find.descendant(of: find.byType(LaunchBackground), matching: find.byType(ColoredBox)),
       );
-      expect(flat.color, const Color(0xFFF6F3FA));
+      expect(flat.color, LaunchColors.mistTop);
       expect(_iconOpacity(tester), 0);
       await tester.pump();
       expect(c.phase, LaunchPhase.playing);
@@ -139,15 +140,16 @@ void main() {
       await _finish(tester, c);
     });
 
-    testWidgets('dark: 立绘是亮的，所以品牌字仍然是深墨色', (tester) async {
+    testWidgets('dark: 深墨底上用浅字', (tester) async {
       final c = await start(tester, dark: true, sdk: 30, systemSplash: false);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 700));
       expect(c.phase, LaunchPhase.playing);
-      final text = tester.widget<Text>(find.descendant(of: _wordmark, matching: find.byType(Text)));
-      // 字压在亮调立绘上：两种模式都用 ink，才读得清。
-      expect(text.style!.color, LaunchColors.ink);
-      expect(text.data, '知川助手');
+      final texts = tester
+          .widgetList<Text>(find.descendant(of: _wordmark, matching: find.byType(Text)))
+          .toList();
+      expect(texts.map((t) => t.data).join(), '知川');
+      expect(texts.first.style!.color, LaunchColors.paper);
     });
   });
 
@@ -176,11 +178,11 @@ void main() {
       expect(channel.calls, contains('reveal'));
       expect(c.phase, LaunchPhase.playing);
       await tester.pump(const Duration(milliseconds: 500));
-      // 知川助手：立绘铺满整屏，与系统图标的方框无关；落定时它正好是屏幕大小。
+      // v3：细线与系统图标的方框无关；落定时它展开到固定宽度。
       final screen = tester.getRect(find.byType(LaunchOverlay));
       final r = tester.getRect(_icon);
-      expect(r.width, closeTo(screen.width, 0.5));
-      expect(r.height, closeTo(screen.height, 0.5));
+      expect(r.width, closeTo(screen.width * LaunchMotion.lineSpread, 0.5));
+      expect(r.height, 1);
       expect(_iconOpacity(tester), closeTo(1, 0.02));
     });
 
@@ -234,31 +236,25 @@ void main() {
       return c;
     }
 
-    testWidgets('0 / 320 / 500 / 800 / 1400 ms（立绘推近 + 品牌字上浮）', (tester) async {
+    testWidgets('0 / 150 / 300 / 500 / 860 / 1100 ms（细线展开 → 两字上浮 → 涟漪）', (tester) async {
       await played(tester);
       final screen = tester.getRect(find.byType(LaunchOverlay));
-      final layout = LaunchLayout(screen: screen.size);
-      final samples = <int, (double artOpacity, double word)>{};
+      final samples = <int, double>{};
       var t = 0;
-      for (final ms in [0, 320, 500, 800, 1400]) {
+      for (final ms in [0, 150, 300, 500, 860, 1100]) {
         await tester.pump(Duration(milliseconds: ms - t));
         t = ms;
-        final word = _wordmark.evaluate().isEmpty ? 0.0 : opacityOf(tester, _wordmark);
-        samples[ms] = (_iconOpacity(tester), word);
+        samples[ms] = _iconOpacity(tester);
       }
-      // 立绘：从透明淡入到不透明。
-      expect(samples[0]!.$1, 0);
-      expect(samples[320]!.$1, inExclusiveRange(0.3, 1.0));
-      expect(samples[500]!.$1, closeTo(1, 0.02));
-      // 品牌字：350 ms 后才有，800 ms 到位。
-      expect(samples[0]!.$2, 0);
-      expect(samples[320]!.$2, 0);
-      expect(samples[800]!.$2, closeTo(1, 0.02));
-      expect(samples[1400]!.$2, closeTo(1, 0.02));
-      // 品牌字位置：屏幕高度的 72%，水平居中。
+      // 细线：从无到有，300 ms 展开到位。
+      expect(samples[0]!, 0);
+      expect(samples[150]!, greaterThan(0.0));
+      expect(samples[300]!, closeTo(1, 0.02));
+      expect(samples[1100]!, closeTo(1, 0.02));
+      // 字标：屏幕正中。
       final word = tester.getRect(_wordmark);
-      expect(word.top, closeTo(layout.wordmarkTop, 0.5));
       expect(word.center.dx, closeTo(screen.width / 2, 0.5));
+      expect(word.center.dy, closeTo(screen.height / 2, 2.0));
     });
 
     testWidgets('ready leaves at once, mid-motion, and lets taps through while fading', (tester) async {
@@ -322,10 +318,10 @@ void main() {
     await tester.pump();
     expect(c.phase, LaunchPhase.playing);
     await tester.pump(const Duration(milliseconds: 800));
-    // 立绘停在终点：完全不透明、正好屏幕大小。
+    // 细线与字标停在终点。
     expect(_iconOpacity(tester), 1);
     final screen = tester.getRect(find.byType(LaunchOverlay));
-    expect(tester.getRect(_icon).width, closeTo(screen.width, 1));
+    expect(tester.getRect(_icon).width, closeTo(screen.width * LaunchMotion.lineSpread, 1));
     expect(_wordmark, findsOneWidget);
     c.ready();
     await tester.pump();

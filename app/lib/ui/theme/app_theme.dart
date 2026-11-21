@@ -32,7 +32,7 @@ import 'typography.dart';
 ///
 /// [fluid] 灵动档:默认水波换成按压光晕([AppInkGlow])。
 ThemeData buildLightTheme({
-  AppAccent accent = AppAccent.mist,
+  AppAccent accent = AppAccent.chuanqing,
   bool glassBlur = true,
   Locale? glyphLocale,
   bool instantPages = false,
@@ -49,7 +49,7 @@ ThemeData buildLightTheme({
 
 /// 深色主题。
 ThemeData buildDarkTheme({
-  AppAccent accent = AppAccent.mist,
+  AppAccent accent = AppAccent.chuanqing,
   bool glassBlur = true,
   Locale? glyphLocale,
   bool instantPages = false,
@@ -283,11 +283,12 @@ ThemeData _build(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
     ),
 
+    // 川青:底槽用次级面,选中胶囊为白、文字用强调色。
     segmentedButtonTheme: SegmentedButtonThemeData(
       style: SegmentedButton.styleFrom(
-        backgroundColor: fieldFill,
-        selectedBackgroundColor: scheme.primaryContainer,
-        selectedForegroundColor: scheme.onPrimaryContainer,
+        backgroundColor: surfaces.pill.fill,
+        selectedBackgroundColor: surfaces.card.fill,
+        selectedForegroundColor: scheme.primary,
         foregroundColor: scheme.onSurfaceVariant,
         side: BorderSide(color: hairline),
         minimumSize: const Size(0, 44),

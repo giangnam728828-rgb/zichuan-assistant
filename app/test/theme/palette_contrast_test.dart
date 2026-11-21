@@ -26,9 +26,9 @@ final _palettes = <AppAccent>[
 ];
 
 void main() {
-  test('mist is the original Mist Glass, untouched', () {
-    final light = buildLightTheme();
-    final dark = buildDarkTheme();
+  test('mist palette keeps its own tokens (build with accent: mist)', () {
+    final light = buildLightTheme(accent: AppAccent.mist);
+    final dark = buildDarkTheme(accent: AppAccent.mist);
     expect(light.colorScheme.primary, const Color(0xFF4B67B4));
     expect(light.colorScheme.surface, DshPalette.mist);
     expect(light.colorScheme.onSurface, DshPalette.ink);
@@ -37,7 +37,7 @@ void main() {
     expect(identical(dark.extension<DshColors>(), DshColors.dark), isTrue);
     final s = light.extension<DshSurfaces>()!;
     expect(s.backdropTop, DshPalette.mistTop);
-    expect(s.glowSecondary, const Color(0xFFD5CBEB).withValues(alpha: 0.38));
+    expect(s.glowSecondary, AppAccent.mist.haze.withValues(alpha: 0.38));
     expect(s.accent, AppAccent.mist);
     expect(identical(NeutralTones.forAccent(AppAccent.mist), NeutralTones.defaults), isTrue);
     expect(dshHighlightTheme(Brightness.light)['root']!.color, const Color(0xFF1E232E));
@@ -61,10 +61,10 @@ void main() {
     near(d.bubbleDark, m.bubbleDark, 'bubbleDark');
   });
 
-  test('presets: unique ids and names, river first', () {
-    expect(AppAccent.presets.first, AppAccent.river);
+  test('presets: unique ids and names, 川青 first', () {
+    expect(AppAccent.presets.first, AppAccent.chuanqing);
     expect(AppAccent.presets.map((p) => p.id).toSet(), hasLength(6));
-    expect(AppAccent.presets.map((p) => p.label), ['知川紫', '雾蓝', '黛青', '暮紫', '松石', '琥珀']);
+    expect(AppAccent.presets.map((p) => p.label), ['川青', '雾蓝', '黛青', '暮紫', '松石', '琥珀']);
     expect(AppAccent.preset('nope'), AppAccent.mist);
     expect(AppAccent.preset('amber'), AppAccent.amber);
   });

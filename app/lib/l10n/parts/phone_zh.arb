@@ -384,6 +384,7 @@
   "phoneSafeStartSettingsHint": "不加载插件，排查启动问题",
   "phoneSafeAutoSettings": "自动进入安全模式",
   "phoneSafeAutoSettingsHint": "连续启动失败时自动启用",
+  "phoneAccentChuanqing": "川青",
   "phoneAccentRiver": "知川紫",
   "phoneAccentMist": "雾蓝",
   "phoneAccentDaiqing": "黛青",

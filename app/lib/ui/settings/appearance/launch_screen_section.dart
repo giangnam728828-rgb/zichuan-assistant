@@ -24,6 +24,7 @@ import '../../../launch/custom_launch.dart';
 import '../../../launch/launch_import.dart';
 import '../../../launch/launch_media.dart';
 import '../../../launch/launch_motion.dart';
+import '../../../launch/launch_state.dart';
 import '../../../state/app_info.dart';
 import '../../../state/launch_screen_state.dart';
 import '../../common/brief_notice.dart';
@@ -352,37 +353,28 @@ class _DefaultMini extends ConsumerWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final size = constraints.biggest;
-          // 知川助手第 1 步：开屏不再有图标，预览就是「立绘 + 品牌字」本身。
+          // v3：开屏是纯色底 + 中心细线 + 「知川」两字，没有图片。
           final layout = LaunchLayout(screen: size);
+          final snapshot = LaunchSnapshot(
+            sdk: 33,
+            systemSplash: true,
+            iconPx: 0,
+            background: dark ? LaunchColors.nightTop : LaunchColors.mistTop,
+            backgroundBottom: dark ? LaunchColors.nightBottom : LaunchColors.mistBottom,
+            dark: dark,
+          );
           return ColoredBox(
             color: dark ? LaunchColors.nightTop : LaunchColors.mistTop,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Image.asset(
-                  LaunchMotion.artAsset,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: layout.wordmarkTop,
-                  height: layout.wordmarkHeight,
-                  child: Center(
-                    child: Text(
-                      AppInfo.name,
-                      maxLines: 1,
-                      softWrap: false,
-                      textScaler: TextScaler.noScaling,
-                      style: AppType.wordmark(
-                        size: LaunchMotion.wordmarkSize,
-                        color: LaunchColors.ink,
-                      ).copyWith(height: LaunchMotion.wordmarkLine),
-                    ),
-                  ),
-                ),
-              ],
+            child: LaunchMark(
+              snapshot: snapshot,
+              frame: const LaunchFrame(
+                line: 1,
+                firstOpacity: 1,
+                firstRise: 0,
+                secondOpacity: 1,
+                secondRise: 0,
+              ),
+              layout: layout,
             ),
           );
         },

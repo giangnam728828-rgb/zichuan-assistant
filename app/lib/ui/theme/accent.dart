@@ -68,6 +68,7 @@ class AppAccent {
   String get label =>
       _label ??
       switch (id) {
+        'chuanqing' => appL10n.phoneAccentChuanqing,
         'river' => appL10n.phoneAccentRiver,
         'mist' => appL10n.phoneAccentMist,
         'daiqing' => appL10n.phoneAccentDaiqing,
@@ -258,9 +259,31 @@ class AppAccent {
     hazeDark: Color(0xFF4A4D52),
   );
 
-  /// 知川紫:知川助手的专属主色,与猫耳伙伴形象的紫眸/淡紫发色呼应(色相 305°)。
-  /// 相比 mist 的 DeepSeek 蓝,它有明确辨识度,不与 dsh-Go 的默认外观撞色。
-  /// 色阶按 accent.dart 顶部同一套 OKLCH 明度/彩度规则推导,对比度另行测试。
+  /// 川青:知川助手的默认主色(青绿,色相约 175°)。浅色 #0E7C72 在冷灰白底上
+  /// 对比约 5:1,可直接做按钮与文字色;深色 #4FD1C0 用于深墨底。色阶按本文件
+  /// 顶部同一套 OKLCH 明度/彩度规则推导,对比度另行测试。
+  static const chuanqing = AppAccent(
+    id: 'chuanqing',
+    seed: Color(0xFF0E7C72),
+    pressed: Color(0xFF0A6259),
+    container: Color(0xFFD5EDE9),
+    onContainer: Color(0xFF06403A),
+    bubble: Color(0xFFDDF0EC),
+    glow: Color(0xFF7FCCC4),
+    seedDark: Color(0xFF4FD1C0),
+    pressedDark: Color(0xFF3FB8A8),
+    onSeedDark: Color(0xFF04211E),
+    containerDark: Color(0xFF16403B),
+    onContainerDark: Color(0xFFC9EDE8),
+    bubbleDark: Color(0xFF1E3A36),
+    glowDark: Color(0xFF2A7A71),
+    tintHue: 175,
+    tintChroma: 0.22,
+    haze: Color(0xFFC6E6E3),
+    hazeDark: Color(0xFF23514C),
+  );
+
+  /// 知川紫:上一版默认,保留常量以备切换;不再列在预设行里。
   static const river = AppAccent(
     id: 'river',
     seed: Color(0xFF754D9E),
@@ -282,10 +305,9 @@ class AppAccent {
     hazeDark: Color(0xFF563D5C),
   );
 
-  /// 设置页里的顺序。知川红排第一,作为默认主色。
-  // 知川助手：知川紫顶替石墨，保持六套（选择器在 320dp 上按六套排版）。
-  // graphite 仍可用 `preset('graphite')` 选中与持久化，只是不列在预设行里。
-  static const presets = [river, mist, daiqing, dusk, turquoise, amber];
+  /// 设置页里的顺序。川青排第一,作为默认主色。
+  // 川青顶替知川紫;river 仍可用 `preset('river')` 选中与持久化,只是不列在预设行里。
+  static const presets = [chuanqing, mist, daiqing, dusk, turquoise, amber];
 
   static const customId = 'custom';
   static const wallpaperId = 'wallpaper';

@@ -93,8 +93,8 @@ void main() {
       await tester.pump();
       expect(c.phase, LaunchPhase.playing);
       expect(c.holds, isTrue);
-      // Through the settle, the wordmark and the light: still there just before the end.
-      await wait(tester, 1100);
+      // Through the wordmark and the ripple: still there just before the end.
+      await wait(tester, LaunchMotion.total.inMilliseconds - 300);
       expect(c.phase, LaunchPhase.playing);
       expect(find.byKey(LaunchMark.wordmarkKey), findsOneWidget);
       // The motion has come to rest: it leaves without waiting for the engine.
@@ -155,7 +155,7 @@ void main() {
       await c.handOver(const Rect.fromLTWH(115, 342, 160, 160), removed: true);
       await tester.pump();
       expect(c.phase, LaunchPhase.playing);
-      await wait(tester, 1350);
+      await wait(tester, LaunchMotion.total.inMilliseconds - 150);
       expect(c.phase, LaunchPhase.playing);
       await wait(tester, 200);
       expect(c.phase, LaunchPhase.leaving);
@@ -250,9 +250,9 @@ void main() {
       final ui.Image still = (await tester.runAsync(() => flatImage(90, 160, const Color(0xFF2E5C8A))))!;
       c.useMedia(StillLaunchMedia(still));
       c.ready();
-      await wait(tester, 1300);
+      await wait(tester, LaunchMotion.total.inMilliseconds - 100);
       expect(c.phase, LaunchPhase.playing);
-      await wait(tester, 100);
+      await wait(tester, 200);
       expect(c.phase, LaunchPhase.leaving);
     });
   });

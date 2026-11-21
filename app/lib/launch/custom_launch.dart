@@ -272,12 +272,17 @@ class CustomLaunch {
 /// the app doesn't reach the system's launch window. test/launch/launch_colors_test.dart reads
 /// colors.xml to keep them equal.
 abstract final class LaunchColors {
-  static const mistTop = Color(0xFFF6F3FA);
-  static const mistBottom = Color(0xFFF6F3FA);
-  static const nightTop = Color(0xFF15111C);
-  static const nightBottom = Color(0xFF15111C);
+  // v3 川青：启动页与页面底色同为冷灰白 / 深墨。
+  static const mistTop = Color(0xFFF4F7F6);
+  static const mistBottom = Color(0xFFF4F7F6);
+  static const nightTop = Color(0xFF0E1413);
+  static const nightBottom = Color(0xFF0E1413);
 
   /// The wordmark: the default palette's main text on each.
   static const ink = Color(0xFF1E232E);
   static const paper = Color(0xFFE6E9F0);
+
+  /// 川青强调色：细线、字标与涟漪都用它。
+  static const accentLight = Color(0xFF0E7C72);
+  static const accentDark = Color(0xFF4FD1C0);
 }

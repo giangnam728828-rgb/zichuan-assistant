@@ -115,9 +115,10 @@ class _SegmentedPillState<T> extends State<SegmentedPill<T>> {
     final dark = theme.brightness == Brightness.dark;
     final enabled = widget.onChanged != null;
     final n = widget.segments.length;
-    final track = dark ? Colors.white.withValues(alpha: 0.07) : colors.onSurface.withValues(alpha: 0.06);
-    // Dark: a lifted grey like iOS's control, clearly apart from the track.
-    final thumb = dark ? Colors.white.withValues(alpha: 0.2) : Colors.white;
+    // 川青：底槽用次级面，选中胶囊为白（深色为抬高一档的面）。
+    final surfaces = Theme.of(context).extension<DshSurfaces>();
+    final track = surfaces?.pill.fill ?? (dark ? Colors.white.withValues(alpha: 0.07) : colors.onSurface.withValues(alpha: 0.06));
+    final thumb = surfaces?.card.fill ?? (dark ? Colors.white.withValues(alpha: 0.2) : Colors.white);
     final style = SegmentedPill.labelStyle(context);
     // Grows with large system text instead of squeezing the labels.
     final height = math.max(
@@ -241,7 +242,7 @@ class _SegmentedPillState<T> extends State<SegmentedPill<T>> {
                                     duration: AppMotion.of(context, AppMotion.quick),
                                     style: style.copyWith(
                                       fontWeight: i == current ? FontWeight.w600 : FontWeight.w500,
-                                      color: i == current ? colors.onSurface : colors.onSurfaceVariant,
+                                      color: i == current ? colors.primary : colors.onSurfaceVariant,
                                     ),
                                     child: Text(widget.segments[i].label, maxLines: 1, softWrap: false),
                                   ),

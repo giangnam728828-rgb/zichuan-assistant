@@ -76,7 +76,7 @@ Future<void> _mount(
       body: Center(
         child: SlidingGlass(
           motion: motion,
-          tier: GlassTier.sheet,
+          tier: GlassTier.chrome,
           borderRadius: const BorderRadius.all(Radius.circular(28)),
           child: child,
         ),
@@ -102,7 +102,7 @@ void main() {
       final counts = _Counts();
       await _mount(tester, motion, theme: theme, child: _Counted(counts));
       final filter = _filter(tester);
-      final style = theme.extension<DshSurfaces>()!.sheet;
+      final style = theme.extension<DshSurfaces>()!.chrome;
       final builds = counts.builds;
       expect(filter.enabled, isTrue);
       expect(_fill(tester), style.fill);

@@ -12244,6 +12244,9 @@ class L10nZh extends L10n {
   String get phoneSafeAutoSettingsHint => '连续启动失败时自动启用';
 
   @override
+  String get phoneAccentChuanqing => '川青';
+
+  @override
   String get phoneAccentRiver => '知川紫';
 
   @override

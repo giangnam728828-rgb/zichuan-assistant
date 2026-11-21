@@ -12887,6 +12887,9 @@ class L10nEn extends L10n {
   String get phoneSafeAutoSettingsHint => 'Turn on after repeated startup failures';
 
   @override
+  String get phoneAccentChuanqing => 'River Teal';
+
+  @override
   String get phoneAccentRiver => 'Zhichuan Violet';
 
   @override

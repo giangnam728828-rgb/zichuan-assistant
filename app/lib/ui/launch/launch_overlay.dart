@@ -139,11 +139,6 @@ class _LaunchOverlayState extends State<LaunchOverlay> with TickerProviderStateM
     _c.addListener(_sync);
     SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      // 知川助手：先把立绘解好码再画，第一帧就是有图的（不闪一下纯色）。
-      // 失败不阻塞启动：只剩系统页那个纯色，观感仍然连续。
-      unawaited(
-        precacheImage(const AssetImage(LaunchMotion.artAsset), context, onError: (_, _) {}),
-      );
       _c.firstFrame();
       // A layer remounted under a controller already past the cover won't hear of the phase it
       // missed, and the motion's first frame is a blank page.
@@ -274,10 +269,6 @@ class _LaunchOverlayState extends State<LaunchOverlay> with TickerProviderStateM
                             frame: frame,
                             layout: layout,
                             showWordmark: !_c.showsCustom,
-                            // 知川助手：系统启动页不再画任何东西，所以立绘一律从 0 淡入
-                            // （透明度在 frame.artOpacity 里）。自定义启动图占位时让开。
-                            // 减少动画时立绘直接停在终点，由 frame 里的曲线保证（progress=1）。
-                            iconOpacity: _c.showsCustom ? 0 : 1,
                           );
                         },
                       ),
@@ -313,10 +304,10 @@ class LaunchBackground extends StatelessWidget {
   Widget build(BuildContext context) => ColoredBox(color: snapshot.background);
 }
 
-/// The full-bleed artwork settling in, and the wordmark rising under it.
+/// 极简字标：中心细线展开、「知川」两字上浮、一圈涟漪。
 ///
-/// 知川助手（第 1 步）：这里不再画任何「图标」——没有方形，也没有圆形。立绘
-/// cover 铺满整屏，所以它没有边缘，也就没有形状可以突变。只动 opacity 与 scale。
+/// v3：没有图片、没有形状、不铺满。只用 opacity / transform；
+/// 减少动画时只画静态字标（由 frame 的 progress=1 保证）。
 class LaunchMark extends StatelessWidget {
   const LaunchMark({
     super.key,
@@ -324,7 +315,6 @@ class LaunchMark extends StatelessWidget {
     required this.frame,
     required this.layout,
     this.showWordmark = true,
-    this.iconOpacity = 1,
   });
 
   final LaunchSnapshot snapshot;
@@ -332,132 +322,121 @@ class LaunchMark extends StatelessWidget {
   final LaunchLayout layout;
   final bool showWordmark;
 
-  /// Multiplies the artwork's own opacity (1 outside tests).
-  final double iconOpacity;
-
-  /// The artwork layer (the wordmark has [wordmarkKey]). Kept under this name so
-  /// existing launch tests keep finding the thing that carries the motion.
+  /// The hairline layer. Kept under this name so existing launch tests keep
+  /// finding the thing that carries the motion.
   static const iconKey = ValueKey('launch-icon');
   static const wordmarkKey = ValueKey('launch-wordmark');
 
+  Color get _accent => snapshot.dark ? LaunchColors.accentDark : LaunchColors.accentLight;
+
   @override
   Widget build(BuildContext context) {
+    final ink = snapshot.dark ? LaunchColors.paper : LaunchColors.ink;
     return Stack(
       fit: StackFit.expand,
       children: [
-        // 立绘层：铺满整屏，推近时超出的部分由 ClipRect 裁掉（不留任何边缘）。
-        Positioned.fill(
-          child: ClipRect(
-            child: Opacity(
-              opacity: (frame.artOpacity * iconOpacity).clamp(0.0, 1.0),
-              child: Transform.scale(
-                scale: frame.artScale,
-                // SizedBox.expand gives the image tight full-screen constraints so
-                // BoxFit.cover actually crops-to-fill; without it the decoder keeps
-                // the asset's own size and the art appears as a centred band.
-                child: SizedBox.expand(
-                  child: Image.asset(
-                    key: iconKey,
-                    LaunchMotion.artAsset,
-                    fit: BoxFit.cover,
-                    // A missing asset (tests, a stripped build) leaves the flat page colour,
-                    // which is still the system splash's own colour.
-                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        // 字下方那层淡渐变：让品牌字压在立绘上仍然读得清（方案第 1 步要求）。
+        // 中心 1px 细线向两侧展开。
         if (showWordmark)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: layout.wordmarkScrimHeight,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      LaunchColors.mistTop.withValues(alpha: 0),
-                      LaunchColors.mistTop.withValues(alpha: LaunchMotion.wordmarkScrimPeak),
-                    ],
-                  ),
+          Center(
+            child: Opacity(
+              opacity: frame.line.clamp(0.0, 1.0),
+              child: Transform.scale(
+                scaleX: frame.line.clamp(0.0, 1.0),
+                scaleY: 1,
+                alignment: Alignment.center,
+                child: Container(
+                  key: iconKey,
+                  width: layout.lineWidth,
+                  height: 1,
+                  color: _accent.withValues(alpha: 0.60),
                 ),
               ),
             ),
           ),
-        if (showWordmark && frame.wordmarkOpacity > 0)
-          Positioned(
-            left: 0,
-            right: 0,
-            top: layout.wordmarkTop + frame.wordmarkRise,
-            height: layout.wordmarkHeight,
-            child: IgnorePointer(
-              child: Opacity(
-                key: wordmarkKey,
-                opacity: frame.wordmarkOpacity,
-                child: _WordmarkSweep(
-                  sweep: frame.sweep,
-                  band: layout.sweepBand,
-                  child: Center(
-                    child: Text(
-                      AppInfo.name,
-                      maxLines: 1,
-                      softWrap: false,
-                      // A logo, not a line of reading: the same size at every text scale.
-                      textScaler: TextScaler.noScaling,
-                      // 立绘是一张亮调插画，字压在她脸上：两种模式都用深墨字才读得清。
-                      style: AppType.wordmark(
-                        size: LaunchMotion.wordmarkSize,
-                        color: LaunchColors.ink,
-                      ).copyWith(height: LaunchMotion.wordmarkLine),
-                    ),
-                  ),
-                ),
+        // 「知川」两字依次上浮 8dp 并淡入。
+        if (showWordmark && (frame.firstOpacity > 0 || frame.secondOpacity > 0))
+          Center(
+            child: Opacity(
+              key: wordmarkKey,
+              opacity: math.max(frame.firstOpacity, frame.secondOpacity).clamp(0.0, 1.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _glyph('知', frame.firstOpacity, frame.firstRise, ink),
+                  const SizedBox(width: LaunchMotion.wordmarkSpacing),
+                  _glyph('川', frame.secondOpacity, frame.secondRise, ink),
+                ],
+              ),
+            ),
+          ),
+        // 字后一圈涟漪：强调色 40% → 0。
+        if (showWordmark && frame.ripple != null)
+          IgnorePointer(
+            child: CustomPaint(
+              painter: _RipplePainter(
+                progress: frame.ripple!.clamp(0.0, 1.0),
+                radius: layout.rippleRadius,
+                centre: layout.centre,
+                color: _accent,
               ),
             ),
           ),
       ],
     );
   }
+
+  Widget _glyph(String char, double opacity, double rise, Color color) => Transform.translate(
+    offset: Offset(0, rise),
+    child: Opacity(
+      opacity: opacity.clamp(0.0, 1.0),
+      child: Text(
+        char,
+        maxLines: 1,
+        softWrap: false,
+        // A logo, not a line of reading: the same size at every text scale.
+        textScaler: TextScaler.noScaling,
+        style: AppType.wordmark(size: LaunchMotion.wordmarkSize, color: color).copyWith(
+          fontWeight: LaunchMotion.wordmarkWeight,
+          letterSpacing: 0,
+        ),
+      ),
+    ),
+  );
 }
 
-/// 一道细光只扫过品牌字本身（不扫全屏），像月光擦过水面。
-class _WordmarkSweep extends StatelessWidget {
-  const _WordmarkSweep({required this.sweep, required this.band, required this.child});
+/// 一圈向外扩散并淡出的描边圆。
+class _RipplePainter extends CustomPainter {
+  const _RipplePainter({
+    required this.progress,
+    required this.radius,
+    required this.centre,
+    required this.color,
+  });
 
-  /// 0 → 1 across the wordmark, or null when the light isn't on it.
-  final double? sweep;
-  final Rect band;
-  final Widget child;
+  final double progress;
+  final double radius;
+  final Offset centre;
+  final Color color;
 
   @override
-  Widget build(BuildContext context) {
-    final sweep = this.sweep;
-    if (sweep == null) return child;
-    return ShaderMask(
-      blendMode: BlendMode.srcATop,
-      shaderCallback: (rect) {
-        final width = band.width * LaunchMotion.sweepBandWidth;
-        final x = -width + sweep * (rect.width * 2 + width);
-        const white = Color(0xFFFFFFFF);
-        return LinearGradient(
-          colors: [
-            white.withValues(alpha: 0),
-            white.withValues(alpha: LaunchMotion.sweepPeak),
-            white.withValues(alpha: 0),
-          ],
-          transform: const GradientRotation(LaunchMotion.sweepTilt),
-        ).createShader(Rect.fromLTWH(x - width / 2, -rect.height, width, rect.height * 3));
-      },
-      child: child,
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final r = radius * (0.25 + 0.75 * progress);
+    final alpha = (1 - progress) * 0.40;
+    if (alpha <= 0) return;
+    canvas.drawCircle(
+      centre,
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = LaunchMotion.rippleStroke
+        ..color = color.withValues(alpha: alpha),
     );
   }
+
+  @override
+  bool shouldRepaint(_RipplePainter old) =>
+      old.progress != progress || old.radius != radius || old.centre != centre || old.color != color;
 }
 
 /// The user's launch screen: the picture on its background, filling the screen or whole and

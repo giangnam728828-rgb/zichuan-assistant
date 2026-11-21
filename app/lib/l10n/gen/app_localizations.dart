@@ -22910,6 +22910,12 @@ abstract class L10n {
   /// **'连续启动失败时自动启用'**
   String get phoneSafeAutoSettingsHint;
 
+  /// No description provided for @phoneAccentChuanqing.
+  ///
+  /// In zh, this message translates to:
+  /// **'川青'**
+  String get phoneAccentChuanqing;
+
   /// No description provided for @phoneAccentRiver.
   ///
   /// In zh, this message translates to:
