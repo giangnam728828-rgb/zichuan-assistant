@@ -71,4 +71,15 @@ void main() {
     expect(layout.centre.dy, closeTo(screen.height / 2, 1e-9));
     expect(layout.lineWidth, closeTo(screen.width * LaunchMotion.lineSpread, 1e-9));
   });
+  test('横版/平板开屏：字标按短边放大，竖版手机不变（第 7 步）', () {
+    // 竖版手机（短边 390）：1.0，字号仍是 34。
+    expect(LaunchMotion.wordmarkScaleFor(const Size(390, 844)), 1.0);
+    // 平板横版（短边 800）：放大但没有超过上限。
+    final tablet = LaunchMotion.wordmarkScaleFor(const Size(1280, 800));
+    expect(tablet, greaterThan(1.0));
+    expect(tablet, lessThanOrEqualTo(1.35));
+    // 极端方屏也不会失控。
+    expect(LaunchMotion.wordmarkScaleFor(const Size(2000, 2000)), 1.35);
+  });
+
 }

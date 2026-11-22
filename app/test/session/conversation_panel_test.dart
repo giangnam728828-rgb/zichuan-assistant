@@ -262,7 +262,7 @@ void main() {
         testApp(
           SlidingGlass(
             motion: motion,
-            tier: GlassTier.sheet,
+            tier: GlassTier.chrome,  // 第 2 步后 sheet 故意不模糊，这里验证玻璃本身的采样逻辑
             borderRadius: BorderRadius.zero,
             child: const SizedBox.square(key: Key('inside'), dimension: 50),
           ),

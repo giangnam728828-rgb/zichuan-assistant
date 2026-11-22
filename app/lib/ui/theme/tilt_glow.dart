@@ -107,7 +107,7 @@ class TiltGlow extends ValueNotifier<TiltSample> {
   Future<void> start() async {
     if (_sub != null) return;
     if (!await usable) return;
-    _sub = _channel.stream().listen((s) => value = s, onError: (_) {});
+    _sub = _channel.stream().listen(_accept, onError: (_) {});
   }
 
   /// 停止跟随，并把光斑平滑送回正中（直接归零，避免停在偏的一侧）。
@@ -117,8 +117,12 @@ class TiltGlow extends ValueNotifier<TiltSample> {
     if (value != const TiltSample(0, 0)) value = const TiltSample(0, 0);
   }
 
+  /// 收一条样本：两轴先夹到 [-1, 1]，绘制层再乘 [maxShift]。
+  /// 这样「偏移 ≤ 6dp」这条约束只在一个地方成立（原生侧已经归一化，这里是第二道）。
+  void _accept(TiltSample sample) => value = TiltSample(sample.x.clamp(-1.0, 1.0), sample.y.clamp(-1.0, 1.0));
+
   @visibleForTesting
-  void feed(TiltSample sample) => value = sample;
+  void feed(TiltSample sample) => _accept(sample);
 
   @visibleForTesting
   void resetForTest() {

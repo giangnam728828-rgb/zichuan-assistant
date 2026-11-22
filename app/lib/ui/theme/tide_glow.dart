@@ -90,10 +90,8 @@ class _TideGlowState extends State<TideGlow> with SingleTickerProviderStateMixin
               progress: still ? 0.32 : _c,
               accentA: surfaces.glowPrimary,
               accentB: surfaces.glowSecondary,
-              shift: Offset(
-                sample.x.clamp(-1.0, 1.0) * TiltGlow.maxShift,
-                sample.y.clamp(-1.0, 1.0) * TiltGlow.maxShift,
-              ),
+              // 两轴已在 TiltGlow 里夹到 [-1, 1]，这里只乘上限。
+              shift: Offset(sample.x * TiltGlow.maxShift, sample.y * TiltGlow.maxShift),
             );
             return CustomPaint(painter: painter);
           },
