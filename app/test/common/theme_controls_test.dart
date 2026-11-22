@@ -27,16 +27,19 @@ void main() {
       for (final states in [on, off, onDisabled, offDisabled]) {
         expect(sw.trackOutlineColor!.resolve(states), Colors.transparent);
       }
-      // Same light knob in both states.
-      final knob = sw.thumbColor!.resolve(on)!;
-      expect(sw.thumbColor!.resolve(off), knob);
-      expect(knob.computeLuminance(), greaterThan(0.7));
-      expect(contrastRatio(sw.thumbIcon!.resolve(on)!.color!, knob), greaterThan(3));
+      // 圆钮：浅色主题两态同一颗浅圆钮；深色主题的强调色本身很浅，开态圆钮会换成
+      // onPrimary（深青）让浅色勾看得清（见 app_theme 的 knobBlends），所以这里按
+      // 「各自与轨道读得清」来断言，而不是要求两态同色。
+      final knobOn = sw.thumbColor!.resolve(on)!;
+      final knobOff = sw.thumbColor!.resolve(off)!;
+      expect(knobOff.computeLuminance(), greaterThan(0.7), reason: '关态圆钮始终是浅的');
+      expect(contrastRatio(sw.thumbIcon!.resolve(on)!.color!, knobOn), greaterThan(3), reason: '勾在开态圆钮上读得清');
       // On: the accent; off: a neutral track that reads on the card.
       expect(sw.trackColor!.resolve(on), scheme.primary);
       final offTrack = Color.alphaBlend(sw.trackColor!.resolve(off)!, card);
       expect(contrastRatio(offTrack, card), greaterThan(1.4));
-      expect(contrastRatio(knob, offTrack), greaterThan(1.4));
+      expect(contrastRatio(knobOn, scheme.primary), greaterThan(2.0), reason: '开态圆钮从轨道上分得出来');
+      expect(contrastRatio(knobOff, offTrack), greaterThan(1.4));
       expect(
         contrastRatio(scheme.primary, card),
         greaterThan(contrastRatio(offTrack, card)),
@@ -45,7 +48,7 @@ void main() {
       // Disabled is a fade of the same switch, well apart from enabled off.
       expect(sw.trackColor!.resolve(offDisabled)!.a, lessThan(sw.trackColor!.resolve(off)!.a / 2));
       expect(sw.trackColor!.resolve(onDisabled)!.a, lessThan(0.5));
-      expect(sw.thumbColor!.resolve(offDisabled)!.a, lessThan(knob.a));
+      expect(sw.thumbColor!.resolve(offDisabled)!.a, lessThan(knobOff.a));
     });
 
     test('outlined button: border visible on cards and sheets, halved when disabled: '
