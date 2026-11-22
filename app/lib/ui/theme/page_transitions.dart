@@ -288,43 +288,27 @@ class _PushInState extends State<_PushIn> {
     super.dispose();
   }
 
+  /// 川水第 6 步：推入不再是「整页从右边滑过来」，而是**淡入 + 8dp 位移**（300ms），
+  /// 与底部导航切标签的节奏统一。原来的滑入在低端机上横移整页要重排一大片，
+  /// 改成只动透明度与一个很小的位移，帧更稳；左侧那条阴影渐变也就不需要了。
+  ///
+  /// 时长仍是 [AppMotion.push]（300ms）。卡片长出来的那一档（[_CardMorph]）不动：
+  /// 它是共享元素，跟这条不冲突。
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final position = Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero).animate(_curved);
-    return SlideTransition(
-      position: position,
-      textDirection: Directionality.of(context),
-      child: Stack(
-        clipBehavior: Clip.none,
-        fit: StackFit.passthrough,
-        children: [
-          widget.child,
-          PositionedDirectional(
-            start: -14,
-            width: 14,
-            top: 0,
-            bottom: 0,
-            child: IgnorePointer(
-              child: FadeTransition(
-                opacity: _curved,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: AlignmentDirectional.centerStart,
-                      end: AlignmentDirectional.centerEnd,
-                      colors: [
-                        Colors.black.withValues(alpha: 0),
-                        Colors.black.withValues(alpha: dark ? 0.22 : 0.06),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    // 返回手势进行中（linear）：页面必须跟着手指横向走，这是 iOS 的返回手感，不能改。
+    if (widget.linear) {
+      final follow = Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero).animate(_curved);
+      return SlideTransition(
+        position: follow,
+        textDirection: Directionality.of(context),
+        child: widget.child,
+      );
+    }
+    final rise = Tween<Offset>(begin: const Offset(0, 0.02), end: Offset.zero).animate(_curved);
+    return FadeTransition(
+      opacity: _curved,
+      child: SlideTransition(position: rise, textDirection: Directionality.of(context), child: widget.child),
     );
   }
 }

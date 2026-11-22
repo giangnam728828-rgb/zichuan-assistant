@@ -164,7 +164,16 @@ class _LaunchOverlayState extends State<LaunchOverlay> with TickerProviderStateM
     super.dispose();
   }
 
-  bool get _reduced => widget.reduceMotion ?? AppMotion.reduced(context);
+  /// 开屏的「减少动画」**只看系统无障碍设置**。
+  ///
+  /// 2026-11-23：早先这里用 `AppMotion.reduced(context)`，而它读的 `MediaQuery.disableAnimations`
+  /// 掺了性能探测的「轻量机」结论 —— 那个探测是异步回报的，于是在启动途中翻成 true，
+  /// 把刚起播的动效当场砍掉，表现就是「开屏有时有、有时没有」。
+  /// 开屏只该服从系统「移除动画」这一个开关（方案原话），探测结论管别的动效。
+  bool get _reduced =>
+      widget.reduceMotion ??
+      _systemReduced ||
+      (MediaQuery.maybeDisableAnimationsOf(context) ?? false);
 
   /// The system's own 减少动画, without a light phone's (which [_reduced] has too): the user's
   /// launch screen is their own choice, and only this keeps it to its first frame.
@@ -182,7 +191,10 @@ class _LaunchOverlayState extends State<LaunchOverlay> with TickerProviderStateM
         } else if (_reduced) {
           // 减少动画：不再播放，但立绘与品牌字必须停在各自终点（progress = 1），
           // 否则会停在 0 —— 那就是一片纯色，什么也看不见。
+          // 同时报「动效已到静止」：控制器的离场门闩等的是这个，不报就永远走不了。
+          // motionDone 是幂等的，值已经是 1 时也要报。
           if (_play.value != 1) _play.value = 1;
+          _c.motionDone();
         } else if (!_play.isAnimating && _play.value == 0) {
           unawaited(_play.forward().then((_) => _c.motionDone()));
         }
@@ -204,9 +216,10 @@ class _LaunchOverlayState extends State<LaunchOverlay> with TickerProviderStateM
     if (media == null || _mediaPlaying) return;
     _mediaPlaying = true;
     if (_systemReduced) {
-      // 减少动画: its first frame, still.
+      // 减少动画: its first frame, still. 也要报 motionDone：离场门闩等的是它。
       _custom.value = 1;
       _c.mediaFinished();
+      _c.motionDone();
     } else {
       media.play(
         onDone: () {

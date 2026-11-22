@@ -241,6 +241,8 @@ class LaunchController extends ChangeNotifier {
   Timer? _handOverTimer;
   bool _engineReady = false;
   bool _motionDone = false;
+  /// 动效已经起播过：从此只有点屏能提前结束它（见 [_leaveIfDone]）。
+  bool _startedPlay = false;
   bool _reduced = false;
   bool _skipped = false;
   LaunchMedia? _media;
@@ -452,11 +454,19 @@ class LaunchController extends ChangeNotifier {
   set reduced(bool value) {
     if (_reduced == value) return;
     _reduced = value;
+    // 必须通知：overlay 要据此把动效停到终点并报 motionDone，否则离场门闩永远等不到。
+    notifyListeners();
     _leaveIfDone();
   }
 
   void _leaveIfDone() {
     if (_phase != LaunchPhase.playing || !_ready || holds) return;
+    // 起播之后必须播完这一轮（点屏跳过除外）。
+    //
+    // 这是「开屏有时有、有时没有」的第二道保险：`holds` 会跟着「减少动画」等状态变，
+    // 而那个状态可能来自异步探测；一旦它在动效播到一半时翻转，动效就会被当场停掉。
+    // 现在只要真的起播了，就等 overlay 报 motionDone 才允许离场。
+    if (_startedPlay && !_motionDone && !_skipped) return;
     _phase = LaunchPhase.leaving;
     notifyListeners();
   }
@@ -464,7 +474,12 @@ class LaunchController extends ChangeNotifier {
   void _play() {
     _handOverTimer?.cancel();
     if (_phase != LaunchPhase.cover) return;
-    _phase = _skipped || _reduced ? LaunchPhase.leaving : LaunchPhase.playing;
+    // 只有「已经点屏跳过」才算不播。减少动画不在这里另开一条路：overlay 会把动效
+    // 停在终点并立刻报 motionDone，由它决定离场 —— 两种路径共用同一个门闩，
+    // 「有时有、有时没有」才没有第二种可能。
+    final silent = _skipped;
+    _phase = silent ? LaunchPhase.leaving : LaunchPhase.playing;
+    if (!silent) _startedPlay = true;
     notifyListeners();
     _leaveIfDone();
   }

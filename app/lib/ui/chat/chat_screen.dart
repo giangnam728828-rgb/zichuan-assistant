@@ -84,6 +84,7 @@ import '../settings/media_settings_page.dart' show MediaSettingsPage, showMediaI
 import '../settings/settings_widgets.dart' show SettingsTile;
 import '../shell/adaptive/adaptive_layout.dart' show WindowClass;
 import '../shell/root_tab.dart';
+import '../shell/shell_insets.dart';
 import '../shell/drawer/folder_sheets.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
@@ -2045,9 +2046,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                   ),
                   LayoutId(
                     id: _Slot.composer,
-                    child: SafeArea(
-                      top: false,
-                      minimum: const EdgeInsets.only(bottom: 8),
+                    child: _ComposerBottom(
                       child: Padding(
                         // A little air above the (transparent) gesture bar;
                         // 12 at the sides like the header's keys above.
@@ -2675,4 +2674,25 @@ class _ChatScaler extends TextScaler {
 
   @override
   int get hashCode => Object.hash(base, factor);
+}
+
+/// 输入栏底部的留白（2026-11-23 修正）。
+///
+/// 之前这里无条件套 `SafeArea(minimum: bottom 8)`：外壳（TabShell）已经把整页
+/// 抬到「导航高度 + 8 + 安全区」之上，SafeArea 又加了一遍安全区和 8dp，
+/// 输入栏与底部导航之间就多出 30–50dp 的空隙，看着"隔得太远"。
+///
+/// 现在：在外壳里只用 8dp（安全区由外壳让出）；不在外壳里（宽屏/独立页面）才走 SafeArea。
+class _ComposerBottom extends StatelessWidget {
+  const _ComposerBottom({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (ShellInsets.maybeOf(context) != null) {
+      return Padding(padding: const EdgeInsets.only(bottom: 8), child: child);
+    }
+    return SafeArea(top: false, minimum: const EdgeInsets.only(bottom: 8), child: child);
+  }
 }

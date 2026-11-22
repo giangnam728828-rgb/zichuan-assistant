@@ -41,17 +41,23 @@ Future<void> _backGesture(WidgetTester tester, String method, [Map<String, dynam
 }
 
 void main() {
-  testWidgets('push: the new page comes from the right, the old one drifts left', (tester) async {
+  testWidgets('push: the new page fades in while rising 2%, the old one stays put', (tester) async {
+    // 川水第 6 步：推入改成淡入 + 小位移（300ms），不再是整页从右边滑过来。
+    // 返回手势仍然是横向跟随手指（见下面几条）。
     await tester.pumpWidget(_app());
     final width = tester.getSize(find.byType(MaterialApp)).width;
-    final pushStart = tester.getCenter(find.text('push')).dx;
+    final pushStart = tester.getCenter(find.text('push'));
     await tester.tap(find.text('push'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 60));
-    final incoming = tester.getCenter(find.text('page b')).dx;
-    final outgoing = tester.getCenter(find.text('push')).dx;
-    expect(incoming, greaterThan(width / 2), reason: 'still on its way in from the right');
-    expect(outgoing, lessThan(pushStart), reason: 'the page underneath moves left');
+    // 新页已经在屏幕里（不是从右侧滑进来），但还没完全淡入。
+    final incoming = tester.getCenter(find.text('page b'));
+    expect(incoming.dx, closeTo(width / 2, 1), reason: '横向不再位移');
+    final fade = tester.widgetList<FadeTransition>(find.byType(FadeTransition));
+    final incomingFade = fade.where((f) => f.opacity.value < 1).toList();
+    expect(incomingFade, isNotEmpty, reason: '淡入还没走完');
+    // 下面的页面只按它自己的「后退」处理向左让一点（_Recede），不会跟着从右边进来的那一页移动。
+    expect(tester.getCenter(find.text('push')).dx, lessThanOrEqualTo(pushStart.dx + 0.01));
     await tester.pumpAndSettle();
     expect(tester.getCenter(find.text('page b')).dx, closeTo(width / 2, 0.01));
   });

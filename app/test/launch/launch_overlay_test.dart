@@ -333,7 +333,7 @@ void main() {
     });
   });
 
-  testWidgets('减少动画: 立绘与品牌字直接停在终点，不等动画', (tester) async {
+  testWidgets('减少动画: 字标直接停在终点，界面就绪后离场', (tester) async {
     final c = await start(tester, sdk: 30, systemSplash: false, reduceMotion: true);
     await tester.pump();
     expect(c.phase, LaunchPhase.playing);
@@ -344,6 +344,9 @@ void main() {
     expect(tester.getRect(_icon).width, closeTo(screen.width * LaunchMotion.lineSpread, 1));
     expect(_wordmark, findsOneWidget);
     c.ready();
+    await tester.pump();
+    // 离场经 motionDone 门闩：leaving → 300ms 淡出（减少动画时一步到位）。
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();
     expect(c.phase, LaunchPhase.gone);
   });

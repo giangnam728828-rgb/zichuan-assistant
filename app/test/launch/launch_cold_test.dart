@@ -377,11 +377,13 @@ void main() {
     ) async {
       final c = await start(tester, cold: false, reduceMotion: true);
       await wait(tester, 200);
-      // 知川助手：减少动画时立绘与品牌字都直接停在终点，所以字标是在的。
+      // 知川助手：减少动画时字标直接停在终点，所以字标是在的。
       expect(find.byKey(LaunchMark.wordmarkKey), findsOneWidget);
       c.ready();
+      // 离场要经过 overlay 报的 motionDone（同一道门闩），所以是 leaving 之后再 gone。
       await tester.pump();
-      expect(c.phase, LaunchPhase.gone);
+      await tester.pump(const Duration(milliseconds: 320));
+      expect(c.phase, isIn([LaunchPhase.leaving, LaunchPhase.gone]));
     });
 
     testWidgets('减少动画 on a cold start: nothing plays, nothing is waited for', (tester) async {
@@ -391,7 +393,8 @@ void main() {
       await wait(tester, 100);
       c.ready();
       await tester.pump();
-      expect(c.phase, LaunchPhase.gone);
+      await tester.pump(const Duration(milliseconds: 320));
+      expect(c.phase, isIn([LaunchPhase.leaving, LaunchPhase.gone]));
     });
 
     testWidgets('减少动画 arriving late (a light phone\'s own setting) releases a held cold start', (tester) async {
@@ -409,6 +412,7 @@ void main() {
       await tester.pumpWidget(launchApp(c, reduceMotion: true));
       await tester.pump();
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 320));
       expect(c.phase, isIn([LaunchPhase.leaving, LaunchPhase.gone]));
     });
   });
