@@ -123,6 +123,7 @@ class SessionTile extends StatelessWidget {
                 padding: EdgeInsets.only(left: 10 + indent, right: 10),
                 child: Stack(
                   clipBehavior: Clip.none,
+                  alignment: AlignmentDirectional.centerStart,
                   children: [
                     child!,
                     if (!selecting)
