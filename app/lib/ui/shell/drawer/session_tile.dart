@@ -66,7 +66,9 @@ class SessionTile extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final colors = DshColors.of(context);
-    final shape = Squircle.border(AppShape.md);
+    // 川水第 7 步：会话条目做成「时间线卡片」——panel(20) 圆角，选中/当前时是
+    // 一张实心卡片而不是只染一层色；抽屉与历史页共用同一个形状。
+    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppShape.panel));
     final highlighted = selecting ? selected : current;
     final Widget? marker = switch ((pending, running, unread)) {
       (final PendingKind kind, _, _) => Text(
@@ -107,14 +109,40 @@ class SessionTile extends StatelessWidget {
             curve: AppMotion.std,
             builder: (context, t, child) {
               final fill = sessionSelectionColor(context);
+              // 卡片：当前/选中的会话是一张 panel 圆角的实心卡；
+              // 其它会话透明，左侧一条 2dp 时间线刻度（画在内边距里，不占布局宽度，
+              // 所以「文字在 20 线上」这条几何不变量不变）。
+              final card = DshSurfaces.of(context).card.fill;
+              final mark = current ? scheme.primary.withValues(alpha: 0.85) : colors.textTertiary.withValues(alpha: 0.22);
               return Ink(
                 decoration: ShapeDecoration(
-                  color: fill.withValues(alpha: fill.a * t),
+                  color: Color.lerp(card.withValues(alpha: 0), fill.withValues(alpha: fill.a * 0.9), t),
                   shape: shape,
                 ),
                 height: height,
                 padding: EdgeInsets.only(left: 10 + indent, right: 10),
-                child: child,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    child!,
+                    if (!selecting)
+                      PositionedDirectional(
+                        start: -6,
+                        top: 7,
+                        bottom: 7,
+                        child: SizedBox(
+                          key: const ValueKey('session-timeline-mark'),
+                          width: 2,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: mark,
+                              borderRadius: const BorderRadius.all(Radius.circular(2)),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               );
             },
             child: Row(

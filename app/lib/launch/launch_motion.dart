@@ -127,6 +127,15 @@ abstract final class LaunchMotion {
 
   /// 字标的字号、字重、字间距。
   static const wordmarkSize = 34.0;
+
+  /// 横版/平板开屏的字标放大比例（第 7 步）：横屏短边被压扁时，34dp 的字在一台
+  /// 平板横版上会显得太小。按短边相对手机短边（≈ 800dp 视口的 0.6）放大，最多 1.35×。
+  static double wordmarkScaleFor(Size screen) {
+    final shortSide = screen.shortestSide;
+    if (shortSide <= 0) return 1;
+    final ratio = (shortSide / 520).clamp(1.0, 1.35);
+    return ratio;
+  }
   static const wordmarkWeight = FontWeight.w600;
   static const wordmarkSpacing = 4.0;
 

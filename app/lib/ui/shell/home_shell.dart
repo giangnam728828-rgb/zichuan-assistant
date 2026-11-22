@@ -42,6 +42,7 @@ import '../share_code/share_code_host.dart';
 import '../tavern/tavern_intake.dart';
 import '../star/star_prompt_host.dart';
 import '../theme/theme.dart';
+import '../theme/tilt_glow.dart';
 import '../theme/tide_glow.dart';
 import '../update/update_launch_check.dart';
 import '../wallpaper/wallpaper_backdrop.dart';
@@ -372,7 +373,9 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
       });
     }
     // 3a：底部导航接管四个根页；≡ 只在宽屏（有持久侧栏）出现，用来收起/展开侧栏。
-    final chat = widget.chatBuilder?.call(_onMenu) ?? ChatScreen(onOpenDrawer: _onMenu, backdrop: false);
+    // 第 7 步：聊天页可见时跟随手机倾斜（光斑偏移 ≤ 6dp），离开就停。
+    final chat =
+        TiltScope(child: widget.chatBuilder?.call(_onMenu) ?? ChatScreen(onOpenDrawer: _onMenu, backdrop: false));
     final tab = ref.watch(rootTabProvider);
     final badges = ref.watch(navBadgesProvider);
     // 只有「左侧什么都没有」的手机布局才用底部四标签；有 rail / 侧栏的宽屏

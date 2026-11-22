@@ -17,6 +17,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'surfaces.dart';
+import 'tilt_glow.dart';
 
 /// 一层缓慢漂移的柔和光斑。
 class TideGlow extends StatefulWidget {
@@ -77,28 +78,41 @@ class _TideGlowState extends State<TideGlow> with SingleTickerProviderStateMixin
     final surfaces = DshSurfaces.of(context);
     final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     final still = !TideGlow.animationsEnabled || !widget.enabled || reduce;
-    final Widget paint = RepaintBoundary(
-      child: CustomPaint(
-        painter: _TidePainter(
-          progress: still ? 0.32 : _c,
-          accentA: surfaces.glowPrimary,
-          accentB: surfaces.glowSecondary,
+    // 第 7 步：整层光斑跟着手机倾斜偏移，上限 6dp（TiltGlow.maxShift）。
+    // 倾斜值是 ValueListenable，光斑自己重画，页面不重建。
+    final tilt = TiltGlow.instance;
+    return IgnorePointer(
+      child: RepaintBoundary(
+        child: ValueListenableBuilder<TiltSample>(
+          valueListenable: tilt,
+          builder: (context, sample, _) {
+            final painter = _TidePainter(
+              progress: still ? 0.32 : _c,
+              accentA: surfaces.glowPrimary,
+              accentB: surfaces.glowSecondary,
+              shift: Offset(
+                sample.x.clamp(-1.0, 1.0) * TiltGlow.maxShift,
+                sample.y.clamp(-1.0, 1.0) * TiltGlow.maxShift,
+              ),
+            );
+            return CustomPaint(painter: painter);
+          },
         ),
       ),
-    );
-    return IgnorePointer(
-      child: still ? paint : AnimatedBuilder(animation: _c, builder: (_, _) => paint),
     );
   }
 }
 
 class _TidePainter extends CustomPainter {
-  _TidePainter({required this.progress, required this.accentA, required this.accentB})
+  _TidePainter({required this.progress, required this.accentA, required this.accentB, this.shift = Offset.zero})
     : super(repaint: progress is Animation<double> ? progress : null);
 
   final Object progress;
   final Color accentA;
   final Color accentB;
+
+  /// 倾斜带来的整体位移（逻辑像素，≤ 6dp）。
+  final Offset shift;
 
   double get _t {
     final p = progress;
@@ -142,7 +156,8 @@ class _TidePainter extends CustomPainter {
         0.16,
       ),
     ];
-    for (final (center, radius, color, alpha) in spots) {
+    for (final (spot, radius, color, alpha) in spots) {
+      final center = spot + shift;
       final bounds = Rect.fromCircle(center: center, radius: radius);
       canvas.drawRect(
         bounds,

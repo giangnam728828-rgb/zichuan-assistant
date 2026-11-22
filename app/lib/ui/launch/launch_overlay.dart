@@ -395,7 +395,11 @@ class LaunchMark extends StatelessWidget {
         softWrap: false,
         // A logo, not a line of reading: the same size at every text scale.
         textScaler: TextScaler.noScaling,
-        style: AppType.wordmark(size: LaunchMotion.wordmarkSize, color: color).copyWith(
+        // 横版/平板：按短边放大一点（第 7 步），手机竖版仍是 34。
+        style: AppType.wordmark(
+          size: LaunchMotion.wordmarkSize * LaunchMotion.wordmarkScaleFor(layout.screen),
+          color: color,
+        ).copyWith(
           fontWeight: LaunchMotion.wordmarkWeight,
           letterSpacing: 0,
         ),
