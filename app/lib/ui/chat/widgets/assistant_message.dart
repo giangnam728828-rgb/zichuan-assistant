@@ -184,6 +184,8 @@ class _AssistantMessageState extends State<AssistantMessage> {
     }
 
     final actions = widget.showActions && !streaming && text.isNotEmpty;
+    // 第 5 步：助手回复不再有气泡，左侧一条 2px 圆头竖线把它和用户气泡分开；
+    // 代码块与表格仍保持通栏，所以竖线只占 2dp + 间距，正文宽度几乎不变。
     final reply = HoldLift(
       behavior: HitTestBehavior.opaque,
       onLongPress: streaming || text.isEmpty ? null : () => _menu(text),
@@ -231,7 +233,12 @@ class _AssistantMessageState extends State<AssistantMessage> {
       ),
     );
     // 一条回复是读屏里的一个分组,里面的段落、标题照常逐个读。
-    final message = Semantics(key: const ValueKey('reply'), container: true, explicitChildNodes: true, child: reply);
+    final message = Semantics(
+      key: const ValueKey('reply'),
+      container: true,
+      explicitChildNodes: true,
+      child: _ReplyThread(child: reply),
+    );
     return _waited ? _HandOff(waiting: false, child: message) : message;
   }
 
@@ -459,6 +466,46 @@ class _StallDotState extends State<_StallDot> with SingleTickerProviderStateMixi
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 助手回复左侧的细竖线（第 5 步）：2dp、主色约 60% 透明度，跟内容同高。
+///
+/// 线画在页面的 gutter 里（`start: -10`），正文起点不动——所以回复、通知、代码块
+/// 仍然左对齐同一条内容列。用 Stack + Positioned 而不是 Row + stretch：消息躺在
+/// 高度无界的滚动列里，`CrossAxisAlignment.stretch` 会给出无限高约束。
+class _ReplyThread extends StatelessWidget {
+  const _ReplyThread({required this.child});
+
+  final Widget child;
+
+  static const _width = 2.0;
+  static const _gap = 10.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        child,
+        PositionedDirectional(
+          start: -_gap,
+          top: 2,
+          bottom: 2,
+          child: SizedBox(
+            key: const ValueKey('reply-thread-line'),
+            width: _width,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.60),
+                borderRadius: const BorderRadius.all(Radius.circular(_width)),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

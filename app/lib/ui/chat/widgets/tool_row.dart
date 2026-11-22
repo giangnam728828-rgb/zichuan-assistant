@@ -131,7 +131,7 @@ class _ToolRowState extends State<ToolRow> {
     final pending = auto ? null : request;
     final opener = widget.onOpenSubagent;
     final child = opener == null ? null : subagentIdOf(widget.item, v);
-    return Column(
+    final body = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -181,6 +181,8 @@ class _ToolRowState extends State<ToolRow> {
           ),
       ],
     );
+    // 第 5 步：工具行走竖线时间线。折叠、详情、审批卡的行为完全不改。
+    return ToolTimeline(status: v.item.status, child: body);
   }
 }
 
@@ -795,4 +797,61 @@ String _leadingTool(List<ToolChatItem> tools) {
     }
   }
   return tools.first.name;
+}
+
+/// 工具行左侧的那条竖线（第 5 步）：2dp 细线从节点拉到这一行的末尾，节点是一个
+/// 7dp 的圆，颜色就是状态色（进行中=强调色、成功=主色偏淡、失败=错误色）。
+///
+/// 线同样画进 gutter（`start: -10`），工具行的文字列不移动。用 Stack + Positioned
+/// 而不是 Row + stretch：工具行在高度无界的滚动列里。
+class ToolTimeline extends StatelessWidget {
+  const ToolTimeline({super.key, required this.status, required this.child});
+
+  final ToolStatus status;
+
+  /// 竖线一路拉到这一行的末尾，详情、审批卡都跟着它。
+  final Widget child;
+
+  static const _railWidth = 2.0;
+  static const _node = 7.0;
+  static const _gap = 10.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final dsh = DshColors.of(context);
+    final running = status == ToolStatus.streaming || status == ToolStatus.running;
+    final failed = status == ToolStatus.failed;
+    final node = failed ? dsh.danger : running ? colors.primary : colors.primary.withValues(alpha: 0.55);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        child,
+        PositionedDirectional(
+          start: -_gap,
+          top: 6,
+          bottom: 0,
+          child: SizedBox(
+            width: _railWidth,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: colors.primary.withValues(alpha: 0.22),
+                borderRadius: const BorderRadius.all(Radius.circular(_railWidth)),
+              ),
+            ),
+          ),
+        ),
+        PositionedDirectional(
+          start: -_gap - (_node - _railWidth) / 2,
+          top: 4,
+          child: Container(
+            key: const ValueKey('tool-timeline-node'),
+            width: _node,
+            height: _node,
+            decoration: BoxDecoration(color: node, shape: BoxShape.circle),
+          ),
+        ),
+      ],
+    );
+  }
 }

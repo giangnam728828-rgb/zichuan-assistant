@@ -120,7 +120,11 @@ class UserBubble extends StatelessWidget {
       child: HoldLift(
         onLongPress: () => _menu(context),
         child: DecoratedBox(
-          decoration: ShapeDecoration(color: surfaces.userBubble, shape: AppShape.bubble),
+          // 第 5 步：实心 accent.bubble、bubbleUser 圆角（右下收窄对准发送方向）。
+          decoration: ShapeDecoration(
+            color: surfaces.userBubble,
+            shape: RoundedRectangleBorder(borderRadius: AppShape.bubbleUser),
+          ),
           child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: content),
         ),
       ),

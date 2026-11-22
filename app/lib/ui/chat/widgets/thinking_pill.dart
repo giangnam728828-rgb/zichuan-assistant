@@ -49,7 +49,13 @@ import 'stream_row.dart';
 /// 引擎开着「思考过程机器翻译」插件时,展开的全文上方多一颗「翻译」:
 /// 译文就地替换原文,随时「查看原文」切回去(官方 cot-translation 的行为)。
 /// DeepSeek 品牌蓝(与鲸尾同色)。
-const _brandBlue = Color(0xFF4D6BFE);
+// 第 5 步：「进行中」使用川青强调色（与输入栏流光、底部导航同一支色），
+// 不再是上游的深蓝。
+/// 川青浅色档（与 [AppAccent.chuanqing] 的 seed 一致）。
+const _brandBlue = Color(0xFF0E7C72);
+
+/// 川青深色档。
+const _brandTeal = Color(0xFF4FD1C0);
 
 class ThinkingPill extends StatefulWidget {
   const ThinkingPill({
@@ -130,7 +136,8 @@ class _ThinkingPillState extends State<ThinkingPill> {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     // 深色底上品牌蓝提一档亮度,图形才不发闷。
-    final brand = dark ? Color.lerp(_brandBlue, Colors.white, 0.3)! : _brandBlue;
+    // 深色模式下用强调色的浅色档（川青 #4FD1C0），浅色模式用 #0E7C72。
+    final brand = dark ? _brandTeal : _brandBlue;
     final active = widget.active;
     // 思考中或展开了全文:内容在下面,行内不再重复一行预览。
     final open = active || _expanded;

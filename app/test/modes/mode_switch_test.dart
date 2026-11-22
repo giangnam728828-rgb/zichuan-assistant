@@ -1,6 +1,7 @@
 import 'package:dsh_app/state/app_mode_state.dart';
 import 'package:dsh_app/tavern/tavern_preview.dart';
 import 'package:dsh_app/tavern/tavern_provider.dart';
+import 'package:dsh_app/ui/companion/companion_page.dart';
 import 'package:dsh_app/ui/modes/mode_switch.dart';
 import 'package:dsh_app/ui/tavern/tavern_home_page.dart';
 import 'package:dsh_app/ui/theme/theme.dart';
@@ -25,16 +26,19 @@ Widget _app(Widget home) => ProviderScope(
 );
 
 void main() {
-  testWidgets('3a：历史启动偏好（伙伴/酒馆）一律强制回工作，不再进入那个页面', (tester) async {
-    // 底部四标签方案里伙伴没有入口；若还按旧偏好启动会卡在一个出不去的地方。
-    for (final stored in ['tavern', 'companion']) {
-      SharedPreferences.setMockInitialValues({AppModeController.key: stored});
-      await tester.pumpWidget(_app(const ModeLaunch(child: Text('工作首页'))));
-      await tester.pumpAndSettle();
+  testWidgets('启动偏好：酒馆折回工作（第 4 步只折酒馆）', (tester) async {
+    SharedPreferences.setMockInitialValues({AppModeController.key: 'tavern'});
+    await tester.pumpWidget(_app(const ModeLaunch(child: Text('工作首页'))));
+    await tester.pumpAndSettle();
+    expect(find.byType(TavernHomePage), findsNothing);
+    expect(find.text('工作首页'), findsOneWidget);
+  });
 
-      expect(find.byType(TavernHomePage), findsNothing, reason: stored);
-      expect(find.text('工作首页'), findsOneWidget, reason: stored);
-    }
+  testWidgets('启动偏好：伙伴照旧进入伙伴小屋（第 4 步恢复了入口）', (tester) async {
+    SharedPreferences.setMockInitialValues({AppModeController.key: 'companion'});
+    await tester.pumpWidget(_app(const ModeLaunch(child: Text('工作首页'))));
+    await tester.pumpAndSettle();
+    expect(find.byType(CompanionPage), findsOneWidget);
   });
 
   testWidgets('工作 as the startup mode shows the home and opens nothing', (tester) async {
@@ -67,12 +71,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(opened, AppMode.companion);
 
-    // 3a：启动偏好一律回工作。伙伴/酒馆已没有入口，若按旧偏好启动
-    // 会卡在一个出不来的页面上，所以 setStartup 把非工作模式改写成工作。
+    // 第 4 步：顶栏恢复了「工作 ⇄ 伙伴」，伙伴重新可达，启动偏好照旧生效；
+    // 只有已下线的小酒馆被折回工作。
     final container = ProviderScope.containerOf(tester.element(find.byType(ModeSheet)));
     await container.read(appModeProvider.notifier).setStartup(AppMode.companion);
     await tester.pumpAndSettle();
     final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(AppModeController.key), 'companion');
+    await container.read(appModeProvider.notifier).setStartup(AppMode.tavern);
+    await tester.pumpAndSettle();
     expect(prefs.getString(AppModeController.key), 'work');
   });
 }

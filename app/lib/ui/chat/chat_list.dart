@@ -1161,7 +1161,11 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
       (null, SendMode.now) => (appL10n.chatSending, AppIcons.queued),
     };
     final canAct = prompt.inboxId != null;
-    return UserBubble(
+    // 第 6 步：发送的一滴落进水里——气泡出现时一圈涟漪扩散 400ms，只播一次
+    // （reduce-motion 时不播，直接就是气泡）。
+    return _SendRipple(
+      key: ValueKey('ripple-${prompt.requestId}'),
+      child: UserBubble(
       text: withoutAppNotes(prompt.text),
       attachments: prompt.attachments.isEmpty ? null : SentAttachments.pending(prompt.attachments),
       pendingLabel: prompt.failed ? appL10n.chatFailedSubmission : label,
@@ -1174,6 +1178,7 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
           (appL10n.chatSwitchToSteer, () => chat.steerQueued(prompt)),
         if (canAct && widget.onWithdraw != null) (appL10n.chatWithdraw, () => widget.onWithdraw!(prompt)),
       ],
+      ),
     );
   }
 
@@ -1797,4 +1802,74 @@ class StatusBarTop extends ScrollController {
 
   @override
   Future<void> animateTo(double offset, {required Duration duration, required Curve curve}) async => onTap?.call();
+}
+
+/// 发出的一条：气泡落下时一圈水面涟漪（400ms，只播一次）。
+///
+/// 只用 opacity + scale，不叠模糊；「减少动画」时什么都不画。涟漪画在气泡的右下角，
+/// 也就是水滴落下的地方，扩散半径不超过 96dp，不会压到相邻消息。
+class _SendRipple extends StatefulWidget {
+  const _SendRipple({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<_SendRipple> createState() => _SendRippleState();
+}
+
+class _SendRippleState extends State<_SendRipple> with SingleTickerProviderStateMixin {
+  late final AnimationController _ring = AnimationController(vsync: this, duration: _duration);
+
+  static const _duration = Duration(milliseconds: 400);
+  static const _radius = 96.0;
+
+  @override
+  void initState() {
+    super.initState();
+    // 一帧之后才起播：第一帧必须是静止的气泡本身，免得从空白开始。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !AppMotion.reduced(context)) unawaited(_ring.forward());
+    });
+  }
+
+  @override
+  void dispose() {
+    _ring.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        widget.child,
+        if (!AppMotion.reduced(context))
+          PositionedDirectional(
+            end: 12,
+            bottom: 8,
+            child: IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _ring,
+                builder: (context, _) {
+                  final t = _ring.value;
+                  if (t == 0 || t == 1) return const SizedBox.shrink();
+                  return SizedBox.square(
+                    key: const ValueKey('send-ripple'),
+                    dimension: _radius * t,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: accent.withValues(alpha: 0.35 * (1 - t)), width: 1.5),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }

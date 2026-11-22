@@ -172,10 +172,13 @@ class _PressableState extends State<Pressable> with SingleTickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     // The same tree whether enabled or not, so the child keeps its state.
-    final child = ScaleTransition(
+    final scaled = ScaleTransition(
       scale: Tween(begin: 1.0, end: widget.scale).animate(_press),
       child: widget.child,
     );
+    // 第 6 步：高光跟随手指位置。按下点在本地坐标里，柔光以它为中心，随按压缩放淡入；
+    // 只画一层径向渐变，不加模糊、不采样背景。
+    final child = _PressedGlow(at: _downAt, press: _press, child: scaled);
     if (!_ownsTap) {
       return Listener(
         behavior: widget.behavior,
@@ -198,7 +201,7 @@ class _PressableState extends State<Pressable> with SingleTickerProviderStateMix
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         excludeFromSemantics: true,
-        onTapDown: enabled ? (d) => _down() : null,
+        onTapDown: enabled ? (d) => _down(d.localPosition) : null,
         onTapUp: enabled ? (_) => _up() : null,
         onTapCancel: enabled ? _cancel : null,
         onTap: enabled && widget.onTap != null ? _tap : null,
@@ -210,6 +213,60 @@ class _PressableState extends State<Pressable> with SingleTickerProviderStateMix
             : null,
         child: child,
       ),
+    );
+  }
+}
+
+/// 按下的位置那一团柔光（第 6 步）：以按下点为中心的径向渐变，透明度跟着按压值。
+///
+/// 只在有按下点（手指真的落在上面）时画；键盘/无障碍触发的按压没有位置，就只是缩放。
+class _PressedGlow extends StatelessWidget {
+  const _PressedGlow({required this.at, required this.press, required this.child});
+
+  final Offset? at;
+  final Animation<double> press;
+  final Widget child;
+
+  static const _radius = 72.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final at = this.at;
+    if (at == null) return child;
+    final tint = Theme.of(context).colorScheme.onSurface;
+    return AnimatedBuilder(
+      animation: press,
+      builder: (context, child) {
+        final t = press.value.clamp(0.0, 1.0);
+        if (t <= 0) return child ?? const SizedBox.shrink();
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            child ?? const SizedBox.shrink(),
+            Positioned(
+              left: at.dx - _radius,
+              top: at.dy - _radius,
+              width: _radius * 2,
+              height: _radius * 2,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        tint.withValues(alpha: 0.07 * t),
+                        tint.withValues(alpha: 0),
+                      ],
+                      stops: const [0, 1],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+      child: child,
     );
   }
 }
