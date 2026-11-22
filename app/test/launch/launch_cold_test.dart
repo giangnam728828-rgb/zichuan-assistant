@@ -117,7 +117,7 @@ void main() {
       expect(channel.calls, contains('done'));
     });
 
-    testWidgets('the engine up before the motion ends: it goes then', (tester) async {
+    testWidgets('the engine up before the motion ends: the motion still plays its round, then it goes', (tester) async {
       final c = await start(tester, cold: true);
       await wait(tester, 200);
       c.ready();
@@ -125,16 +125,24 @@ void main() {
       expect(c.phase, LaunchPhase.playing);
       c.engineReady();
       await tester.pump();
+      // 引擎先就绪也不许把动效中途停掉（「开屏有时有、有时没有」的修法）。
+      expect(c.phase, LaunchPhase.playing);
+      expect(find.byKey(LaunchMark.wordmarkKey), findsOneWidget);
+      await wait(tester, LaunchMotion.total.inMilliseconds - 400);
       expect(c.phase, LaunchPhase.leaving);
       expect(channel.marks, containsAllInOrder(['firstFrame', 'ready', 'engine']));
     });
 
-    testWidgets('the engine up before the app is ready: ready goes at once', (tester) async {
+    testWidgets('the engine up before the app is ready: the motion still plays its round', (tester) async {
       final c = await start(tester, cold: true);
       c.engineReady();
       await wait(tester, 100);
       c.ready();
       await tester.pump();
+      expect(c.phase, LaunchPhase.playing);
+      await wait(tester, LaunchMotion.total.inMilliseconds - 300);
+      expect(c.phase, LaunchPhase.playing);
+      await wait(tester, 320);
       expect(c.phase, LaunchPhase.leaving);
     });
 
@@ -143,6 +151,9 @@ void main() {
       await wait(tester, 100);
       c.ready(waitsForEngine: false);
       await tester.pump();
+      // 不等引擎，但动效照样播完一轮。
+      expect(c.phase, LaunchPhase.playing);
+      await wait(tester, LaunchMotion.total.inMilliseconds + 40);
       expect(c.phase, LaunchPhase.leaving);
     });
 
@@ -212,13 +223,16 @@ void main() {
 
     testWidgets('custom that can\'t be read: the default motion\'s rules', (tester) async {
       // A clip without its poster doesn't open.
-      final c = await start(tester, cold: false, custom: _custom);
+      final c = await start(tester, cold: false, custom: _custom, reduceMotion: false);
       c.ready();
       await wait(tester, 200);
       expect(c.phase, LaunchPhase.playing);
       await c.openMedia(const Size(780, 1688));
       await tester.pump();
       expect(c.mediaFailed, isTrue);
+      // 回落到默认动效：按默认动效的规则播完一轮。
+      expect(c.phase, LaunchPhase.playing);
+      await wait(tester, LaunchMotion.total.inMilliseconds + 80);
       expect(c.phase, LaunchPhase.leaving);
     });
 
@@ -342,12 +356,19 @@ void main() {
       expect(c.phase, LaunchPhase.gone);
     });
 
-    testWidgets('warm start (the engine already ran): goes the moment the app is ready', (tester) async {
+    testWidgets('warm start (the engine already ran): the motion still plays its round, then goes', (tester) async {
       final c = await start(tester, cold: false);
       await wait(tester, 200);
       c.ready();
       await tester.pump();
-      expect(c.holds, isFalse);
+      // 引擎早在跑：以前这里立刻就收，动画被砍掉；现在照样播完。
+      expect(c.holds, isTrue);
+      expect(c.phase, LaunchPhase.playing);
+      // 字标 200ms 才开始淡入：先走一段再找它。
+      await wait(tester, 400);
+      expect(find.byKey(LaunchMark.wordmarkKey), findsOneWidget);
+      expect(c.phase, LaunchPhase.playing);
+      await wait(tester, LaunchMotion.total.inMilliseconds - 300);
       expect(c.phase, LaunchPhase.leaving);
     });
 

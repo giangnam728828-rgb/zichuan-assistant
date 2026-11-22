@@ -14,6 +14,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../state/app_mode_state.dart' show AppMode;
+import '../modes/mode_switch.dart';
 import '../../notify/chat_alerts.dart' show approvalText, questionText;
 import '../../runtime/local_footprint.dart' show RuntimeMissing;
 import '../../runtime/runtime_bridge.dart' show RuntimePhase;
@@ -1969,7 +1971,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                 HapticFeedback.selectionClick();
                                 ref.read(currentSessionProvider.notifier).select(null);
                               },
-                        onCall: isChild ? null : _callFromHeader,
+                        // 第 4 步：语音通话搬进输入栏，顶栏这一格留给「伙伴」。
+                        onCompanion: isChild ? null : () => openAppMode(context, AppMode.companion),
                         // The title pill opens the whole session's details (on a
                         // wide window it folds and unfolds the panel beside us).
                         onTitleTap: sessionId == null
@@ -2272,6 +2275,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                     onStop: _stop,
                                     hasAttachments: _drafts.isNotEmpty,
                                     leading: AttachButton(onPressed: connected ? _attach : null),
+                                    onCall: isChild ? null : _callFromHeader,
                                     keyboardInset: MediaQuery.viewInsetsOf(context).bottom,
                                     footer: _composerOpens(context) && !isChild
                                         ? ComposerModelPill(

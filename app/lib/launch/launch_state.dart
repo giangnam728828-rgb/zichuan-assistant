@@ -11,9 +11,9 @@
 //   交接完成           动画开始（launch_motion.dart）；8–11 首帧即开始
 //   RootGate 出界面    ready：自定义画面每次 App 冷启动都按它本身的长度播完一轮，不设上限，
 //                      引擎在跑、现起还是没开都一样（轻量模式也播，只有系统要求减少动画时停在
-//                      首帧、不等）；默认动画只在引擎这次现起时播完一遍（1.36 s，引擎先就绪
-//                      就提前收），引擎早已在跑、没自动启动、或轻量 / 减少动画时界面可用就收，
-//                      播到哪算哪。轻点屏幕随时跳过
+//                      首帧、不等）；默认动画也从这一版起每次都播完一遍（[defaultMinPlay]，
+//                      界面或引擎先就绪都不许把它中途砍掉——这是「开屏有时有、有时没有」的
+//                      修法），播完才允许离场。轻点屏幕随时跳过，减少动画时不等待
 //
 // 系统阶段画不画图标（systemIcon）：清单里的启动主题画不了用户选的桌面图标（activity-alias
 // 不能各有主题），所以只铺页面底色；Android 13+ 由原生把下一次启动的启动主题换成所选图标
@@ -30,6 +30,7 @@ import 'package:flutter/services.dart';
 
 import 'custom_launch.dart';
 import 'launch_media.dart';
+import 'launch_motion.dart';
 import 'startup_trace.dart';
 
 /// What the launch window shows, as `begin` reports it.
@@ -238,7 +239,6 @@ class LaunchController extends ChangeNotifier {
   bool _firstFrame = false;
   bool _handingOver = false;
   Timer? _handOverTimer;
-  bool _waitsForEngine = true;
   bool _engineReady = false;
   bool _motionDone = false;
   bool _reduced = false;
@@ -381,19 +381,22 @@ class LaunchController extends ChangeNotifier {
   void ready({bool waitsForEngine = true}) {
     if (_ready) return;
     _ready = true;
-    _waitsForEngine = waitsForEngine;
     if (native) unawaited(channel.mark('ready'));
     if (_phase == LaunchPhase.playing) {
       _leaveIfDone();
     } else if (_phase == LaunchPhase.cover && _firstFrame && snapshot.motionAfterReady) {
       _play();
-    } else if (_phase == LaunchPhase.cover && _firstFrame && !_handingOver && !_coldHold) {
+    } else if (_phase == LaunchPhase.cover && _firstFrame && !_handingOver && !_waitsForSplash) {
       // Still waiting for Android 12+'s splash: the app doesn't wait the whole of
       // [handOverWait] for it. A splash that comes later dissolves straight onto the app.
       _handOverTimer?.cancel();
       _handOverTimer = Timer(readyWait, _play);
     }
   }
+
+  /// 系统启动页还没交还时，起播要不要等它（等的是系统页，不是界面）：
+  /// 用户自己的开屏画面必须等，冷启动的默认动效也等，免得动效在系统页底下白白跑掉。
+  bool get _waitsForSplash => showsCustom || (snapshot.coldEngine && !_engineReady);
 
   /// With the app ready, how much longer to wait for the system's splash to be handed over.
   static const readyWait = Duration(milliseconds: 200);
@@ -404,13 +407,18 @@ class LaunchController extends ChangeNotifier {
   /// What the launch screen still covers (before the hand-over too), with motion allowed: the
   /// user's own picture on every cold start of the app, whatever the engine is doing (opening, then
   /// its whole round); the default motion only while this phone's engine starts cold.
-  bool get _coldHold =>
-      !_skipped && !_reduced && (showsCustom || (snapshot.coldEngine && _waitsForEngine && !_engineReady));
-
-  /// Whether the launch screen stays although the app is ready: a custom picture for its whole
-  /// round however long (the engine running, starting or off); the default motion on a cold start
-  /// of the engine, until it ends or the engine answers. A tap ends either.
-  bool get holds => _coldHold && !_motionDone;
+  /// Whether the launch screen stays although the app is ready.
+  ///
+  /// 知川助手：动效没播完就留着 —— 不管先就绪的是界面还是引擎。
+  ///
+  /// 修的是「开屏有时完整播、有时播一半、有时干脆没有」：动效起播与「界面可用」几乎同时
+  /// 发生（RootGate 首帧后一帧就 ready），而离场原先还要求 `snapshot.coldEngine`（原生
+  /// `LaunchEngine.cold`：只有引擎这次现起才算冷启动）。于是热启动、引擎早已在跑、或引擎
+  /// 就绪太快时，[`_play`] 起播的同一次调用里就把阶段推到 leaving，overlay 随即
+  /// `_play.stop()` —— 动效停在第一帧，用户只看到纯色淡出。现在一律先播完
+  /// （[LaunchMotion.total]，用户自己的开屏画面按它自己的时长），播完才允许离场。
+  /// 轻点屏幕立刻跳过；减少动画不播也不等。
+  bool get holds => !_skipped && !_reduced && !_motionDone;
 
   /// A tap on the launch screen: it goes now.
   void skip() {
@@ -456,7 +464,7 @@ class LaunchController extends ChangeNotifier {
   void _play() {
     _handOverTimer?.cancel();
     if (_phase != LaunchPhase.cover) return;
-    _phase = _skipped ? LaunchPhase.leaving : LaunchPhase.playing;
+    _phase = _skipped || _reduced ? LaunchPhase.leaving : LaunchPhase.playing;
     notifyListeners();
     _leaveIfDone();
   }

@@ -58,7 +58,7 @@ class ChatHeader extends ConsumerStatefulWidget {
     this.onOpenDrawer,
     this.onTitleTap,
     this.onNewChat,
-    this.onCall,
+    this.onCompanion,
     this.scrolledUnder,
   });
 
@@ -76,8 +76,9 @@ class ChatHeader extends ConsumerStatefulWidget {
   final VoidCallback? onTitleTap;
   final VoidCallback? onNewChat;
 
-  /// 「语音通话」 with this conversation; the key sits before 新对话's.
-  final VoidCallback? onCall;
+  /// 「伙伴」: the 工作 ⇄ 伙伴 switch (总方案 v3 · 第 4 步). 语音通话 has moved into the
+  /// composer's own row, so the header keeps only 标题 / 模型 / 伙伴 / 新对话.
+  final VoidCallback? onCompanion;
 
   /// Whether content has scrolled under the bar, 0..1. Drives the top fade:
   /// at rest the page is one clean surface, the fade only appears once there is
@@ -156,7 +157,7 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
               : ValueListenableBuilder<double>(
                   valueListenable: widget.scrolledUnder!,
                   builder: (context, t, child) => Opacity(opacity: t, child: child),
-                  child: TopFade(height: top + barHeight + 12),
+                  child: _HeaderScrim(height: top + barHeight, under: top + barHeight + 12),
                 ),
         ),
         Padding(
@@ -179,6 +180,8 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                             dimension: 44,
                             child: GlassSurface(
                               tier: GlassTier.chrome,
+                              // 顶栏不模糊（第 4 步）：实心面 + 细线，滚动的底色由下面的 scrim 给。
+                              blur: false,
                               circle: true,
                               grouped: true,
                               onTap: widget.onOpenDrawer,
@@ -194,6 +197,7 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                     hint: widget.onTitleTap == null ? null : l10n.chatViewChatDetails,
                     child: GlassSurface(
                       tier: GlassTier.chrome,
+                      blur: false,
                       stadium: true,
                       grouped: true,
                       onTap: widget.onTitleTap,
@@ -272,26 +276,27 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                       null => null,
                     },
                   ),
-                  // 语音通话, then 新对话: it mirrors the menu key and is gone on
+                  // 伙伴, then 新对话: it mirrors the menu key and is gone on
                   // the new-chat screen. On a wide window the key that unfolds
-                  // 对话详情 follows them.
+                  // 对话详情 follows them. 语音通话 moved into the composer (第 4 步).
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (widget.onCall case final onCall?)
+                      if (widget.onCompanion case final onCompanion?)
                         Padding(
                           padding: const EdgeInsets.only(left: HeaderTrailingSlot.gap),
                           child: SizedBox.square(
-                            key: const ValueKey('chat-call'),
+                            key: const ValueKey('chat-companion'),
                             dimension: 44,
                             child: GlassSurface(
                               tier: GlassTier.chrome,
+                              blur: false,
                               circle: true,
                               grouped: true,
-                              onTap: onCall,
+                              onTap: onCompanion,
                               child: Tooltip(
-                                message: l10n.speechCallTile,
-                                child: Center(child: Icon(AppIcons.call, size: 21, color: colors.onSurface)),
+                                message: l10n.companionTitle,
+                                child: Center(child: Icon(AppIcons.companionInvite, size: 21, color: colors.onSurface)),
                               ),
                             ),
                           ),
@@ -307,6 +312,7 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                                   dimension: 44,
                                   child: GlassSurface(
                                     tier: GlassTier.chrome,
+                                    blur: false,
                                     circle: true,
                                     grouped: true,
                                     onTap: widget.onNewChat,
@@ -354,6 +360,44 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
 
 /// Marks the model chip inside the trailing pieces, so the bar can weigh its
 /// widths apart from the agents capsule beside it.
+/// 顶栏随滚动渐显的底色与底部细线（第 4 步：顶栏不再模糊，滚起来时用一层页面底色
+/// 加一条 1px 细线把它和内容分开）。[under] 是淡出下沿的高度，与 TopFade 一致。
+class _HeaderScrim extends StatelessWidget {
+  const _HeaderScrim({required this.height, required this.under});
+
+  /// 到顶栏下沿为止的实底高度（含状态栏）。
+  final double height;
+
+  /// 淡出下沿：底色在这里结束，细线画在 [height] 上。
+  final double under;
+
+  @override
+  Widget build(BuildContext context) {
+    final surfaces = DshSurfaces.of(context);
+    final line = surfaces.pill.hairline;
+    return SizedBox(
+      height: under,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [surfaces.backdropTop, surfaces.backdropTop.withValues(alpha: 0)],
+                stops: [height / under, 1],
+              ),
+              border: Border(bottom: BorderSide(color: line, width: surfaces.pill.hairlineWidth)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ChipSlot extends SingleChildRenderObjectWidget {
   const _ChipSlot({required super.child});
 

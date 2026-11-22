@@ -31,6 +31,15 @@ Future<void> _finish(WidgetTester tester, LaunchController c) async {
   await tester.pump(const Duration(seconds: 1));
 }
 
+/// 一步步推完默认动效，一离场就停：单次大跳泵不完 ticker 与完成回调，
+/// 推过头又会顺手把 300ms 淡出也播完。
+Future<void> finishMotion(WidgetTester tester, LaunchController c) async {
+  for (var t = 0; t < LaunchMotion.total.inMilliseconds + 400; t += 40) {
+    await tester.pump(const Duration(milliseconds: 40));
+    if (c.phase != LaunchPhase.playing) return;
+  }
+}
+
 void main() {
   late ui.Image icon;
   late FakeLaunchChannel channel;
@@ -62,6 +71,7 @@ void main() {
     await tester.pumpWidget(launchApp(controller, reduceMotion: reduceMotion));
     return controller;
   }
+
 
   group('first frame', () {
     testWidgets('第一帧是纯色 + 一条尚未展开的细线，没有图标也没有方框', (tester) async {
@@ -257,13 +267,16 @@ void main() {
       expect(word.center.dy, closeTo(screen.height / 2, 2.0));
     });
 
-    testWidgets('ready leaves at once, mid-motion, and lets taps through while fading', (tester) async {
+    testWidgets('ready mid-motion: the motion finishes, then it fades and lets taps through', (tester) async {
       final c = await played(tester);
       await tester.pump(const Duration(milliseconds: 200));
       c.ready();
       await tester.pump();
-      expect(c.phase, LaunchPhase.leaving);
+      // 知川助手：界面就绪不再当场砍掉动效。
+      expect(c.phase, LaunchPhase.playing);
       expect(channel.marks, containsAllInOrder(['firstFrame', 'handedOver', 'ready']));
+      await finishMotion(tester, c);
+      expect(c.phase, LaunchPhase.leaving);
       // The home under it already takes taps.
       final ignore = tester.widget<IgnorePointer>(
         find.descendant(of: find.byType(LaunchOverlay), matching: find.byType(IgnorePointer)).first,
@@ -282,13 +295,18 @@ void main() {
       expect(find.text('home'), findsOneWidget);
     });
 
-    testWidgets('ready, and the splash never handed over: gone after 200 ms more, not 700', (tester) async {
+    testWidgets('ready, and the splash never handed over: plays 200 ms later, not 700, and plays it all', (tester) async {
       final c = await start(tester);
       await tester.pump(const Duration(milliseconds: 100));
       c.ready();
       await tester.pump(const Duration(milliseconds: 190));
       expect(c.phase, LaunchPhase.cover);
       await tester.pump(const Duration(milliseconds: 20));
+      // 起播（比 700ms 早），但不立刻离场：动效要播完。
+      expect(c.phase, LaunchPhase.playing);
+      await tester.pump(const Duration(milliseconds: 320));
+      expect(c.phase, LaunchPhase.playing);
+      await finishMotion(tester, c);
       expect(c.phase, LaunchPhase.leaving);
       await tester.pump(const Duration(milliseconds: 320));
       await tester.pump();
@@ -307,6 +325,8 @@ void main() {
       await tester.pump();
       await handing;
       expect(channel.calls, contains('reveal'));
+      expect(c.phase, LaunchPhase.playing);
+      await finishMotion(tester, c);
       expect(c.phase, LaunchPhase.leaving);
       await tester.pump(const Duration(milliseconds: 320));
       expect(c.phase, LaunchPhase.gone);

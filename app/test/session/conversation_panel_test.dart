@@ -62,8 +62,9 @@ void main() {
       expect(find.byType(ModelChip), findsNothing);
       expect(find.descendant(of: find.byType(ChatHeader), matching: find.textContaining('V4 Pro')), findsNothing);
       final title = tester.getRect(find.byKey(const ValueKey('chat-title-pill')));
-      final call = tester.getRect(find.byKey(const ValueKey('chat-call')));
-      expect(call.left - title.right, lessThan(12), reason: 'a long title reaches the keys');
+      // 第 4 步：语音通话搬进输入栏，顶栏这一格是「伙伴」。
+      final companion = tester.getRect(find.byKey(const ValueKey('chat-companion')));
+      expect(companion.left - title.right, lessThan(12), reason: 'a long title reaches the keys');
       expect(tester.takeException(), isNull);
     });
 

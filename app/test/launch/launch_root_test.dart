@@ -3,6 +3,7 @@
 // its state.
 
 import 'package:dsh_app/app.dart';
+import 'package:dsh_app/launch/launch_motion.dart';
 import 'package:dsh_app/launch/launch_state.dart';
 import 'package:dsh_app/launch/startup_trace.dart';
 import 'package:dsh_app/runtime/runtime_bridge.dart';
@@ -195,6 +196,10 @@ void main() {
       ),
     );
     await tester.pump();
+    await tester.pump();
+    // 引擎先就绪也不再砍掉动效（「开屏有时有、有时没有」的修法）：先把这一轮播完。
+    expect(c.phase, LaunchPhase.playing);
+    await tester.pump(LaunchMotion.total);
     await tester.pump();
     expect(c.phase, LaunchPhase.leaving);
     await tester.pump(const Duration(milliseconds: 400));

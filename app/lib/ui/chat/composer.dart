@@ -66,6 +66,7 @@ class Composer extends StatefulWidget {
     this.maxLines = 6,
     this.hardwareEnterSends = false,
     this.sendWhenEmpty = false,
+    this.onCall,
     this.emptySendLabel,
   });
 
@@ -144,6 +145,10 @@ class Composer extends StatefulWidget {
   /// there is one, still comes first.
   final bool sendWhenEmpty;
   final String? emptySendLabel;
+
+  /// 「语音通话」 with this conversation: the key sits in the composer's own row now
+  /// (第 4 步把顶栏的语音键挪到这里，顶栏只留 标题 / 模型 / 伙伴 / 新对话).
+  final VoidCallback? onCall;
 
   /// Shown beside the keys while the field is being typed in: the capsule opens into a
   /// rounded rectangle, the text on a line of its own and the keys and this in a row
@@ -396,6 +401,7 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
       kind: PerchKind.composer,
       child: _ComposerGlass(
         open: widget.footer == null ? null : _open,
+        thinking: widget.running || widget.waiting,
         child: ListenableBuilder(
           // The editor listens to text, selection and composing changes itself.
           // Its surrounding controls only need the draft's empty/nonempty edge.
@@ -538,6 +544,10 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
                       if (leadingKey != null) ...[leadingKey, const SizedBox(width: 8)],
                       Expanded(child: field),
                       const SizedBox(width: 8),
+                      if (!dictating && widget.onCall != null) ...[
+                        _CallKey(onTap: widget.onCall!),
+                        const SizedBox(width: _keyGap),
+                      ],
                       if (accessory != null) ...[accessory, const SizedBox(width: 2)],
                       sendKey,
                     ],
@@ -561,6 +571,10 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          if (!dictating && widget.onCall != null) ...[
+                            _CallKey(onTap: widget.onCall!),
+                            const SizedBox(width: _keyGap),
+                          ],
                           if (accessory != null) ...[accessory, const SizedBox(width: _keyGap)],
                           sendKey,
                         ],
@@ -638,25 +652,99 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
 /// The composer's glass. With [open], its corners tighten as the composer opens, from
 /// the capsule into a rounded rectangle.
 class _ComposerGlass extends StatelessWidget {
-  const _ComposerGlass({required this.open, required this.child});
+  const _ComposerGlass({required this.open, required this.thinking, required this.child});
 
   final Animation<double>? open;
+
+  /// 这一轮正在生成：[thinking] 时输入栏边缘有一层强调色流光呼吸（2400ms），
+  /// 代替发送键上的转圈（第 4 步：思考流光流畅、同屏真模糊 ≤ 3）。
+  final bool thinking;
   final Widget child;
 
-  static const _opened = BorderRadius.all(Radius.circular(AppShape.lg));
+  // 第 4 步：悬浮输入栏用 float(28)，展开成两行时收到 panel(20)。
+  static const _opened = BorderRadius.all(Radius.circular(AppShape.panel));
+  static const _resting = BorderRadius.all(Radius.circular(AppShape.float));
 
   @override
   Widget build(BuildContext context) {
+    final glass = _glass(context);
+    if (!thinking) return glass;
+    return _ThinkingEdge(child: glass);
+  }
+
+  Widget _glass(BuildContext context) {
     final open = this.open;
-    if (open == null) return GlassSurface(tier: GlassTier.chrome, borderRadius: AppShape.radiusXl, child: child);
+    if (open == null) return GlassSurface(tier: GlassTier.chrome, borderRadius: _resting, child: child);
     return AnimatedBuilder(
       animation: open,
       builder: (context, child) => GlassSurface(
         tier: GlassTier.chrome,
-        borderRadius: BorderRadius.lerp(AppShape.radiusXl, _opened, open.value),
+        borderRadius: BorderRadius.lerp(_resting, _opened, open.value),
         child: child,
       ),
       child: child,
+    );
+  }
+}
+
+/// 生成中的输入栏：外缘一圈强调色的流光，2400ms 一次呼吸（第 4 步）。
+///
+/// 只改 opacity 与一段 1.5dp 描边的颜色，不加模糊、不叠 BackdropFilter
+/// （同屏真模糊仍有上限）；「减少动画」时停在半亮，不动。
+class _ThinkingEdge extends StatefulWidget {
+  const _ThinkingEdge({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_ThinkingEdge> createState() => _ThinkingEdgeState();
+}
+
+class _ThinkingEdgeState extends State<_ThinkingEdge> with SingleTickerProviderStateMixin {
+  late final AnimationController _breath = AnimationController(vsync: this, duration: _period);
+
+  static const _period = Duration(milliseconds: 2400);
+
+  @override
+  void initState() {
+    super.initState();
+    _breath.repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _breath.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    if (AppMotion.reduced(context)) {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppShape.float),
+          border: Border.all(color: accent.withValues(alpha: 0.45), width: 1.5),
+        ),
+        child: widget.child,
+      );
+    }
+    return AnimatedBuilder(
+      animation: _breath,
+      builder: (context, child) {
+        final t = Curves.easeInOut.transform(_breath.value);
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppShape.float),
+            border: Border.all(color: accent.withValues(alpha: 0.18 + 0.42 * t), width: 1.5),
+            boxShadow: [
+              BoxShadow(color: accent.withValues(alpha: 0.10 * t), blurRadius: 18, spreadRadius: 1),
+            ],
+          ),
+          child: child,
+        );
+      },
+      child: widget.child,
     );
   }
 }
@@ -856,6 +944,45 @@ class _SendButton extends StatefulWidget {
   State<_SendButton> createState() => _SendButtonState();
 }
 
+/// 知川助手 · 川水第 4 步：发送键是一滴水——三个角圆到底，右下收窄，
+/// 和底部导航的水滴指示器是同一个形状语言。
+const _dropRadius = BorderRadius.only(
+  topLeft: Radius.circular(22),
+  topRight: Radius.circular(22),
+  bottomLeft: Radius.circular(22),
+  bottomRight: Radius.circular(7),
+);
+
+/// 输入栏里的「语音通话」键：和发送键同高、淡底，图标与顶栏原来那个一致。
+class _CallKey extends StatelessWidget {
+  const _CallKey({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Semantics(
+      button: true,
+      label: context.l10n.speechCallTile,
+      child: SizedBox.square(
+        key: const ValueKey('composer-call'),
+        dimension: _keySize,
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: Center(
+              child: Icon(AppIcons.call, size: 20, color: colors.onSurface.withValues(alpha: 0.78)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SendButtonState extends State<_SendButton> {
   bool _pressed = false;
 
@@ -908,7 +1035,8 @@ class _SendButtonState extends State<_SendButton> {
             duration: AppMotion.of(context, AppMotion.quick),
             width: _keySize,
             height: _keySize,
-            decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+            // 水滴：三个角圆到底，右下收窄成一滴（第 4 步的签名形状）。
+            decoration: BoxDecoration(color: bg, borderRadius: _dropRadius),
             child: AnimatedSwitcher(
               duration: fluid ? AppMotion.standard : AppMotion.of(context, AppMotion.quick),
               switchInCurve: fluid ? Curves.linear : AppMotion.enter,

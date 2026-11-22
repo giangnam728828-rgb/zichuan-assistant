@@ -50,7 +50,7 @@ void main() {
     snapshot.icon!.dispose();
   });
 
-  testWidgets('a cold engine holds the motion to its end, or until the engine is up; a running one doesn\'t', (tester) async {
+  testWidgets('every start holds the motion to its end, whatever the engine is doing', (tester) async {
     Future<LaunchController> started({required bool coldEngine}) async {
       final snapshot = (await tester.runAsync(() => LaunchSnapshot.fromMap(_answer(coldEngine: coldEngine))))!;
       final controller = LaunchController(snapshot: snapshot, channel: FakeLaunchChannel());
@@ -62,7 +62,10 @@ void main() {
       return controller;
     }
 
+    // 知川助手：引擎早在跑也照样播完一轮（原来是「界面可用就收，播到哪算哪」）。
     final running = await started(coldEngine: false);
+    expect(running.phase, LaunchPhase.playing);
+    running.motionDone();
     expect(running.phase, LaunchPhase.leaving);
 
     final waits = await started(coldEngine: true);
@@ -70,8 +73,11 @@ void main() {
     waits.motionDone();
     expect(waits.phase, LaunchPhase.leaving);
 
+    // 引擎先就绪也不许砍掉动效。
     final answered = await started(coldEngine: true);
     answered.engineReady();
+    expect(answered.phase, LaunchPhase.playing);
+    answered.motionDone();
     expect(answered.phase, LaunchPhase.leaving);
   });
 }
