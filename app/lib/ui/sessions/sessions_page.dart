@@ -7,7 +7,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../state/sessions_state.dart' show currentSessionProvider;
 import '../shell/root_tab.dart';
 import '../shell/sessions_drawer.dart';
 import '../shell/shell_insets.dart';

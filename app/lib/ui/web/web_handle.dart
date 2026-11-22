@@ -24,7 +24,7 @@ import '../common/sheet_title_bar.dart';
 import '../remote/host_status.dart';
 import '../remote/host_switcher.dart';
 import '../remote/remote_screen.dart';
-import '../settings/settings_screen.dart';
+import '../shell/root_tab.dart';
 import '../settings/settings_widgets.dart';
 import '../shell/brand_mark.dart';
 import '../theme/app_icons.dart';
@@ -144,8 +144,9 @@ class _HandleSheet extends ConsumerWidget {
                 tinted: false,
                 title: context.l10n.webAppSettings,
                 onTap: () {
+                  // 3b：设置是标签，不再 push 一个重复的根页。
                   navigator.pop();
-                  push(const SettingsScreen());
+                  switchTab(context, RootTab.settings);
                 },
               ),
               SettingsTile(

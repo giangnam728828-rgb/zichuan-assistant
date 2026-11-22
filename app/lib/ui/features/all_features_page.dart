@@ -17,6 +17,7 @@ import '../common/feature_tile.dart';
 import '../common/list_page_row.dart';
 import '../common/overview_card.dart';
 import '../common/tile_grid.dart';
+import '../shell/root_tab.dart';
 import '../shell/page_frame.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
@@ -24,7 +25,6 @@ import '../web/dsh_web_launcher.dart';
 import '../web/web_target.dart';
 import '../plugins/seats/seat_probe.dart';
 import '../settings/search/settings_search_page.dart';
-import '../settings/settings_screen.dart';
 import 'feature_catalog.dart';
 import 'feature_widgets.dart';
 
@@ -36,12 +36,11 @@ final dshWebOpenerProvider = Provider<DshWebOpener>(
       (context, ref, target) => openDshWeb(context, ref, target: target),
 );
 
-/// 全部设置: the settings hub, with search open over it (back lands on the
-/// hub, then here).
+/// 全部设置: 切到「设置」标签（3b：不再 push 一个与标签重复的根页），
+/// 搜索仍作为设置的子页压在上面，back 落到设置标签。
 void openAllSettings(BuildContext context) {
-  final navigator = Navigator.of(context);
-  unawaited(navigator.push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())));
-  unawaited(navigator.push(SettingsSearchPage.route()));
+  switchTab(context, RootTab.settings);
+  unawaited(Navigator.of(context, rootNavigator: true).push(SettingsSearchPage.route()));
 }
 
 class AllFeaturesPage extends ConsumerWidget {

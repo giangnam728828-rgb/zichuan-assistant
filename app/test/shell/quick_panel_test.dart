@@ -21,6 +21,7 @@ import 'package:dsh_app/ui/session/session_detail_page.dart';
 import 'package:dsh_app/ui/settings/search/settings_search_page.dart';
 import 'package:dsh_app/ui/settings/settings_screen.dart';
 import 'package:dsh_app/ui/shell/home_shell.dart';
+import 'package:dsh_app/ui/shell/root_tab.dart';
 import 'package:dsh_app/ui/shell/quick_panel.dart';
 import 'package:dsh_app/ui/shell/sessions_drawer.dart';
 import 'package:dsh_app/ui/web/local_web_screen.dart';
@@ -504,14 +505,13 @@ void main() {
       }
     });
 
+    // 3b：设置与全部功能已经是标签，不再是「压一个页」；其余仍然是页面。
     final pages = <DrawerDestination, Type>{
       DrawerDestination.web: LocalWebScreen,
       DrawerDestination.remote: RemoteScreen,
       DrawerDestination.plugins: PluginsScreen,
       DrawerDestination.engine: EngineScreen,
-      DrawerDestination.settings: SettingsScreen,
       DrawerDestination.settingsSearch: SettingsSearchPage,
-      DrawerDestination.features: AllFeaturesPage,
     };
     for (final MapEntry(key: destination, value: page) in pages.entries) {
       testWidgets('${destination.name} opens its page; back lands on the chat', (tester) async {
@@ -528,6 +528,24 @@ void main() {
         await pumpFrames(tester, 8);
         expect(find.byType(page), findsNothing);
         expect(_panel, findsNothing);
+        expect(find.byType(HomeShell), findsOneWidget);
+      });
+    }
+
+    for (final (destination, tab) in [
+      (DrawerDestination.settings, RootTab.settings),
+      (DrawerDestination.features, RootTab.tools),
+    ]) {
+      testWidgets('${destination.name} 切到对应标签，不留返回栈', (tester) async {
+        SharedPreferences.setMockInitialValues({
+          QuickPanelController.itemsKey: [destination.name],
+        });
+        await _pump(tester);
+        await _swipeOpen(tester);
+        await tester.tap(_row(destination));
+        await pumpFrames(tester, 10);
+        final container = ProviderScope.containerOf(tester.element(find.byType(HomeShell)));
+        expect(container.read(rootTabProvider), tab);
         expect(find.byType(HomeShell), findsOneWidget);
       });
     }

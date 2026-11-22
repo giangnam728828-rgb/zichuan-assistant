@@ -67,7 +67,6 @@ import '../common/ui_trace.dart';
 import '../common/sheet_title_bar.dart';
 import '../common/smooth_size.dart';
 import '../common/status_dot.dart';
-import '../features/all_features_page.dart';
 import '../features/session_export_page.dart';
 import '../onboarding/local_install.dart';
 import '../pets/pet_perch.dart';
@@ -82,6 +81,7 @@ import '../session/session_detail_page.dart';
 import '../settings/media_settings_page.dart' show MediaSettingsPage, showMediaInstallSheet, showMediaUnavailableSheet;
 import '../settings/settings_widgets.dart' show SettingsTile;
 import '../shell/adaptive/adaptive_layout.dart' show WindowClass;
+import '../shell/root_tab.dart';
 import '../shell/drawer/folder_sheets.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
@@ -1438,7 +1438,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
           case 'model':
             await _showModelSheet();
           case 'features':
-            await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AllFeaturesPage()));
+            // 3b：切到「工具」标签，不再压一个与标签重复的根页。
+            switchTab(context, RootTab.tools);
           case 'export':
             final sessionId = ref.read(currentSessionProvider);
             if (sessionId == null) {

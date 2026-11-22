@@ -27,6 +27,7 @@ import '../../../plugins/native/native_model.dart';
 import '../../../plugins/native/native_state.dart';
 import '../../../plugins/native/native_surface.dart';
 import '../../../state/android_features.dart';
+import '../../shell/root_tab.dart';
 import '../../../state/chat_state.dart';
 import '../../../state/composer_insert.dart';
 import '../../../state/hosts_state.dart';
@@ -36,7 +37,6 @@ import '../../features/all_features_page.dart' show dshWebOpenerProvider;
 import '../../common/app_dialog.dart';
 import '../../features/feature_catalog.dart';
 import '../../settings/index/settings_pages.dart' show SettingsIndex, settingsPageForLink;
-import '../../settings/settings_screen.dart';
 import 'native_panel.dart';
 import 'native_voice_consent.dart';
 
@@ -809,11 +809,12 @@ Future<void> openNativePage(BuildContext context, WidgetRef ref, String id, {Str
   final navigator = Navigator.of(context);
   switch (page) {
     case 'new-chat':
-      navigator.popUntil((route) => route.isFirst);
+      // 3b：新对话一律切回「对话」标签（否则在别的标签上点像是没反应）。
+      switchTab(context, RootTab.chat, intent: TabIntent.newChat);
       ref.read(currentSessionProvider.notifier).select(null);
       return;
     case 'settings':
-      await navigator.push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
+      switchTab(context, RootTab.settings);
       return;
   }
   final item = [for (final section in featureSections) ...section.items].where((i) => i.id == page).firstOrNull;

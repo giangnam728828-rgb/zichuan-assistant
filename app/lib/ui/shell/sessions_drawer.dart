@@ -34,7 +34,6 @@ import '../common/smooth_size.dart';
 import '../common/read_list_status.dart';
 import '../common/status_dot.dart';
 import '../onboarding/local_install.dart';
-import '../modes/mode_switch.dart';
 import '../remote/host_status.dart';
 import '../remote/host_switcher.dart' show showHostSheet;
 import '../remote/network_details_sheet.dart' show showRemoteNetworkDetails;
@@ -175,8 +174,9 @@ class SessionsDrawer extends ConsumerWidget {
                           child: FittedBox(fit: BoxFit.scaleDown, child: BrandLockup(height: 19)),
                         ),
                       ),
-                      // 模式 and 网页模式, quietly: the one solid element stays 新对话.
-                      const ModeKey(),
+                      // 3b：伙伴/模式入口已取消（顶栏只留标题+模型+新对话）。
+                      // CompanionPage 的代码保留，只是不再有入口。
+
                       const SizedBox(width: 8),
                       const WebModeKey(tier: GlassTier.pill),
                       const SizedBox(width: 8),

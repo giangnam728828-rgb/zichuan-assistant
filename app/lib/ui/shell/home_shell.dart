@@ -24,7 +24,6 @@ import '../chat/chat_screen.dart';
 import '../chat/composer_toast.dart' show composerToastGap;
 import '../engine/engine_screen.dart';
 import '../engine/reset_outcome.dart';
-import '../features/all_features_page.dart';
 import '../forum/forum_link_host.dart';
 import '../notify/background_net_host.dart';
 import '../notify/background_pause_host.dart';
@@ -39,7 +38,6 @@ import '../remote/remote_screen.dart';
 import '../safe_mode/safe_mode_notice_listener.dart';
 import '../session/session_detail_page.dart';
 import '../settings/search/settings_search_page.dart';
-import '../settings/settings_screen.dart';
 import '../share_code/share_code_host.dart';
 import '../tavern/tavern_intake.dart';
 import '../star/star_prompt_host.dart';
@@ -271,14 +269,28 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
   }
 
   void _openDestination(DrawerDestination destination) {
+    // 3b：设置与全部功能已经是标签，切过去而不是压一个重复的根页。
+    switch (destination) {
+      case DrawerDestination.settings:
+        switchTab(context, RootTab.settings);
+        return;
+      case DrawerDestination.features:
+        switchTab(context, RootTab.tools);
+        return;
+      case DrawerDestination.web ||
+            DrawerDestination.remote ||
+            DrawerDestination.plugins ||
+            DrawerDestination.engine ||
+            DrawerDestination.settingsSearch:
+        break;
+    }
     final page = switch (destination) {
       DrawerDestination.web => const LocalWebScreen(),
       DrawerDestination.remote => const RemoteScreen(),
       DrawerDestination.plugins => const PluginsScreen(),
       DrawerDestination.engine => const EngineScreen(),
-      DrawerDestination.settings => const SettingsScreen(),
       DrawerDestination.settingsSearch => const SettingsSearchPage(),
-      DrawerDestination.features => const AllFeaturesPage(),
+      DrawerDestination.settings || DrawerDestination.features => throw StateError('handled above'),
     };
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
     // Close once the new page covers us, so "back" lands on the chat.

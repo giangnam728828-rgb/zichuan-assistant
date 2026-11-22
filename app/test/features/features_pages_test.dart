@@ -17,6 +17,7 @@ import 'package:dsh_app/ui/settings/search/settings_search_page.dart';
 import 'package:dsh_app/ui/settings/settings_screen.dart';
 import 'package:dsh_app/ui/features/agent_presets_page.dart';
 import 'package:dsh_app/ui/features/all_features_page.dart';
+import 'package:dsh_app/ui/shell/root_tab.dart';
 import 'package:dsh_app/ui/features/jobs_page.dart';
 import 'package:dsh_app/ui/features/permission_page.dart';
 import 'package:dsh_app/ui/features/schedules_page.dart';
@@ -305,7 +306,12 @@ void main() {
       await tester.tap(find.text('全部设置'));
       await pumpFrames(tester, 6);
       expect(find.byType(SettingsSearchPage), findsOneWidget);
-      expect(find.byType(SettingsScreen, skipOffstage: false), findsOneWidget);
+      // 3b：设置已是标签，这里只切标签；页面本体由外壳的标签页承载，
+      // 这个用例单独 pump AllFeaturesPage，所以断言标签状态而不是页面。
+      expect(
+        ProviderScope.containerOf(tester.element(find.byType(SettingsSearchPage))).read(rootTabProvider),
+        RootTab.settings,
+      );
     });
 
     testWidgets('引用 goes back to the chat, where @ lives', (tester) async {
