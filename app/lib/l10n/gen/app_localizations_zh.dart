@@ -11081,6 +11081,15 @@ class L10nZh extends L10n {
   String get searchKwRefreshRate => '刷新率 高刷 120Hz 90Hz 流畅';
 
   @override
+  String get performanceTilt => '陀螺仪光斑';
+
+  @override
+  String get performanceTiltHint => '背景光斑跟着手机倾斜轻微偏移（不超过 6dp）。低端机默认关闭';
+
+  @override
+  String get searchKwTilt => '陀螺仪 倾斜 光斑 背景 动态 重力';
+
+  @override
   String get petActionSending => '正在发送…';
 
   @override

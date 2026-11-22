@@ -1035,6 +1035,15 @@ abstract final class Spots {
     condition: SpotCondition.animationsOn,
   );
 
+  /// 川水第 7 步：陀螺仪光斑（背景跟着倾斜偏移 ≤6dp）。
+  static final tilt = SettingSpot(
+    'tilt',
+    page: SettingsPageId.performance,
+    title: (l) => l.performanceTilt,
+    keywords: (l) => l.searchKwTilt,
+    condition: SpotCondition.animationsOn,
+  );
+
   // 通知.
   static final notifyEnabled = SettingSpot(
     'notify-enabled',
@@ -1282,6 +1291,7 @@ final _rows = <SettingSpot>[
   Spots.refreshRate,
   Spots.blur,
   Spots.animations,
+  Spots.tilt,
   Spots.fluidMotion,
   Spots.notifyEnabled,
   Spots.notifyDone,

@@ -23,5 +23,8 @@
   "performanceRefreshHintOhos": "Auto: fastest while things move, handed back when still; Max: always fastest, more battery and heat; System: asks for nothing extra.",
   "performanceFrameCache": "Frame cache",
   "performanceFrameCacheHint": "Smoother, with slightly more touch delay",
-  "searchKwRefreshRate": "refresh rate high refresh 120Hz 90Hz smooth"
+  "searchKwRefreshRate": "refresh rate high refresh 120Hz 90Hz smooth",
+  "performanceTilt": "Tilt glow",
+  "performanceTiltHint": "The background glow drifts slightly with how you hold the phone (at most 6dp). Off by default on light phones",
+  "searchKwTilt": "tilt gyroscope glow background motion gravity"
 }

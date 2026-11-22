@@ -20588,6 +20588,24 @@ abstract class L10n {
   /// **'刷新率 高刷 120Hz 90Hz 流畅'**
   String get searchKwRefreshRate;
 
+  /// No description provided for @performanceTilt.
+  ///
+  /// In zh, this message translates to:
+  /// **'陀螺仪光斑'**
+  String get performanceTilt;
+
+  /// No description provided for @performanceTiltHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'背景光斑跟着手机倾斜轻微偏移（不超过 6dp）。低端机默认关闭'**
+  String get performanceTiltHint;
+
+  /// No description provided for @searchKwTilt.
+  ///
+  /// In zh, this message translates to:
+  /// **'陀螺仪 倾斜 光斑 背景 动态 重力'**
+  String get searchKwTilt;
+
   /// No description provided for @petActionSending.
   ///
   /// In zh, this message translates to:

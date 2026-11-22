@@ -118,6 +118,7 @@ class PerformancePrefsController extends Notifier<PerformancePrefs> {
   static const blurKey = 'performance.blur';
   static const animationsKey = 'performance.animations';
   static const fluidKey = 'performance.fluid';
+  static const tiltKey = 'performance.tilt';
   static const refreshRateKey = 'performance.refresh_rate';
   static const frameCacheKey = 'performance.frame_cache';
   late Future<void> ready;
@@ -137,6 +138,7 @@ class PerformancePrefsController extends Notifier<PerformancePrefs> {
         blur: prefs.getBool(blurKey),
         animations: prefs.getBool(animationsKey),
         fluid: prefs.getBool(fluidKey),
+        tilt: prefs.getBool(tiltKey),
         refreshRate: RefreshRateMode.values.asNameMap()[prefs.getString(refreshRateKey)] ?? RefreshRateMode.auto,
         frameCache: prefs.getBool(frameCacheKey) ?? true,
         loaded: true,
@@ -168,6 +170,7 @@ class PerformancePrefsController extends Notifier<PerformancePrefs> {
   Future<void> setAnimations(bool value) =>
       _save((s) => s.copyWith(animations: value), (p) => p.setBool(animationsKey, value));
   Future<void> setFluid(bool value) => _save((s) => s.copyWith(fluid: value), (p) => p.setBool(fluidKey, value));
+  Future<void> setTilt(bool value) => _save((s) => s.copyWith(tilt: value), (p) => p.setBool(tiltKey, value));
   Future<void> setRefreshRate(RefreshRateMode mode) =>
       _save((s) => s.copyWith(refreshRate: mode), (p) => p.setString(refreshRateKey, mode.name));
   Future<void> setFrameCache(bool value) async {
@@ -184,6 +187,7 @@ class PerformancePrefsController extends Notifier<PerformancePrefs> {
     await p.remove(blurKey);
     await p.remove(animationsKey);
     await p.remove(fluidKey);
+    await p.remove(tiltKey);
   });
 }
 

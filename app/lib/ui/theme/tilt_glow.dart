@@ -14,6 +14,9 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../performance/performance_state.dart';
 
 /// 一条倾斜样本（已归一化到 [-1, 1]）。
 @immutable
@@ -137,18 +140,21 @@ class TiltGlow extends ValueNotifier<TiltSample> {
 /// - 页面不可见（切到别的标签、退到后台）→ stop，光斑回到正中，不再收样本。
 /// - 系统要求减少动画 → 完全不订阅（方案第 7 步：减少动画时关闭）。
 /// - 低端机/省电模式 → 原生侧不出流，[TiltGlow.usable] 也会返回 false。
-class TiltScope extends StatefulWidget {
+class TiltScope extends ConsumerStatefulWidget {
   const TiltScope({super.key, required this.child});
 
   final Widget child;
 
   @override
-  State<TiltScope> createState() => _TiltScopeState();
+  ConsumerState<TiltScope> createState() => _TiltScopeState();
 }
 
-class _TiltScopeState extends State<TiltScope> with WidgetsBindingObserver {
+class _TiltScopeState extends ConsumerState<TiltScope> with WidgetsBindingObserver {
   bool _reduce = false;
   bool _visible = true;
+
+  /// 设置里的「陀螺仪光斑」开关（设置 → 性能 → 效果）。
+  bool _enabled = true;
 
   @override
   void initState() {
@@ -159,13 +165,13 @@ class _TiltScopeState extends State<TiltScope> with WidgetsBindingObserver {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    if (reduce != _reduce) {
-      _reduce = reduce;
-      _sync();
-    } else {
-      _sync();
-    }
+    _reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    // 开关值来自性能设置：关掉时背景光斑完全不动。
+    final enabled = ref.watch(performanceDefaultsProvider.select((d) => d.tilt));
+    final changed = enabled != _enabled;
+    _enabled = enabled;
+    if (changed || !TiltGlow.instance.running) _sync();
+    else _sync();
   }
 
   @override
@@ -185,11 +191,11 @@ class _TiltScopeState extends State<TiltScope> with WidgetsBindingObserver {
   }
 
   void _sync() {
-    if (_reduce || !_visible) {
+    if (_reduce || !_visible || !_enabled) {
       TiltGlow.instance.stop();
-    } else {
-      unawaited(TiltGlow.instance.start());
+      return;
     }
+    unawaited(TiltGlow.instance.start());
   }
 
   @override

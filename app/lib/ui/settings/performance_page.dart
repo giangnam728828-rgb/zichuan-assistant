@@ -124,6 +124,15 @@ class PerformancePage extends ConsumerWidget {
                 value: defaults.fluidMotion,
                 onChanged: (value) => unawaited(notifier.setFluid(value)),
               ),
+            // 川水第 7 步：背景光斑跟着手机倾斜偏移（≤6dp）。低端机与减动效默认关。
+            if (!defaults.reduceMotion)
+              SettingsSwitchTile(
+                key: const ValueKey('performance-tilt'),
+                spot: Spots.tilt,
+                subtitle: l10n.performanceTiltHint,
+                value: defaults.tilt,
+                onChanged: (value) => unawaited(notifier.setTilt(value)),
+              ),
             if (prefs.blur != null || prefs.animations != null || prefs.fluid != null)
               SettingsTile(
                 key: const ValueKey('performance-reset-effects'),

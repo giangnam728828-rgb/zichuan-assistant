@@ -9,6 +9,7 @@
 
 import 'package:dsh_app/ui/theme/tilt_glow.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -59,11 +60,13 @@ void main() {
 
   testWidgets('TiltScope：减少动画时不订阅，页面照常挂载', (tester) async {
     await tester.pumpWidget(
-      const MediaQuery(
-        data: MediaQueryData(disableAnimations: true),
-        child: Directionality(
-          textDirection: TextDirection.ltr,
-          child: TiltScope(child: SizedBox.expand()),
+      const ProviderScope(
+        child: MediaQuery(
+          data: MediaQueryData(disableAnimations: true),
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: TiltScope(child: SizedBox.expand()),
+          ),
         ),
       ),
     );

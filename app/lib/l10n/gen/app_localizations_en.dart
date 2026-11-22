@@ -11678,6 +11678,16 @@ class L10nEn extends L10n {
   String get searchKwRefreshRate => 'refresh rate high refresh 120Hz 90Hz smooth';
 
   @override
+  String get performanceTilt => 'Tilt glow';
+
+  @override
+  String get performanceTiltHint =>
+      'The background glow drifts slightly with how you hold the phone (at most 6dp). Off by default on light phones';
+
+  @override
+  String get searchKwTilt => 'tilt gyroscope glow background motion gravity';
+
+  @override
   String get petActionSending => 'Sending…';
 
   @override

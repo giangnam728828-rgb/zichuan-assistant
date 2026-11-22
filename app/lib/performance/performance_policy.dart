@@ -61,6 +61,7 @@ class PerformancePrefs {
     this.blur,
     this.animations,
     this.fluid,
+    this.tilt,
     this.refreshRate = RefreshRateMode.auto,
     this.frameCache = true,
     this.loaded = false,
@@ -72,6 +73,9 @@ class PerformancePrefs {
 
   /// 灵动动效(见 `AppMotion.fluid`)。
   final bool? fluid;
+
+  /// 陀螺仪光斑偏移（川水第 7 步，见 `TiltGlow`）。关掉后背景光斑完全不动。
+  final bool? tilt;
   final RefreshRateMode refreshRate;
 
   /// HarmonyOS's engine holds back one frame to smooth rate changes, at slightly more touch
@@ -84,6 +88,7 @@ class PerformancePrefs {
     bool? blur,
     bool? animations,
     bool? fluid,
+    bool? tilt,
     RefreshRateMode? refreshRate,
     bool? frameCache,
     bool? loaded,
@@ -93,6 +98,7 @@ class PerformancePrefs {
     blur: resetEffects ? null : blur ?? this.blur,
     animations: resetEffects ? null : animations ?? this.animations,
     fluid: resetEffects ? null : fluid ?? this.fluid,
+    tilt: resetEffects ? null : tilt ?? this.tilt,
     refreshRate: refreshRate ?? this.refreshRate,
     frameCache: frameCache ?? this.frameCache,
     loaded: loaded ?? this.loaded,
@@ -105,6 +111,7 @@ class PerformanceDefaults {
     required this.blur,
     required this.reduceMotion,
     required this.fluidMotion,
+    required this.tilt,
     required this.petEnabled,
     required this.autoStartLocal,
     required this.recommendRemote,
@@ -124,6 +131,8 @@ class PerformanceDefaults {
       blur: prefs.blur ?? !light,
       reduceMotion: reduceMotion,
       fluidMotion: !reduceMotion && (prefs.fluid ?? !light),
+      // 陀螺仪光斑：低端机与减动效默认关（方案要求），用户可以单独打开。
+      tilt: !reduceMotion && (prefs.tilt ?? !light),
       petEnabled: !light,
       autoStartLocal: !light,
       recommendRemote: light || snapshot.tier == DeviceTier.low,
@@ -136,6 +145,9 @@ class PerformanceDefaults {
 
   /// 灵动档:动效没关,且用户选了或当前档位默认开(低端机、发热时默认关)。
   final bool fluidMotion;
+
+  /// 陀螺仪光斑偏移是否开（第 7 步）。
+  final bool tilt;
   final bool petEnabled;
   final bool autoStartLocal;
   final bool recommendRemote;
