@@ -180,3 +180,17 @@ void thawClocks() {
   chatClock = DateTime.now;
   runClock = DateTime.now;
 }
+
+/// 川水 3a：手机上不再有 ≡，抽屉改为从左侧划开（和真实用户路径一致）。
+/// 宽屏请直接用 [HomeShell.initiallyOpen] 或侧栏，不要调用它。
+Future<void> openDrawerBySwipe(WidgetTester tester) async {
+  final size = tester.view.physicalSize / tester.view.devicePixelRatio;
+  final y = size.height * 0.5;
+  final finger = await tester.startGesture(Offset(12, y));
+  for (var i = 1; i <= 10; i++) {
+    await finger.moveTo(Offset(12 + i * 26, y));
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  await finger.up();
+  await pumpFrames(tester, 8);
+}

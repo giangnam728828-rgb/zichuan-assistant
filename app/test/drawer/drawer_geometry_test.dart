@@ -230,8 +230,11 @@ void main() {
       final drawer = _rect(tester, find.byType(SessionsDrawer));
       final bar = find.byType(IdentityBar);
       // The two glass circles, left to right; their icons say which is which.
-      Rect key(IconData icon) =>
-          _rect(tester, find.ancestor(of: find.byIcon(icon), matching: find.byType(GlassSurface)).first);
+      // 限定在身份栏里：底部导航也有 settings 图标，不限定会命中导航（358×60）。
+      Rect key(IconData icon) => _rect(
+        tester,
+        find.ancestor(of: find.descendant(of: bar, matching: find.byIcon(icon)), matching: find.byType(GlassSurface)).first,
+      );
       final features = key(AppIcons.allFeatures);
       final settings = key(AppIcons.settings);
       final pill = _rect(

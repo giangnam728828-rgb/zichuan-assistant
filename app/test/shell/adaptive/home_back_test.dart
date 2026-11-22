@@ -36,8 +36,7 @@ void main() {
     mockClipboard(tester);
     await tester.pumpWidget(homeApp());
     await pumpFrames(tester, 6);
-    await tester.tap(find.byKey(const ValueKey('chat-menu')));
-    await pumpFrames(tester, 6);
+    await openDrawerBySwipe(tester);
     expect(find.byType(SessionsDrawer), findsOneWidget);
 
     _container(tester).read(drawerSelectionProvider.notifier).start('s2');

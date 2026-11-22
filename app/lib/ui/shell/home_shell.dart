@@ -346,43 +346,48 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
         if (mounted) _quickPanel.value = 0;
       });
     }
-    // 3a：抽屉不再作为主入口，顶栏的 ≡ 一并删掉；底部导航接管四个根页。
-    final chat = widget.chatBuilder?.call(() {}) ?? const ChatScreen(backdrop: false);
+    // 3a：底部导航接管四个根页；≡ 只在宽屏（有持久侧栏）出现，用来收起/展开侧栏。
+    final chat = widget.chatBuilder?.call(_onMenu) ?? ChatScreen(onOpenDrawer: _onMenu, backdrop: false);
     final tab = ref.watch(rootTabProvider);
     final badges = ref.watch(navBadgesProvider);
-    final wide = layout.left == LeftPane.sidebar;
-    // 窄屏：底部四标签；宽屏：保持侧栏三栏。同一时刻只有一套布局。
-    final body = wide
-        ? KeyedSubtree(key: _pageKeys[RootTab.chat], child: chat)
-        : TabShell(chat: chat, pageKeys: _pageKeys, onReselect: _onReselect);
+    // 只有「左侧什么都没有」的手机布局才用底部四标签；有 rail / 侧栏的宽屏
+    // 仍走原来的侧栏导航（否则底部导航会挤进平板的三栏布局）。
+    final phone = layout.left == LeftPane.none;
+    final body = phone
+        ? TabShell(chat: chat, pageKeys: _pageKeys, onReselect: _onReselect)
+        : KeyedSubtree(key: _pageKeys[RootTab.chat], child: chat);
     // The floating pet outside the app hears every pet state.
     ref.listen<void>(petOverlayBridgeProvider, (_, _) {});
     return SafeModeNoticeListener(
       child: PhoneStopWatcher(
         child: PopScope(
-          // Android 14 预测性返回：只有停在「对话」且没有浮层、没有任务在跑时才退出。
-          canPop: wide
-              ? (!_open && !_quickPanelOpen && !(selecting && sidebar))
-              : (tab == RootTab.chat && !_quickPanelOpen && !badges.chatRunning),
+          // Android 14 预测性返回：只有停在「对话」、没有浮层、没有多选、没有任务在跑时才退出。
+          // 少任何一项都会变成「按返回直接退应用」，所以这里逐项都列出来。
+          canPop: phone
+              ? (tab == RootTab.chat &&
+                    !_open &&
+                    !_quickPanelOpen &&
+                    !selecting &&
+                    !badges.chatRunning)
+              : (!_open && !_quickPanelOpen && !(selecting && sidebar)),
           onPopInvokedWithResult: (didPop, _) {
             if (didPop) return;
-            if (!wide && tab != RootTab.chat) {
+            // 顺序要紧：先把浮层/多选/抽屉一类「挡在前面的东西」收掉，
+            // 都收完了才谈退出。反过来的话，任务在跑时按返回会连抽屉一起无视，
+            // 永远只弹退出确认（多选也清不掉）。
+            final selection = ref.read(drawerSelectionProvider.notifier);
+            if (phone && tab != RootTab.chat) {
               // 非对话标签：先回到对话，不退出应用。
               ref.read(rootTabProvider.notifier).jumpToChat();
-              return;
-            }
-            if (!wide && badges.chatRunning) {
-              // 有任务在跑：不直接退出，问一次。
-              unawaited(_confirmLeaveWhileRunning());
-              return;
-            }
-            final selection = ref.read(drawerSelectionProvider.notifier);
-            if (_quickPanelOpen) {
+            } else if (_quickPanelOpen) {
               _closeQuickPanel();
             } else if (selection.active) {
               selection.end();
-            } else {
+            } else if (_open) {
               _closeDrawer();
+            } else if (phone && badges.chatRunning) {
+              // 什么都没有开着、任务还在跑：问一次再退。
+              unawaited(_confirmLeaveWhileRunning());
             }
           },
           child: AnnotatedRegion<SystemUiOverlayStyle>(

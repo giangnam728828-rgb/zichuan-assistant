@@ -30,8 +30,10 @@ class AdaptiveChrome extends InheritedWidget {
   static AdaptiveLayout? layoutOf(BuildContext context) =>
       context.getInheritedWidgetOfExactType<AdaptiveChrome>()?.layout;
 
-  /// The chat header draws its ≡ key (the rail carries its own).
-  bool get showsMenuKey => layout.left != LeftPane.rail;
+  /// The chat header draws its ≡ key: only when the persistent sidebar is on
+  /// screen, where ≡ folds it. The rail carries its own key; on a phone the
+  /// drawer is no longer an entry (川水 3a: 底部导航接管), so there is none.
+  bool get showsMenuKey => layout.left == LeftPane.sidebar;
 
   /// What the ≡ key says it does.
   String get menuTooltip => menuTooltipFor(layout);

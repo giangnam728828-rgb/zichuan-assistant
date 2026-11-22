@@ -11,6 +11,7 @@ import 'package:dsh_app/ui/chat/composer.dart';
 import 'package:dsh_app/ui/session/session_detail_page.dart';
 import 'package:dsh_app/ui/shell/adaptive/detail_sheet.dart';
 import 'package:dsh_app/ui/shell/sessions_drawer.dart';
+import 'package:dsh_app/ui/shell/bottom_nav.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -193,7 +194,9 @@ void main() {
       await _pumpHome(tester, size: _medium);
       expect(find.byKey(const ValueKey('rail-menu')), findsNothing);
       expect(find.byType(SessionDetailPage), findsNothing);
-      expect(_key(tester, 'chat-menu').left, _near(12));
+      // 3a：这种「什么都没有」的窄布局不再有 ≡，导航改由底部四标签承担。
+      expect(find.byKey(const ValueKey('chat-menu')), findsNothing);
+      expect(find.byType(BottomNav), findsOneWidget);
     });
 
     testWidgets('half the window, title and tabs on the sheet\'s 20', (tester) async {
@@ -273,6 +276,12 @@ void main() {
       testWidgets('wide_sidebar', (tester) async {
         await _pumpHome(tester, brightness: brightness, prefs: const LayoutPrefs(loaded: true, panelOpen: false));
         await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/wide_sidebar_$mode.png'));
+      });
+
+      // 川水 3a：手机首页本身，底部四标签导航是这一版的门面。
+      testWidgets('phone_home', (tester) async {
+        await _pumpHome(tester, size: const Size(390, 844), brightness: brightness);
+        await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/phone_home_$mode.png'));
       });
 
       testWidgets('medium_sheet', (tester) async {

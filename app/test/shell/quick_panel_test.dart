@@ -244,8 +244,7 @@ void main() {
 
     testWidgets('with the drawer open a left swipe closes it and goes no further', (tester) async {
       await _pump(tester);
-      await tester.tap(find.byKey(const ValueKey('chat-menu')));
-      await pumpFrames(tester, 8);
+      await openDrawerBySwipe(tester);
       expect(_drawer, findsOneWidget);
 
       // From the scrim, and on past where the drawer is shut.
@@ -259,11 +258,14 @@ void main() {
       expect(_panel, findsNothing);
     });
 
-    testWidgets('a tap goes through, even with a little jitter to the left', (tester) async {
+    testWidgets('开抽屉的划动带一点来回抖动也照样打开', (tester) async {
       await _pump(tester);
-      final menu = tester.getCenter(find.byKey(const ValueKey('chat-menu')));
-      final finger = await tester.startGesture(menu);
-      await _move(tester, finger, const Offset(-3, 1));
+      // 从左边往右划（≡ 已移除，这是现在打开抽屉的方式），中间带一点竖向抖动。
+      final finger = await tester.startGesture(const Offset(12, 420));
+      for (var i = 1; i <= 12; i++) {
+        await finger.moveTo(Offset(12 + i * 22, 420 + (i.isEven ? 2 : -2)));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
       await finger.up();
       await pumpFrames(tester, 8);
       expect(_drawer, findsOneWidget);

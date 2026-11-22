@@ -90,7 +90,10 @@ class BottomNav extends ConsumerWidget {
             right: 16,
             bottom: (MediaQuery.paddingOf(context).bottom + ShellMetrics.navGap),
           ),
-          child: Semantics(
+          child: MediaQuery.withClampedTextScaling(
+            // 导航是 chrome：大字号下钳到 1.3，标签不会撑破 48dp 的触控高度。
+            maxScaleFactor: 1.3,
+            child: Semantics(
             container: true,
             explicitChildNodes: true,
             label: '主导航',
@@ -135,6 +138,7 @@ class BottomNav extends ConsumerWidget {
           ),
         ),
       ),
+      ),
     );
   }
 
@@ -148,6 +152,12 @@ class BottomNav extends ConsumerWidget {
     }
     switchTab(context, tab);
   }
+}
+
+/// 导航标签当前的文字缩放（已按 1.3 钳过）。
+double _scale(BuildContext context) {
+  final scaler = MediaQuery.textScalerOf(context);
+  return (scaler.scale(10.5) / 10.5).clamp(1.0, 1.3);
 }
 
 class _TabKey extends StatelessWidget {
@@ -203,7 +213,8 @@ class _TabKey extends StatelessWidget {
         onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(AppShape.float),
         child: SizedBox(
-          height: ShellMetrics.minTapTarget,
+          // 内容 = 图标 22 + 3 + 标签(10.5×scale×1.2) + 2 + 指示器 3；至少 48。
+          height: math.max(ShellMetrics.minTapTarget, 30 + 12.6 * _scale(context)),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -225,7 +236,9 @@ class _TabKey extends StatelessWidget {
                 AnimatedDefaultTextStyle(
                   duration: duration,
                   curve: curve,
-                  style: TextStyle(
+                  // 从主题文本样式派生：裸 TextStyle 会丢掉应用字体，
+                  // 中文标签会渲染成方块。
+                  style: (Theme.of(context).textTheme.labelSmall ?? const TextStyle()).copyWith(
                     fontSize: 10.5,
                     height: 1.2,
                     fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
