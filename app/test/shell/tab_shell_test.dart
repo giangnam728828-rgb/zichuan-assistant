@@ -6,6 +6,7 @@
 import 'package:dsh_app/state/adaptive_layout_state.dart';
 import 'package:dsh_app/state/sessions_state.dart';
 import 'package:dsh_app/ui/sessions/sessions_page.dart';
+import 'package:dsh_app/ui/chat/composer.dart';
 import 'package:dsh_app/ui/shell/bottom_nav.dart';
 import 'package:dsh_app/ui/shell/home_shell.dart';
 import 'package:dsh_app/ui/shell/root_tab.dart';
@@ -59,6 +60,27 @@ void main() {
     expect(_tab(tester), RootTab.chat);
     // 保活：会话仍是原来那个，没有被重置成新对话。
     expect(_c(tester).read(currentSessionProvider), 's1');
+  });
+
+  testWidgets('①b 切走再切回：内容不透明、输入栏还在（回归：曾因 Opacity 不监听而空白）', (tester) async {
+    useWindow(tester, const Size(390, 844));
+    mockClipboard(tester);
+    await tester.pumpWidget(homeApp());
+    await pumpFrames(tester, 8);
+
+    await _tapTab(tester, RootTab.history);
+    await _tapTab(tester, RootTab.chat);
+    await pumpFrames(tester, 10);
+
+    // 内容层必须回到不透明。
+    final opacity = tester
+        .widgetList<Opacity>(find.byType(Opacity))
+        .map((o) => o.opacity)
+        .where((o) => o < 1)
+        .toList();
+    expect(opacity, isEmpty, reason: '切标签后不应有内容层停在半透明');
+    // 输入栏还在（用组件本身，不依赖文案）。
+    expect(find.byType(Composer), findsOneWidget);
   });
 
   testWidgets('② 返回键：非对话标签先回对话，不退出', (tester) async {

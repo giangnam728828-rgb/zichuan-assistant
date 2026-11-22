@@ -148,6 +148,7 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
     _onTabChanged(tab, reduce: reduce);
 
     final direction = _direction;
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
 
     return ShellInsets(
       progress: _reveal,
@@ -157,20 +158,33 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
         fit: StackFit.expand,
         children: [
           // 四页统一动画：200ms 淡入 + 8dp 方向位移；隐藏标签暂停 ticker。
-          Opacity(
-            opacity: reduce ? 1 : _switch.value.clamp(0.0, 1.0),
-            child: Transform.translate(
-              offset: Offset(reduce ? 0 : (1 - _switch.value) * 8 * direction, 0),
-              child: IndexedStack(
-                index: tab.index,
-                children: [
-                  for (final t in RootTab.values)
-                    TickerMode(
-                      enabled: t == tab,
-                      child: _built.contains(t) ? _page(t) : const SizedBox.shrink(),
-                    ),
-                ],
-              ),
+          // AnimatedBuilder 必须监听：只读一次 _switch.value 会在切换后永久停在该值。
+          // 内容整块抬到导航上方（padding 跟随 _reveal 连续变），输入栏才不会被盖住。
+          AnimatedBuilder(
+            animation: Listenable.merge([_switch, _reveal]),
+            builder: (context, child) {
+              final fade = reduce ? 1.0 : _switch.value.clamp(0.0, 1.0);
+              final lift = (ShellMetrics.navHeight + ShellMetrics.navGap + safeBottom) * _reveal.value;
+              return Padding(
+                padding: EdgeInsets.only(bottom: lift),
+                child: Opacity(
+                  opacity: fade,
+                  child: Transform.translate(
+                    offset: Offset(reduce ? 0 : (1 - fade) * 8 * direction, 0),
+                    child: child,
+                  ),
+                ),
+              );
+            },
+            child: IndexedStack(
+              index: tab.index,
+              children: [
+                for (final t in RootTab.values)
+                  TickerMode(
+                    enabled: t == tab,
+                    child: _built.contains(t) ? _page(t) : const SizedBox.shrink(),
+                  ),
+              ],
             ),
           ),
           // 底部导航：随键盘动画连续收起/展开，底部间距 = 安全区 + 8dp。
