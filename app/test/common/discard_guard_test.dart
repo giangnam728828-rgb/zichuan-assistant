@@ -135,8 +135,9 @@ void main() {
         ],
       ),
     );
-    await tester.pumpAndSettle();
-    expect(tester.binding.hasScheduledFrame, isFalse);
+    // 这棵树里有常驻的无限动画（思考光球/运行圆点的呼吸），pumpAndSettle 永远等不到静止。
+    // 用固定帧推进到界面稳定，再分别断言「抽屉关着时圆点不在」与「打开后有呼吸中的圆点」。
+    await pumpFrames(tester, 16);
     expect(find.byType(StatusDot), findsNothing);
     await tester.tap(find.text('打开抽屉'));
     await tester.pump();
