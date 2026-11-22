@@ -68,7 +68,8 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('滚动时底色与细线渐显', (tester) async {
+    testWidgets('滚动时底色与细线渐显，且底色复用页面背景而不是纯色块', (tester) async {
+      // 2026-11-22：早先这里是 backdropTop 纯色，顶部与页面底色割裂（实测 245/245/245 vs 229/239/238）。
       final scrolled = ValueNotifier<double>(0);
       addTearDown(scrolled.dispose);
       await pumpHeader(tester, scrolledUnder: scrolled, onCompanion: () {});
@@ -127,14 +128,15 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('发送键是水滴形', (tester) async {
+    testWidgets('发送键是正圆（圆角超过键半径会啃出缺口）', (tester) async {
       await pumpComposer(tester, running: false);
-      final drop = tester.widget<AnimatedContainer>(
+      final key = tester.widget<AnimatedContainer>(
         find.descendant(of: find.byType(Composer), matching: find.byType(AnimatedContainer)).first,
       );
-      final radius = (drop.decoration! as BoxDecoration).borderRadius;
-      expect(radius, isNotNull, reason: '水滴不是正圆');
-      expect(radius, isNot(isA<CircleBorder>()));
+      final decoration = key.decoration! as BoxDecoration;
+      expect(decoration.shape, BoxShape.circle);
+      expect(decoration.borderRadius, isNull);
+      expect(key.constraints?.maxWidth, 36, reason: '键 36dp：任何大于 18 的圆角都会溢出');
     });
 
     testWidgets('生成中：边缘流光，不再转圈', (tester) async {

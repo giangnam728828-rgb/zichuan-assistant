@@ -16,6 +16,7 @@ import '../../state/header_schedule_state.dart';
 import '../agents/header_agents.dart';
 import '../common/fluid_bits.dart';
 import '../common/smooth_size.dart';
+import '../theme/feather.dart';
 import '../common/status_dot.dart';
 import '../shell/adaptive/adaptive_scaffold.dart' show AdaptiveChrome;
 import '../shell/adaptive/detail_panel_keys.dart';
@@ -358,39 +359,38 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
   }
 }
 
-/// Marks the model chip inside the trailing pieces, so the bar can weigh its
-/// widths apart from the agents capsule beside it.
-/// 顶栏随滚动渐显的底色与底部细线（第 4 步：顶栏不再模糊，滚起来时用一层页面底色
-/// 加一条 1px 细线把它和内容分开）。[under] 是淡出下沿的高度，与 TopFade 一致。
+/// 顶栏随滚动渐显的底与细线（第 4 步，2026-11-22 修正）。
+///
+/// 早先这里铺的是 `surfaces.backdropTop` 纯色，结果顶栏那条是中性白、下面却是带
+/// 青调的页面底（截图实测顶 y≈200 处 RGB 245/245/245，正文 229/239/238）——看上去
+/// 就是「顶部颜色突然割裂」。现在底色复用页面背景自己的画法（[BackdropVeil.top]，
+/// 与 [TopFade] 同一套），只额外加一条 1px 细线；没滚动时整层为 0，页面是一整块。
 class _HeaderScrim extends StatelessWidget {
   const _HeaderScrim({required this.height, required this.under});
 
   /// 到顶栏下沿为止的实底高度（含状态栏）。
   final double height;
 
-  /// 淡出下沿：底色在这里结束，细线画在 [height] 上。
+  /// 淡出下沿：纱幕在这里结束，细线画在 [height] 上。
   final double under;
 
   @override
   Widget build(BuildContext context) {
-    final surfaces = DshSurfaces.of(context);
-    final line = surfaces.pill.hairline;
+    final line = DshSurfaces.of(context).pill.hairline;
+    // 高度必须自己给：外面的 Positioned 只给了左右和 top，高度是无界的。
     return SizedBox(
       height: under,
       width: double.infinity,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [surfaces.backdropTop, surfaces.backdropTop.withValues(alpha: 0)],
-                stops: [height / under, 1],
-              ),
-              border: Border(bottom: BorderSide(color: line, width: surfaces.pill.hairlineWidth)),
-            ),
+          TopFade(height: under),
+          Positioned(
+            left: 0,
+            right: 0,
+            top: height,
+            height: 1,
+            child: ColoredBox(color: line),
           ),
         ],
       ),
@@ -398,6 +398,8 @@ class _HeaderScrim extends StatelessWidget {
   }
 }
 
+/// Marks the model chip inside the trailing pieces, so the bar can weigh its
+/// widths apart from the agents capsule beside it.
 class _ChipSlot extends SingleChildRenderObjectWidget {
   const _ChipSlot({required super.child});
 

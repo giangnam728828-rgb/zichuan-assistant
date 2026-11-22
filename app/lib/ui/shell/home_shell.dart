@@ -268,13 +268,26 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
     }
   }
 
+  /// 收起抽屉与快捷面板，并退出多选（切标签/跳页之前用）。
+  void _closeOverlays() {
+    _drawer.value = 0;
+    _quickPanel.value = 0;
+    ref.read(drawerSelectionProvider.notifier).end();
+  }
+
   void _openDestination(DrawerDestination destination) {
     // 3b：设置与全部功能已经是标签，切过去而不是压一个重复的根页。
+    //
+    // 2026-11-22 修正：切标签之前必须先把抽屉/快捷面板收起来、退出多选。
+    // 否则抽屉还浮在上面，用户在抽屉里点「设置」只看到下面的页面被换掉，
+    // 像在底部导航上自己点了一下，而不是「去了设置页」。
     switch (destination) {
       case DrawerDestination.settings:
+        _closeOverlays();
         switchTab(context, RootTab.settings);
         return;
       case DrawerDestination.features:
+        _closeOverlays();
         switchTab(context, RootTab.tools);
         return;
       case DrawerDestination.web ||

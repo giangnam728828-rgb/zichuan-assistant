@@ -944,14 +944,10 @@ class _SendButton extends StatefulWidget {
   State<_SendButton> createState() => _SendButtonState();
 }
 
-/// 知川助手 · 川水第 4 步：发送键是一滴水——三个角圆到底，右下收窄，
-/// 和底部导航的水滴指示器是同一个形状语言。
-const _dropRadius = BorderRadius.only(
-  topLeft: Radius.circular(22),
-  topRight: Radius.circular(22),
-  bottomLeft: Radius.circular(22),
-  bottomRight: Radius.circular(7),
-);
+/// 发送键的形状。**必须是正圆**：键只有 36dp，圆角半径一旦超过 18 就会在
+/// 右下角「多出去一点」，看着像被啃掉一块（2026-11-22 用户实测反馈）。
+/// 水滴形状只留在底部导航的水滴指示器上，别用在按键。
+const _sendKeyShape = BoxShape.circle;
 
 /// 输入栏里的「语音通话」键：和发送键同高、淡底，图标与顶栏原来那个一致。
 class _CallKey extends StatelessWidget {
@@ -1035,8 +1031,7 @@ class _SendButtonState extends State<_SendButton> {
             duration: AppMotion.of(context, AppMotion.quick),
             width: _keySize,
             height: _keySize,
-            // 水滴：三个角圆到底，右下收窄成一滴（第 4 步的签名形状）。
-            decoration: BoxDecoration(color: bg, borderRadius: _dropRadius),
+            decoration: BoxDecoration(color: bg, shape: _sendKeyShape),
             child: AnimatedSwitcher(
               duration: fluid ? AppMotion.standard : AppMotion.of(context, AppMotion.quick),
               switchInCurve: fluid ? Curves.linear : AppMotion.enter,
