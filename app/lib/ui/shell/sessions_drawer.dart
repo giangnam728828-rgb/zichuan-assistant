@@ -88,7 +88,12 @@ class SessionsDrawer extends ConsumerWidget {
     this.now,
     this.identityBarHeight,
     this.drawerMotion,
+    this.embedded = false,
   });
+
+  /// 作为「历史」标签页内嵌时：不画品牌 lockup、不显示底部身份栏
+  /// （设置/全部功能已在底部导航里），也不自己包一层玻璃。
+  final bool embedded;
 
   final VoidCallback onClose;
   final ValueChanged<DrawerDestination> onOpen;
@@ -146,7 +151,8 @@ class SessionsDrawer extends ConsumerWidget {
     // would leave room for two conversations, so it scrolls away with them.
     final short = MediaQuery.sizeOf(context).height < WindowClass.compactHeight;
     final top = <Widget>[
-      AnimatedSwitcher(
+      if (!embedded)
+        AnimatedSwitcher(
         duration: quick,
         child: selecting
             ? DrawerSelectionHeader(key: const ValueKey('selecting'), now: now)
@@ -183,6 +189,21 @@ class SessionsDrawer extends ConsumerWidget {
                 ),
               ),
       ),
+      if (embedded)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 10, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '历史',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              NewChatButton(onTap: newChat, compact: false),
+            ],
+          ),
+        ),
       SafeModeBanner(
         padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
         onDetails: () => onOpen(DrawerDestination.engine),
@@ -237,6 +258,7 @@ class SessionsDrawer extends ConsumerWidget {
             ],
             // The action bar lies exactly over the identity bar, which
             // keeps its size while hidden: same height at any text size.
+            if (!embedded)
             _ReportHeight(
               height: identityBarHeight,
               child: Stack(
@@ -298,6 +320,7 @@ class SessionsDrawer extends ConsumerWidget {
       ),
     );
 
+    if (embedded) return content;
     final motion = drawerMotion;
     if (motion == null) {
       return GlassSurface(tier: GlassTier.sheet, borderRadius: radius, child: content);

@@ -39,16 +39,17 @@ class AppModeController extends Notifier<AppModeState> {
     } catch (_) {
       // No preferences backend (tests) or an unreadable store: 工作.
     }
-    // 知川助手：小酒馆(tavern) 已下线。历史启动偏好若指向它，回退到工作，
-    // 避免升级后仍自动进入一个已从 UI 移除的模式。
-    if (startup == AppMode.tavern) startup = AppMode.work;
+    // 知川助手：伙伴入口已取消（底部四标签方案）。任何历史启动偏好（
+    // companion / tavern）都强制回工作模式，避免启动后卡在一個没有入口的页面。
+    // CompanionPage 的代码保留，只是不再有入口。
+    if (startup != AppMode.work) startup = AppMode.work;
     // A choice made while reading back wins over the stored value.
     if (!state.loaded) state = AppModeState(startup: startup, loaded: true);
   }
 
   Future<void> setStartup(AppMode mode) async {
     // 知川助手：小酒馆已下线，任何设置 tavern 为启动模式的请求一律改回工作。
-    if (mode == AppMode.tavern) mode = AppMode.work;
+    if (mode != AppMode.work) mode = AppMode.work;
     state = AppModeState(startup: mode, loaded: true);
     try {
       final prefs = await SharedPreferences.getInstance();

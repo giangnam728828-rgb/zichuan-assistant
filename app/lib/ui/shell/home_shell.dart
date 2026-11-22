@@ -44,6 +44,7 @@ import '../share_code/share_code_host.dart';
 import '../tavern/tavern_intake.dart';
 import '../star/star_prompt_host.dart';
 import '../theme/theme.dart';
+import '../theme/tide_glow.dart';
 import '../update/update_launch_check.dart';
 import '../wallpaper/wallpaper_backdrop.dart';
 import '../web/local_web_screen.dart';
@@ -54,6 +55,9 @@ import 'drawer_drag.dart';
 import 'quick_panel.dart';
 import 'session_search_page.dart' show showSessionSearch;
 import 'sessions_drawer.dart';
+import 'root_tab.dart';
+import 'tab_shell.dart';
+import 'bottom_nav.dart';
 import 'system_entry_host.dart';
 
 /// Home: the chat screen, with the sessions drawer pulled over it from the left.
@@ -106,6 +110,40 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
 
   /// 「宠物设置」 from the floating pet's menu (every tap, not deduplicated).
   StreamSubscription<void>? _petSettings;
+
+  /// 四个根页的固定 key：窄屏（底部导航）与宽屏（侧栏）切换时搬家而不是重建。
+  final Map<RootTab, GlobalKey> _pageKeys = {
+    for (final tab in RootTab.values) tab: GlobalKey(debugLabel: 'page:${tab.name}'),
+  };
+
+  /// 有任务在跑时按返回：问一次，避免误触打断。
+  Future<void> _confirmLeaveWhileRunning() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('任务还在运行'),
+        content: const Text('现在退出会打断这次任务。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('继续等待')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('仍然退出')),
+        ],
+      ),
+    );
+    if (ok == true) await SystemNavigator.pop();
+  }
+
+  /// 重复点击当前标签。
+  void _onReselect(RootTab tab) {
+    final intents = ref.read(tabIntentProvider.notifier);
+    switch (tab) {
+      case RootTab.chat:
+        intents.send(TabIntent.scrollBottom);
+      case RootTab.history:
+        intents.send(TabIntent.focusSearch);
+      case RootTab.tools || RootTab.settings:
+        Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
+    }
+  }
 
   @override
   void initState() {
@@ -308,15 +346,36 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
         if (mounted) _quickPanel.value = 0;
       });
     }
-    final chat = widget.chatBuilder?.call(_onMenu) ?? ChatScreen(onOpenDrawer: _onMenu, backdrop: false);
+    // 3a：抽屉不再作为主入口，顶栏的 ≡ 一并删掉；底部导航接管四个根页。
+    final chat = widget.chatBuilder?.call(() {}) ?? const ChatScreen(backdrop: false);
+    final tab = ref.watch(rootTabProvider);
+    final badges = ref.watch(navBadgesProvider);
+    final wide = layout.left == LeftPane.sidebar;
+    // 窄屏：底部四标签；宽屏：保持侧栏三栏。同一时刻只有一套布局。
+    final body = wide
+        ? KeyedSubtree(key: _pageKeys[RootTab.chat], child: chat)
+        : TabShell(chat: chat, pageKeys: _pageKeys, onReselect: _onReselect);
     // The floating pet outside the app hears every pet state.
     ref.listen<void>(petOverlayBridgeProvider, (_, _) {});
     return SafeModeNoticeListener(
       child: PhoneStopWatcher(
         child: PopScope(
-          canPop: !_open && !_quickPanelOpen && !(selecting && sidebar),
+          // Android 14 预测性返回：只有停在「对话」且没有浮层、没有任务在跑时才退出。
+          canPop: wide
+              ? (!_open && !_quickPanelOpen && !(selecting && sidebar))
+              : (tab == RootTab.chat && !_quickPanelOpen && !badges.chatRunning),
           onPopInvokedWithResult: (didPop, _) {
             if (didPop) return;
+            if (!wide && tab != RootTab.chat) {
+              // 非对话标签：先回到对话，不退出应用。
+              ref.read(rootTabProvider.notifier).jumpToChat();
+              return;
+            }
+            if (!wide && badges.chatRunning) {
+              // 有任务在跑：不直接退出，问一次。
+              unawaited(_confirmLeaveWhileRunning());
+              return;
+            }
             final selection = ref.read(drawerSelectionProvider.notifier);
             if (_quickPanelOpen) {
               _closeQuickPanel();
@@ -330,6 +389,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
             value: dshSystemOverlay(Theme.of(context).brightness),
             // 首页 / 对话 and the drawer: the custom wallpaper when one is in use.
             child: WallpaperBackdrop(
+              // 川水：潮汐光斑整个外壳只放一份，四个标签共用。
               child: _DrawerNoticeTheme(
                 drawer: _drawer,
                 identityBar: _identityBar,
@@ -341,6 +401,8 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
                   body: Stack(
                     fit: StackFit.expand,
                     children: [
+                      // 川水：潮汐光斑整个外壳只放一份，四个标签共用。
+                      const Positioned.fill(child: TideGlow()),
                       // Notifications: routes taps, raises the in-app banner (draws nothing here).
                       ChatAlertHost(onReveal: _revealChat),
                       // Background running cut off by the phone, or on HarmonyOS suspended with the app:
@@ -392,7 +454,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
                               // No drawer to pull while the sidebar shows.
                               behavior: HitTestBehavior.translucent,
                               gestures: {if (!sidebar) ..._drawerGestures, if (quickPanelOn) ..._quickPanelGestures},
-                              child: chat,
+                              child: body,
                             ),
                             sidebar: SessionsDrawer(
                               key: const ValueKey('persistent-sidebar'),

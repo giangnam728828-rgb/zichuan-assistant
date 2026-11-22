@@ -171,7 +171,8 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                 children: [
                   // A subagent conversation shows 「‹ 上级对话」 here.
                   HeaderLeadSlot(
-                    menu: !(chrome?.showsMenuKey ?? true)
+                    // 3a：抽屉不再是主入口，没有 onOpenDrawer 时不画 ≡。
+                    menu: widget.onOpenDrawer == null || !(chrome?.showsMenuKey ?? true)
                         ? const SizedBox.shrink()
                         : SizedBox.square(
                             key: const ValueKey('chat-menu'),
