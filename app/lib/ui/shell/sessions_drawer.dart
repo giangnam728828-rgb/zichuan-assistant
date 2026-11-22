@@ -141,7 +141,9 @@ class SessionsDrawer extends ConsumerWidget {
       if (known.isNotEmpty) unawaited(ref.read(drawerViewProvider.notifier).forgetMissing(known));
     });
     // Hidden (closed by a tap, a swipe or back): multi-select ends with it.
-    if (selecting && !TickerMode.valuesOf(context).enabled) {
+    // 内嵌（历史标签页）不适用：预热会在隐藏的 TickerMode 里构建它，
+    // 那会把抽屉里正在进行的选择一起清掉。标签切换时由 TabShell 负责收尾。
+    if (!embedded && selecting && !TickerMode.valuesOf(context).enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (context.mounted) ref.read(drawerSelectionProvider.notifier).end();
       });

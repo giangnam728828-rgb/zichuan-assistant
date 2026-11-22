@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../features/all_features_page.dart';
 import '../settings/settings_screen.dart';
 import '../theme/theme.dart';
+import '../../state/drawer_view_state.dart' show drawerSelectionProvider;
 import '../sessions/sessions_page.dart';
 import 'bottom_nav.dart';
 import 'root_tab.dart';
@@ -116,6 +117,12 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
     // build 里直接改集合：这一帧本来就会重建，不需要 setState。
     _built.add(tab);
     if (tab == _last) return;
+    // 真正离开历史标签：那里的多选跟着结束（预热不算，因为预热不改变 _last）。
+    if (_last == RootTab.history) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(drawerSelectionProvider.notifier).end();
+      });
+    }
     _direction = tab.index >= _last.index ? 1 : -1;
     _last = tab;
     if (reduce) {
