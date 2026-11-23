@@ -109,29 +109,43 @@ void main() {
       expect(1280 - segments.right, _near(16));
 
       // The chat: the composer centred in its column, the column ending on
-      // the hairline; the header's new-chat key 12 in from it.
+      // the hairline; the header's ⋯ 12 in from it, with new-chat a gap
+      // before it.
       final composer = tester.getRect(find.byType(Composer));
       expect(composer.center.dx, _near((68 + 896) / 2));
-      expect(896 - _key(tester, 'chat-new-chat').right, _near(12));
+      final more = _key(tester, 'chat-more');
+      expect(more.size, const Size.square(44));
+      expect(896 - more.right, _near(12));
+      expect(_key(tester, 'chat-new-chat').right, _near(more.left - 8));
+      // With the panel showing, the header spends no room of its own on a
+      // panel key: 对话详情 is one row inside ⋯ (B1).
       expect(find.byKey(const ValueKey('chat-panel-key')), findsNothing);
     });
 
-    testWidgets('fold and unfold: the key stays on one spot', (tester) async {
+    testWidgets('fold and unfold: 对话详情 lives inside ⋯', (tester) async {
       await _pumpHome(tester);
       final open = _key(tester, 'panel-collapse');
       await tester.tap(find.byKey(const ValueKey('panel-collapse')));
       await pumpFrames(tester, 8);
       expect(find.byType(SessionDetailPage), findsNothing);
-      final folded = _key(tester, 'chat-panel-key');
-      expect(folded, open);
       // The sidebar fits again; the header's ≡ folds it.
       expect(find.byType(SessionsDrawer), findsOneWidget);
       expect(tester.getRect(find.byType(SessionsDrawer)).width, _near(320));
       expect(_key(tester, 'chat-menu').left, _near(320 + 12));
 
-      await tester.tap(find.byKey(const ValueKey('chat-panel-key')));
+      // Nothing stands on the header while the panel is folded: the way
+      // back is the menu.
+      expect(find.byKey(const ValueKey('chat-panel-key')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('chat-more')));
       await pumpFrames(tester, 8);
+      final item = find.byKey(const ValueKey('chat-panel-key'));
+      expect(item, findsOneWidget);
+      expect(find.descendant(of: item, matching: find.text('对话详情')), findsOneWidget);
+
+      await tester.tap(item);
+      await pumpFrames(tester, 10);
       expect(find.byType(SessionDetailPage), findsOneWidget);
+      // The panel's own key takes the corner back, on the spot it left.
       expect(_key(tester, 'panel-collapse'), open);
     });
 

@@ -1,7 +1,7 @@
 // 川水 · 第 4 步验收：输入栏与顶栏。
 //
-// 顶栏：不再模糊（三处零件 blur: false）、滚动时底色与细线渐显、语音通话搬走、
-// 换成「伙伴」入口。
+// 顶栏：B1 之后是一条透明线（没有胶囊、没有纱幕），伙伴 / 子代理 / 详情收进 ⋯；
+// 语音通话搬进输入栏。
 // 输入栏：悬浮 float 圆角、发送键水滴形、生成中是边缘流光而不是转圈、语音通话键在
 // 输入栏自己的行里，附件键仍然在（附件能力不能丢）。
 
@@ -47,40 +47,39 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('顶栏零件全部不模糊', (tester) async {
+    testWidgets('顶栏零件全部无底色（B1 去色块）', (tester) async {
       await pumpHeader(tester, onCompanion: () {}, onNewChat: () {});
       final glasses = tester.widgetList<GlassSurface>(
         find.descendant(of: find.byType(ChatHeader), matching: find.byType(GlassSurface)),
       );
       expect(glasses, isNotEmpty);
       for (final g in glasses) {
-        expect(g.blur, isFalse, reason: '顶栏不模糊（第 4 步）');
+        expect(g.bare, isTrue, reason: 'B1：顶栏只有图标和按下反馈，没有填充、描边或模糊');
       }
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('语音通话已搬走：顶栏没有 chat-call，有 chat-companion', (tester) async {
+    testWidgets('语音通话已搬走：顶栏没有 chat-call，伙伴收进 ⋯', (tester) async {
       await pumpHeader(tester, onCompanion: () {});
       expect(find.byKey(const ValueKey('chat-call')), findsNothing);
+      expect(find.byKey(const ValueKey('chat-companion')), findsNothing, reason: 'B1：入口在 ⋯ 菜单里');
+      await tester.tap(find.byKey(const ValueKey('chat-more')));
+      await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('chat-companion')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('chat-companion')));
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('滚动时底色与细线渐显，且底色复用页面背景而不是纯色块', (tester) async {
-      // 2026-11-22：早先这里是 backdropTop 纯色，顶部与页面底色割裂（实测 245/245/245 vs 229/239/238）。
+    testWidgets('顶栏不再自带滚动遮罩（A1 交给列表的 EdgeFade）', (tester) async {
       final scrolled = ValueNotifier<double>(0);
       addTearDown(scrolled.dispose);
       await pumpHeader(tester, scrolledUnder: scrolled, onCompanion: () {});
-      double scrim() => tester
-          .widgetList<Opacity>(find.descendant(of: find.byType(ChatHeader), matching: find.byType(Opacity)))
-          .map((o) => o.opacity)
-          .reduce((a, b) => a > b ? a : b);
-      expect(scrim(), 0);
+      // 没有纱幕，也就没有那条 1px 细线。
+      expect(find.descendant(of: find.byType(ChatHeader), matching: find.byType(ColoredBox)), findsNothing);
       scrolled.value = 1;
       await tester.pump();
-      expect(scrim(), 1);
+      expect(tester.takeException(), isNull);
     });
   });
 

@@ -57,14 +57,17 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
     }
 
-    testWidgets('on a phone the title has the room, the model under it', (tester) async {
+    testWidgets('on a phone the title and the model share the line', (tester) async {
       await screen(tester, const Size(390, 844));
-      expect(find.byType(ModelChip), findsNothing);
-      expect(find.descendant(of: find.byType(ChatHeader), matching: find.textContaining('V4 Pro')), findsNothing);
+      // B1：模型名是一枚无底色的文字按钮，手机上也有它的位置；标题在它左边。
+      expect(find.byType(ModelChip), findsOneWidget);
+      expect(find.descendant(of: find.byType(ChatHeader), matching: find.textContaining('V4 Pro')), findsOneWidget);
       final title = tester.getRect(find.byKey(const ValueKey('chat-title-pill')));
-      // 第 4 步：语音通话搬进输入栏，顶栏这一格是「伙伴」。
-      final companion = tester.getRect(find.byKey(const ValueKey('chat-companion')));
-      expect(companion.left - title.right, lessThan(12), reason: 'a long title reaches the keys');
+      final chip = tester.getRect(find.byType(ModelChip));
+      expect(chip.left, greaterThanOrEqualTo(title.right), reason: '标题与模型名不重叠');
+      // 「伙伴」收进了 ⋯（B1），顶栏不再有常驻的 chat-companion。
+      expect(find.byKey(const ValueKey('chat-companion')), findsNothing);
+      expect(find.byKey(const ValueKey('chat-more')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -262,7 +265,7 @@ void main() {
         testApp(
           SlidingGlass(
             motion: motion,
-            tier: GlassTier.chrome,  // 第 2 步后 sheet 故意不模糊，这里验证玻璃本身的采样逻辑
+            tier: GlassTier.chrome, // 第 2 步后 sheet 故意不模糊，这里验证玻璃本身的采样逻辑
             borderRadius: BorderRadius.zero,
             child: const SizedBox.square(key: Key('inside'), dimension: 50),
           ),

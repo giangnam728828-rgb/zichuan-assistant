@@ -121,12 +121,22 @@ class ComposerModelPill extends ConsumerWidget {
 /// ✦ 和 ⌄。给多宽由顶栏量了再定([ChatHeader]),胶囊自己不猜屏宽:它的
 /// 最小固有宽度是「完整模型名、不带深度」,最大固有宽度是「名字加深度」。
 class ModelChip extends ConsumerWidget {
-  const ModelChip({super.key, required this.selection, required this.onSelected, this.grouped = false});
+  const ModelChip({
+    super.key,
+    required this.selection,
+    required this.onSelected,
+    this.grouped = false,
+    this.bare = false,
+  });
 
   /// 当前生效的选择;null 时显示目录默认值。
   final ModelSelection? selection;
   final ValueChanged<ModelSelection> onSelected;
   final bool grouped;
+
+  /// B1:顶栏去胶囊后,模型名作为一枚无底色的文字按钮(_只留名字和 ⌄_)。
+  /// 触控高度、宽度让步、点开的面板都不变,只是不再画玻璃底。
+  final bool bare;
 
   // The chevron's glyph carries ~4 of its own air on the right: 12 + 0 on
   // the left reads the same as 8 + 4 on the right.
@@ -149,73 +159,75 @@ class ModelChip extends ConsumerWidget {
     final em = MediaQuery.textScalerOf(context).scale(13);
     final style = theme.textTheme.labelMedium?.copyWith(fontSize: 13);
     void open() => showModelSheet(context, current: effective, onSelected: onSelected);
-    return GlassSurface(
-      tier: GlassTier.chrome,
-      stadium: true,
-      grouped: grouped,
+    final content = Semantics(
+      label: [
+        l10n.viewModelLabel(label),
+        if (effort != null) l10n.viewModelEffortLabel(effortLabel(effort)),
+      ].join(l10n.viewListSeparator),
+      button: true,
       onTap: open,
-      child: Semantics(
-        label: [
-          l10n.viewModelLabel(label),
-          if (effort != null) l10n.viewModelEffortLabel(effortLabel(effort)),
-        ].join(l10n.viewListSeparator),
-        button: true,
-        onTap: open,
-        excludeSemantics: true,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 44),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(_padStart, 0, _padEnd, 0),
-            child: SmoothSize(
-              duration: AppMotion.of(context, AppMotion.standard),
-              curve: AppMotion.std,
-              alignment: Alignment.centerRight,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: AnimatedSwitcher(
-                      duration: quick,
-                      layoutBuilder: (current, previous) =>
-                          Stack(alignment: Alignment.centerLeft, children: [...previous, ?current]),
-                      child: _ChipLabel(
-                        key: ValueKey('$label\u0000$effort'),
-                        gap: 5,
-                        // About two letters and an ellipsis; a long name
-                        // stops at ten characters' width.
-                        minTextWidth: em * 2.5,
-                        maxTextWidth: em * 10,
-                        children: [
-                          if (effort != null)
-                            Text.rich(
-                              TextSpan(
-                                children: [
-                                  TextSpan(text: label),
-                                  TextSpan(
-                                    text: ' · ${effortLabel(effort)}',
-                                    style: TextStyle(
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                      fontWeight: FontWeight.w400,
-                                    ),
+      excludeSemantics: true,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(_padStart, 0, _padEnd, 0),
+          child: SmoothSize(
+            duration: AppMotion.of(context, AppMotion.standard),
+            curve: AppMotion.std,
+            alignment: Alignment.centerRight,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: AnimatedSwitcher(
+                    duration: quick,
+                    layoutBuilder: (current, previous) =>
+                        Stack(alignment: Alignment.centerLeft, children: [...previous, ?current]),
+                    child: _ChipLabel(
+                      key: ValueKey('$label\u0000$effort'),
+                      gap: 5,
+                      // About two letters and an ellipsis; a long name
+                      // stops at ten characters' width.
+                      minTextWidth: em * 2.5,
+                      maxTextWidth: em * 10,
+                      children: [
+                        if (effort != null)
+                          Text.rich(
+                            TextSpan(
+                              children: [
+                                TextSpan(text: label),
+                                TextSpan(
+                                  text: ' · ${effortLabel(effort)}',
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                    fontWeight: FontWeight.w400,
                                   ),
-                                ],
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: style,
+                                ),
+                              ],
                             ),
-                          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
-                        ],
-                      ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: style,
+                          ),
+                        Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
+                      ],
                     ),
                   ),
-                  Icon(AppIcons.expand, size: _chevron, color: theme.colorScheme.onSurfaceVariant),
-                ],
-              ),
+                ),
+                Icon(AppIcons.expand, size: _chevron, color: theme.colorScheme.onSurfaceVariant),
+              ],
             ),
           ),
         ),
       ),
+    );
+    return GlassSurface(
+      tier: GlassTier.chrome,
+      stadium: true,
+      grouped: grouped,
+      bare: bare,
+      onTap: open,
+      child: content,
     );
   }
 }

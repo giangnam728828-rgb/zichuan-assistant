@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,7 +10,6 @@ import '../common/fade_in.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
 import 'empty_actions.dart';
-import 'widgets/whale_tail.dart';
 
 /// 一条建议:一枚带色底的线性小图标 + 标题 + 一行说明,点了把 [prompt] 填进输入条。
 class ChatSuggestion {
@@ -17,7 +18,10 @@ class ChatSuggestion {
       _prompt = prompt,
       _defaultIndex = null;
 
-  const ChatSuggestion._default(this.icon, this._defaultIndex, this.tint) : _label = null, _prompt = null, _detail = null;
+  const ChatSuggestion._default(this.icon, this._defaultIndex, this.tint)
+    : _label = null,
+      _prompt = null,
+      _detail = null;
 
   final IconData icon;
   final SuggestionTint tint;
@@ -98,6 +102,20 @@ List<String> defaultTips() => [
   appL10n.viewTipWallpaper,
 ];
 
+/// B3：这一次空状态给不给小技巧——偶尔一次（三分之一），其余时候那一行
+/// 根本不出现。测试固定它，让金图和断言稳定。
+@visibleForTesting
+bool Function() emptyTipsRoll = _rollOften;
+
+bool _rollOften() => math.Random().nextInt(3) == 0;
+
+/// 这一次要显示的小技巧：空列表 = 不显示。
+List<String> rollEmptyTips() {
+  if (!emptyTipsRoll()) return const [];
+  final all = defaultTips();
+  return [all[tipStart(all.length)]];
+}
+
 /// 当前时间的来源(测试里固定它,让问候语可复现)。
 @visibleForTesting
 DateTime Function() chatClock = DateTime.now;
@@ -112,28 +130,23 @@ String greetingFor(DateTime now) {
   return appL10n.viewGreetingNight;
 }
 
-/// 新对话的空状态:居中偏上,一尾很淡的鲸尾 + 按时段的问候 + 一句短副标题,
-/// 下面是几档控件(empty_actions.dart):
+/// 新对话的空状态（B3）：左上角一枚 40dp 伙伴头像，下面是按时段的问候和一句
+/// 副标题，再往下是这一屏的控件（empty_actions.dart）：
 ///
-/// - 主操作至多一个,只在这一屏自己有出路时出现(连不上引擎:「重新连接」);
-/// - 同一规格的安静胶囊:工作区胶囊,以及这次对话的选项(文件夹、预设、权限);
-/// - 2×2 的建议卡片:带色底的小图标 + 标题 + 一行说明;
-/// - 最下面一行小技巧,点一下换下一条。
+/// - 主操作至多一个，只在这一屏自己有出路时出现（连不上引擎：「重新连接」）；
+/// - 同一规格的安静胶囊：工作区胶囊，以及这次对话的选项（文件夹、预设、权限）；
+/// - 一行**横向可滚**的建议 chip：图标 + 名字，点了把文字填进输入条；
+/// - 小技巧改成偶尔出现的一次性轻提示（要不要给由 `chat_screen` 决定）。
 ///
-/// 输入条才是这一屏的主角,这里只是安静地递几个起点。
+/// 输入条才是这一屏的主角，这里只是安静地递几个起点。
 ///
 /// ```
-///                 ⌒)
-///               下午好
-///           今天想做点什么？
-///         ( ▢ 在「dsh-app」中 ⌄ )        ← 断线时这里换成主色「重新连接」
-///      ( ⚒ 标准模式 ⌄ ) ( ⛨ 完全权限 ⌄ )
+/// ▣  下午好
+///    今天想做点什么？
+///    ( ▢ 在「dsh-app」中 ⌄ )        ← 断线时这里换成主色「重新连接」
+///    ( ⚒ 标准模式 ⌄ ) ( ⛨ 完全权限 ⌄ )
 ///
-///   ┌ ▣ 看看工作区   ┐ ┌ ▣ 写个小脚本    ┐
-///   └ 列出文件和项目 ┘ └ 统计词频并跑一次 ┘
-///   ┌ ▣ 新建项目     ┐ ┌ ▣ 讲讲 Git      ┐
-///   └ Node.js + TS   ┘ └ rebase 和 merge ┘
-///    💡 输入 @ 可以引用工作区里的文件…   3/12 ›
+///    ( ▣ 看看工作区 ) ( ▣ 写个小脚本 ) ( ▣ 新建项目 ) →
 /// ```
 ///
 /// 左右与顶栏、输入条一样离屏幕 12,宽屏时与输入条同宽居中;第一次出现时
@@ -206,8 +219,9 @@ class ChatEmptyState extends StatelessWidget {
   /// The workspace chip → the options row.
   static const optionsGap = 8.0;
 
-  /// The pill or chips → the suggestions.
-  static const suggestionsGap = 28.0;
+  /// The pill or chips → the suggestions. B3: the chips are one 40 row now,
+  /// so they sit closer than the old 2×2 cards did.
+  static const suggestionsGap = 20.0;
 
   /// The suggestions → the tip line.
   static const tipGap = 6.0;
@@ -264,9 +278,8 @@ class ChatEmptyState extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 知川助手：空状态页用猫耳伙伴形象取代原鲸尾动画，
-              // 这是与 dsh-Go 视觉区分的核心标志之一。
-              // pet 站在输入栏时淡出伙伴头像，保持「一屏一个吉祥物」。
+              // B3：40dp 头像放到左上，问候与副标题都跟着左对齐——不再是一块
+              // 居中的 72dp 头像。这也回答了「头像放哪」的遗留问题。
               enter(
                 Consumer(
                   builder: (context, ref, child) => AnimatedOpacity(
@@ -276,15 +289,16 @@ class ChatEmptyState extends StatelessWidget {
                     child: child,
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: Center(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
                       child: ClipOval(
                         child: Image.asset(
                           'assets/brand/companion_avatar.jpg',
-                          width: 72,
-                          height: 72,
+                          width: 40,
+                          height: 40,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => SizedBox(width: 72, height: 72),
+                          errorBuilder: (_, _, _) => const SizedBox(width: 40, height: 40),
                         ),
                       ),
                     ),
@@ -294,7 +308,7 @@ class ChatEmptyState extends StatelessWidget {
               enter(
                 Text(
                   greetingFor(now ?? chatClock()),
-                  textAlign: TextAlign.center,
+                  textAlign: TextAlign.start,
                   style: theme.textTheme.displaySmall?.copyWith(color: theme.colorScheme.onSurface),
                 ),
               ),
@@ -302,10 +316,13 @@ class ChatEmptyState extends StatelessWidget {
               enter(
                 AnimatedSwitcher(
                   duration: AppMotion.of(context, AppMotion.quick),
+                  // B3：换文案时也贴着左边线，不要被 Stack 居中。
+                  layoutBuilder: (current, previous) =>
+                      Stack(alignment: Alignment.centerLeft, children: [...previous, ?current]),
                   child: Text(
                     subtitle,
                     key: ValueKey(subtitle),
-                    textAlign: TextAlign.center,
+                    textAlign: TextAlign.start,
                     style: theme.textTheme.bodyLarge?.copyWith(color: dsh.textTertiary),
                   ),
                 ),
@@ -313,14 +330,15 @@ class ChatEmptyState extends StatelessWidget {
               if (slot != null) ...[
                 const SizedBox(height: slotGap),
                 enter(
-                  Center(
+                  Align(
+                    alignment: Alignment.centerLeft,
                     child: AnimatedSwitcher(duration: AppMotion.of(context, AppMotion.quick), child: slot),
                   ),
                 ),
               ],
               if (connected && options != null) ...[
                 const SizedBox(height: optionsGap),
-                enter(Center(child: options!)),
+                enter(Align(alignment: Alignment.centerLeft, child: options!)),
               ],
               if (suggestions.isNotEmpty || tipList.isNotEmpty)
                 ExpandReveal(
@@ -332,7 +350,7 @@ class ChatEmptyState extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         if (suggestions.isNotEmpty)
-                          SuggestionCards(
+                          SuggestionChips(
                             suggestions: suggestions,
                             enabled: connected,
                             onSuggestion: onSuggestion,

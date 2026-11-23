@@ -178,7 +178,10 @@ void main() {
     await pumpFrames(tester);
     expect(find.text('没能连上引擎'), findsOneWidget);
     expect(find.text('重新连接'), findsOneWidget);
-    expect(tester.getCenter(find.text('重新连接')).dx, 195);
+    // B3：空状态左对齐，胶囊跟着副标题的左边走，文字再进一个胶囊内边距。
+    final line = tester.getRect(find.text('没能连上引擎'));
+    final button = tester.getRect(find.text('重新连接'));
+    expect(button.left - line.left, closeTo(EmptyActions.inset + 4, 0.5));
   });
 
   testWidgets('reconnect and workspace chips use the same subtitle gap', (tester) async {
@@ -203,7 +206,8 @@ void main() {
       final chip = find.ancestor(of: chipText, matching: find.byType(InkWell)).first;
       final subtitle = find.text(failed ? '没能连上引擎' : '知川助手，随时为你服务');
       expect(tester.getRect(chip).height, EmptyActions.height);
-      expect(tester.getCenter(chip).dx, 195);
+      // 两种胶囊共用同一条左对齐线（B3：不再居中）。
+      expect(tester.getRect(chip).left, closeTo(tester.getRect(subtitle).left, 0.1));
       return tester.getRect(chip).top - tester.getRect(subtitle).bottom;
     }
 

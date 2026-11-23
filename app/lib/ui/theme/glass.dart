@@ -49,6 +49,7 @@ class GlassSurface extends StatelessWidget {
     this.grouped = false,
     this.settled,
     this.style,
+    this.bare = false,
     this.onTap,
     this.onLongPress,
     this.child,
@@ -84,6 +85,11 @@ class GlassSurface extends StatelessWidget {
   /// 覆盖主题给的材质(极少用;例如审批卡要换警示色描边)。
   final GlassStyle? style;
 
+  /// 不画任何材质:没有填充、描边、高光、投影,也不模糊,只留形状、命中区
+  /// 和按下反馈。B1 的顶栏用它把「≡ / 标题 / 模型名 / 新对话 / ⋯」放在页面上,
+  /// 不再切出一排色块。焦点框与读屏不受影响。
+  final bool bare;
+
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
   final Widget? child;
@@ -107,9 +113,16 @@ class GlassSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final surfaces = DshSurfaces.of(context);
-    final s = style ?? surfaces.glass(tier);
+    final s = bare
+        ? const GlassStyle(
+            fill: Color(0x00000000),
+            fallbackFill: Color(0x00000000),
+            hairline: Color(0x00000000),
+            rim: Color(0x00000000),
+          )
+        : (style ?? surfaces.glass(tier));
     final highContrast = MediaQuery.maybeHighContrastOf(context) ?? false;
-    final reduce = !surfaces.blurEnabled || highContrast || uiTraceNoBlur;
+    final reduce = bare || !surfaces.blurEnabled || highContrast || uiTraceNoBlur;
     final useBlur = !reduce && (blur ?? s.blurs);
     if (uiTraceEnabled) {
       uiTrace('glass', 'build', {'tier': tier.name, 'blur': useBlur, 'grouped': grouped});

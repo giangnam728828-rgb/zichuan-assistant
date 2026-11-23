@@ -17,6 +17,7 @@ import 'package:dsh_app/ui/chat/chat_screen.dart';
 import 'package:dsh_app/ui/chat/empty_state.dart';
 import 'package:dsh_app/ui/chat/model_sheet.dart';
 import 'package:dsh_app/ui/chat/widgets/live_clock.dart';
+import 'package:dsh_app/ui/common/status_dot.dart';
 import 'package:dsh_app/ui/session/session_detail_page.dart';
 import 'package:dsh_app/ui/theme/app_icons.dart';
 import 'package:dsh_app/ui/theme/theme.dart' show GlassSurface;
@@ -129,19 +130,18 @@ void main() {
   });
 
   group('header', () {
-    testWidgets('the hidden busy dot stops ticking once no child runs (#1094)', (tester) async {
-      Finder mutedDot() => find.descendant(
-        of: find.byType(HeaderAgentsKey),
-        matching: find.byWidgetPredicate((w) => w is TickerMode && !w.enabled),
-      );
+    Finder moreDot() => find.descendant(of: find.byKey(const ValueKey('chat-more')), matching: find.byType(StatusDot));
+
+    testWidgets('the busy dot lives on ⋯ and stops once no child runs (#1094)', (tester) async {
+      // B1：胶囊收进 ⋯，有子代理在跑时 ⋯ 上留一颗呼吸点；都不跑了点就不画，
+      // 也没有东西一直要帧。
       await _pumpChat(tester, parentId);
-      expect(mutedDot(), findsNothing);
+      expect(moreDot(), findsOneWidget);
 
       final idle = {
         for (final MapEntry(:key, :value) in sampleAgentSessions().entries)
           key: key == testsId ? value.copyWith(running: false) : value,
       };
-      usePhoneView(tester);
       await tester.pumpWidget(
         testApp(
           const ChatScreen(),
@@ -154,24 +154,27 @@ void main() {
         ),
       );
       await pumpFrames(tester, 6);
-      expect(find.byType(HeaderAgentsKey), findsOneWidget);
-      expect(mutedDot(), findsOneWidget);
+      expect(moreDot(), findsNothing);
     });
 
-    testWidgets('「N 个子代理」 opens the sheet; a row opens the child', (tester) async {
+    testWidgets('⋯ 的子代理 opens the sheet; a row opens the child', (tester) async {
+      final semantics = tester.ensureSemantics();
       final container = await _pumpChat(tester, parentId);
-      final key = find.byType(HeaderAgentsKey);
-      expect(key, findsOneWidget);
-      expect(find.descendant(of: key, matching: find.text('3')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('chat-more')));
+      await pumpFrames(tester, 6);
+      final entry = find.byKey(const ValueKey('chat-agents'));
+      expect(entry, findsOneWidget);
+      // 读屏仍听见「3 个子代理，1 个运行中」，和胶囊时代一样。
       expect(find.bySemanticsLabel('3 个子代理，1 个运行中'), findsOneWidget);
-      await tester.tap(key);
-      await pumpFrames(tester, 8);
+      await tester.tap(entry);
+      await pumpFrames(tester, 10);
       expect(find.byType(LineageSheet), findsOneWidget);
       expect(find.text('3 个子代理'), findsOneWidget);
       await tester.tap(find.widgetWithText(SubagentRow, '审查改动'));
       await pumpFrames(tester, 8);
       expect(find.byType(LineageSheet), findsNothing);
       expect(container.read(currentSessionProvider), reviewerId);
+      semantics.dispose();
     });
 
     testWidgets('a child: breadcrumb back, named by its task, no model chip', (tester) async {
@@ -182,8 +185,13 @@ void main() {
       expect(find.byType(ModelChip), findsNothing);
       // 「‹ 上级对话」 replaces ≡, so there is no 新对话 key to mirror it.
       expect(find.byKey(const ValueKey('chat-new-chat')), findsNothing);
-      // Its own child: one more level down.
-      expect(find.descendant(of: find.byType(HeaderAgentsKey), matching: find.text('1')), findsOneWidget);
+      // Its own child is one ⋯ away.
+      await tester.tap(find.byKey(const ValueKey('chat-more')));
+      await pumpFrames(tester, 6);
+      expect(find.byKey(const ValueKey('chat-agents')), findsOneWidget);
+      await tester.tapAt(const Offset(4, 4));
+      await pumpFrames(tester, 6);
+      expect(find.byKey(const ValueKey('chat-agents')), findsNothing);
       await tester.tap(find.byType(HeaderBackKey));
       await pumpFrames(tester, 4);
       expect(container.read(currentSessionProvider), parentId);
@@ -198,34 +206,32 @@ void main() {
         ),
       );
       await pumpFrames(tester, 6);
-      expect(find.byType(HeaderAgentsKey), findsNothing);
       expect(find.byType(HeaderBackKey), findsNothing);
       expect(find.byKey(const ValueKey('chat-new-chat')), findsOneWidget);
-      expect(find.byIcon(AppIcons.menu), findsOneWidget);
+      // ⋯ still holds 伙伴; it holds no agents entry.
+      await tester.tap(find.byKey(const ValueKey('chat-more')));
+      await pumpFrames(tester, 6);
+      expect(find.byKey(const ValueKey('chat-companion')), findsOneWidget);
+      expect(find.byKey(const ValueKey('chat-agents')), findsNothing);
     });
 
     testWidgets('geometry: one height, even gaps, symmetric insets', (tester) async {
       await _pumpChat(tester, parentId);
-      final menu = tester.getRect(
-        find.ancestor(of: find.byIcon(AppIcons.menu), matching: find.byType(GlassSurface)).first,
-      );
-      final capsule = tester.getRect(
-        find.descendant(of: find.byType(HeaderAgentsKey), matching: find.byType(GlassSurface)).first,
-      );
+      final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
+      final more = tester.getRect(find.byKey(const ValueKey('chat-more')));
+      final newChat = tester.getRect(find.byKey(const ValueKey('chat-new-chat')));
+      final chip = tester.getRect(find.byType(ModelChip));
       final title = tester.getRect(find.ancestor(of: find.text('修复登录重复提交'), matching: find.byType(GlassSurface)).first);
-      expect(capsule.height, closeTo(44, 0.01));
-      expect(capsule.height, closeTo(menu.height, 0.01));
-      expect(capsule.center.dy, closeTo(menu.center.dy, 0.01));
-      expect(capsule.left - title.right, greaterThanOrEqualTo(8 - 0.01));
-      // Glyph and count sit 14 in from each end, centred on one line.
-      final glyph = tester.getRect(
-        find.descendant(of: find.byType(HeaderAgentsKey), matching: find.byType(SizedBox)).first,
-      );
-      final count = tester.getRect(find.descendant(of: find.byType(HeaderAgentsKey), matching: find.text('3')));
-      expect(glyph.left - capsule.left, closeTo(HeaderAgentsKey.padding, 0.01));
-      expect(capsule.right - count.right, closeTo(HeaderAgentsKey.padding, 0.01));
-      expect(glyph.center.dy, closeTo(capsule.center.dy, 0.5));
-      expect(count.center.dy, closeTo(capsule.center.dy, 0.5));
+      // ⋯ ends 12 in from the edge; 新对话 and the model name stand a gap
+      // apart, all on the title's line.
+      expect(more.size, const Size.square(44));
+      expect(width - more.right, closeTo(12, 0.01));
+      expect(newChat.right, closeTo(more.left - 8, 0.01));
+      expect(chip.right, closeTo(newChat.left - 8, 0.01));
+      expect(title.right, lessThanOrEqualTo(chip.left - 8 + 0.01));
+      for (final piece in [more, newChat, chip]) {
+        expect(piece.center.dy, closeTo(title.center.dy, 0.5));
+      }
     });
 
     testWidgets('geometry: the breadcrumb key', (tester) async {
@@ -257,7 +263,9 @@ void main() {
     testWidgets('golden: header and sheet ($mode)', (tester) async {
       await _pumpChat(tester, parentId, brightness: brightness);
       await expectLater(find.byType(ChatScreen), matchesGoldenFile('goldens/subagents_header_$mode.png'));
-      await tester.tap(find.byType(HeaderAgentsKey));
+      await tester.tap(find.byKey(const ValueKey('chat-more')));
+      await pumpFrames(tester, 6);
+      await tester.tap(find.byKey(const ValueKey('chat-agents')));
       await pumpFrames(tester, 8);
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/subagents_sheet_$mode.png'));
     });

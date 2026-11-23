@@ -464,6 +464,113 @@ class SuggestionCards extends StatelessWidget {
   }
 }
 
+/// B3：建议改成一行**横向可滚**的 chip（不再占 2×2 卡片的位置）。
+/// 每枚只有图标和名字，点了把文字填进输入条（[onSuggestion] 不直接发送）。
+class SuggestionChips extends StatelessWidget {
+  const SuggestionChips({
+    super.key,
+    required this.suggestions,
+    required this.enabled,
+    required this.onSuggestion,
+    this.firstIndex = 0,
+  });
+
+  final List<ChatSuggestion> suggestions;
+  final bool enabled;
+  final ValueChanged<ChatSuggestion> onSuggestion;
+  final int firstIndex;
+
+  static const height = 40.0;
+  static const gap = 8.0;
+
+  @override
+  Widget build(BuildContext context) {
+    if (suggestions.isEmpty) return const SizedBox.shrink();
+    // 四个固定建议：一行 Row 就够，不做懒加载（也给别处留下"页面里只有
+    // 一个 ListView"的简单事实）。
+    return SizedBox(
+      height: height,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        clipBehavior: Clip.none,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < suggestions.length; i++)
+              Padding(
+                padding: EdgeInsets.only(left: i == 0 ? 0 : gap),
+                child: FadeSlideIn(
+                  index: firstIndex + i,
+                  child: AnimatedOpacity(
+                    opacity: enabled ? 1 : 0.5,
+                    duration: AppMotion.of(context, AppMotion.quick),
+                    child: _SuggestionChip(
+                      suggestion: suggestions[i],
+                      onTap: enabled ? () => onSuggestion(suggestions[i]) : null,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SuggestionChip extends StatelessWidget {
+  const _SuggestionChip({required this.suggestion, required this.onTap});
+
+  final ChatSuggestion suggestion;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tint = suggestionTintColor(context, suggestion.tint);
+    final shape = AppShape.outlined(quietCardRim(theme), radius: AppShape.lg, width: 0.5);
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      label: suggestion.label,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: Pressable(
+        enabled: onTap != null,
+        child: Material(
+          color: quietChipFill(theme),
+          shape: shape,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            customBorder: shape,
+            // 和输入栏下的胶囊同高：一行 40 里留 2 上下的余量，点击区够大。
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: EmptyActions.height),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(suggestion.icon, size: 16, color: tint),
+                    const SizedBox(width: 8),
+                    Text(
+                      suggestion.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurface),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Where the tip line starts (tests pin it so the copy is reproducible).
 @visibleForTesting
 int Function(int count) tipStart = (count) => math.Random().nextInt(count);

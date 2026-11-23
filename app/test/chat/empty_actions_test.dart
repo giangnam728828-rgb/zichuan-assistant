@@ -1,7 +1,8 @@
-// The new-chat empty state — at most one primary pill (「重新连接」), quiet
-// chips of one size (the workspace chip and the new chat's options), the
-// suggestions as quiet cards and one tip line. Geometry is measured, not
-// eyeballed; goldens in light and dark. Regenerate with
+// The new-chat empty state (B3) — at most one primary pill (「重新连接」),
+// quiet chips of one size (the workspace chip and the new chat's options),
+// one row of scrollable suggestion chips, all left-aligned under a 40dp
+// avatar, and (sometimes) one tip line. Geometry is measured, not eyeballed;
+// goldens in light and dark. Regenerate with
 // `flutter test --update-goldens test/chat/empty_actions_test.dart`.
 
 import 'package:dsh_app/state/connection_state.dart';
@@ -57,19 +58,15 @@ Future<void> _pumpState(WidgetTester tester, ChatEmptyState state) async {
   await pumpFrames(tester, 8);
 }
 
-double _screenWidth(WidgetTester tester) => tester.view.physicalSize.width / tester.view.devicePixelRatio;
-
 /// The pill around [label] (its ink fills it exactly).
 Finder _pill(String label) => find.ancestor(of: find.text(label), matching: find.byType(InkWell)).first;
 
 Rect _rect(WidgetTester tester, String label) => tester.getRect(_pill(label));
 
-/// The suggestion card around [label].
-Rect _card(WidgetTester tester, String label) =>
-    tester.getRect(find.ancestor(of: find.text(label), matching: find.byType(SuggestionCard)));
+/// The suggestion chip around [label] (same ink as the pills).
+Rect _suggestion(WidgetTester tester, String label) => tester.getRect(_pill(label));
 
 bool _cut(WidgetTester tester, String text) => tester.renderObject<RenderParagraph>(find.text(text)).didExceedMaxLines;
-
 
 void main() {
   setUpAll(() async {
@@ -77,53 +74,55 @@ void main() {
     await WhaleSprites.load();
     chatClock = () => DateTime(2026, 10, 23, 15, 20);
     tipStart = (_) => 0;
+    // B3：小技巧是偶发的；这里固定「这一次给」，让断言与金图稳定。
+    emptyTipsRoll = () => true;
   });
 
   group('geometry', () {
-    testWidgets('suggestions: two equal columns of cards, edge to edge with the composer', (tester) async {
+    testWidgets('suggestions: one row of chips, left aligned with the composer', (tester) async {
       await _pumpChat(tester);
       expect(tester.takeException(), isNull);
       final composer = tester.getRect(find.byType(Composer));
-      final cells = [for (final s in defaultSuggestions) _card(tester, s.label)];
+      // 固定四个，一行排完，不做懒加载。
+      final visible = defaultSuggestions.toList();
+      final chips = [for (final s in visible) _suggestion(tester, s.label)];
 
-      for (final c in cells) {
-        expect(c.width, moreOrLessEquals(cells[0].width, epsilon: 0.5));
+      // One row, every chip the height of the quiet pills.
+      for (final c in chips) {
+        expect(c.height, moreOrLessEquals(EmptyActions.height, epsilon: 0.5));
+        expect(c.top, moreOrLessEquals(chips[0].top, epsilon: 0.5));
       }
-      // 2×2, the outer edges on the composer's (12 from the screen).
-      expect(cells[0].left, moreOrLessEquals(composer.left, epsilon: 0.5));
-      expect(cells[2].left, moreOrLessEquals(composer.left, epsilon: 0.5));
-      expect(cells[1].right, moreOrLessEquals(composer.right, epsilon: 0.5));
-      expect(cells[3].right, moreOrLessEquals(composer.right, epsilon: 0.5));
-      // Each row as tall as its taller card.
-      expect(cells[0].top, cells[1].top);
-      expect(cells[0].height, moreOrLessEquals(cells[1].height, epsilon: 0.5));
-      expect(cells[2].top, cells[3].top);
-      expect(cells[2].height, moreOrLessEquals(cells[3].height, epsilon: 0.5));
-      expect(cells[1].left - cells[0].right, moreOrLessEquals(SuggestionCardMetrics.gap));
-      expect(cells[2].top - cells[0].bottom, moreOrLessEquals(SuggestionCardMetrics.gap));
-
-      // The badge on the card's inset, the text beside it; nothing cut.
-      for (final s in defaultSuggestions) {
-        final card = _card(tester, s.label);
-        final title = tester.getRect(find.text(s.label));
-        expect(
-          title.left - card.left,
-          moreOrLessEquals(
-            SuggestionCardMetrics.padH + SuggestionCardMetrics.badge + SuggestionCardMetrics.badgeGap,
-            epsilon: 0.5,
-          ),
-          reason: s.label,
-        );
+      // The first chip starts where the composer does; the rest follow with
+      // the gap, in order.
+      expect(chips[0].left, moreOrLessEquals(composer.left, epsilon: 0.5));
+      for (var i = 1; i < chips.length; i++) {
+        expect(chips[i].left - chips[i - 1].right, moreOrLessEquals(SuggestionChips.gap, epsilon: 0.5));
+      }
+      // Every chip fits its name whole.
+      for (final s in visible) {
         expect(_cut(tester, s.label), isFalse, reason: '${s.label} is cut');
-        expect(_cut(tester, s.detail!), isFalse, reason: '${s.detail} is cut');
       }
+      // The row is wider than the screen: the last chip starts past the
+      // composer's right edge and a sideways drag brings it in.
+      final last = defaultSuggestions.last;
+      expect(find.text(last.label), findsOneWidget);
+      final before = _suggestion(tester, last.label);
+      expect(before.right, greaterThan(composer.right));
+      await tester.drag(find.byType(SuggestionChips), const Offset(-260, 0));
+      await tester.pumpAndSettle();
+      final after = _suggestion(tester, last.label);
+      expect(after.left, lessThan(before.left));
+      expect(after.left, lessThan(composer.right));
+      expect(_cut(tester, last.label), isFalse, reason: '${last.label} is cut');
     });
 
-    testWidgets('workspace chip: same height, centred, both sides read equal', (tester) async {
+    testWidgets('workspace chip: same height, left aligned, both sides read equal', (tester) async {
       await _pumpChat(tester);
       final chip = _rect(tester, _workspaceLabel);
       expect(chip.height, moreOrLessEquals(EmptyActions.height));
-      expect(chip.center.dx, moreOrLessEquals(_screenWidth(tester) / 2, epsilon: 0.5));
+      // B3：整块内容左对齐，胶囊与输入条同一条左边线。
+      final composer = tester.getRect(find.byType(Composer));
+      expect(chip.left, moreOrLessEquals(composer.left, epsilon: 0.5));
       final folder = tester.getRect(
         find.descendant(of: _pill(_workspaceLabel), matching: find.byIcon(AppIcons.workspace)),
       );
@@ -138,32 +137,30 @@ void main() {
       expect(chevron.center.dy, moreOrLessEquals(chip.center.dy, epsilon: 0.5));
     });
 
-    testWidgets('360dp with large text: still two columns, titles only, nothing cut', (tester) async {
+    testWidgets('360dp with large text: names stay whole, the row scrolls', (tester) async {
       await _pumpChat(tester, size: const Size(360, 780), textScale: 1.3);
       expect(tester.takeException(), isNull);
-      final composer = tester.getRect(find.byType(Composer));
-      final cells = [for (final s in defaultSuggestions) _card(tester, s.label)];
-      expect(cells[0].left, moreOrLessEquals(composer.left, epsilon: 0.5));
-      expect(cells[1].right, moreOrLessEquals(composer.right, epsilon: 0.5));
-      expect(cells[0].top, cells[1].top);
-      // A detail would wrap here, so every card keeps just its title.
+      // B3：一行横向可滚，放不下就滚，不截断名字（只查已构建的那几枚）。
+      expect(find.byType(SuggestionChips), findsOneWidget);
       for (final s in defaultSuggestions) {
+        if (find.text(s.label).evaluate().isEmpty) continue;
         expect(_cut(tester, s.label), isFalse, reason: s.label);
-        expect(find.text(s.detail!), findsNothing, reason: s.detail);
       }
       // The workspace chip grows with the text, like the chips always did.
       expect(_rect(tester, _workspaceLabel).height, greaterThan(EmptyActions.height));
     });
 
-    testWidgets('a cell too narrow for two lines: one card per row, full width', (tester) async {
+    testWidgets('a narrow phone: the chip row scrolls instead of wrapping', (tester) async {
       await _pumpChat(tester, size: const Size(260, 700));
       expect(tester.takeException(), isNull);
-      final composer = tester.getRect(find.byType(Composer));
-      final cells = [for (final s in defaultSuggestions) _card(tester, s.label)];
-      for (final (i, c) in cells.indexed) {
-        expect(c.left, moreOrLessEquals(composer.left, epsilon: 0.5));
-        expect(c.right, moreOrLessEquals(composer.right, epsilon: 0.5));
-        if (i > 0) expect(c.top - cells[i - 1].bottom, moreOrLessEquals(SuggestionCardMetrics.gap));
+      final visible = [
+        for (final s in defaultSuggestions)
+          if (find.text(s.label).evaluate().isNotEmpty) _suggestion(tester, s.label),
+      ];
+      expect(visible, hasLength(greaterThanOrEqualTo(2)));
+      for (var i = 1; i < visible.length; i++) {
+        expect(visible[i].top, moreOrLessEquals(visible[0].top, epsilon: 0.5));
+        expect(visible[i].left, greaterThan(visible[i - 1].left));
       }
     });
 
@@ -215,8 +212,8 @@ void main() {
       final (chip, chipGap) = await slot(false);
       expect(primary.height, moreOrLessEquals(chip.height));
       expect(primary.height, moreOrLessEquals(EmptyActions.height));
-      expect(primary.center.dx, moreOrLessEquals(195, epsilon: 0.5));
-      expect(chip.center.dx, moreOrLessEquals(195, epsilon: 0.5));
+      // B3：两者都站在同一条左边线上（不再是居中）。
+      expect(primary.left, moreOrLessEquals(chip.left, epsilon: 0.5));
       expect(primaryGap, moreOrLessEquals(chipGap, epsilon: 0.1));
     });
   });
@@ -226,12 +223,13 @@ void main() {
       await _pumpChat(tester);
       expect(find.byType(EmptyPrimaryPill), findsNothing);
       expect(find.byType(QuietChip), findsOneWidget, reason: 'the workspace chip');
-      expect(find.byType(SuggestionCard), findsNWidgets(defaultSuggestions.length));
+      expect(find.byType(SuggestionChips), findsOneWidget);
+      expect(find.text(defaultSuggestions[0].label), findsOneWidget);
       expect(find.byType(TipLine), findsOneWidget);
       final theme = Theme.of(tester.element(find.byType(ChatEmptyState)));
       for (final material in tester.widgetList<Material>(
         find.descendant(
-          of: find.byWidgetPredicate((w) => w is QuietChip || w is SuggestionCard),
+          of: find.byWidgetPredicate((w) => w is QuietChip || w is SuggestionChips),
           matching: find.byType(Material),
         ),
       )) {
@@ -246,7 +244,7 @@ void main() {
       expect(find.text('没能连上引擎'), findsOneWidget);
       expect(find.byType(EmptyPrimaryPill), findsOneWidget);
       expect(find.byType(QuietChip), findsNothing);
-      expect(find.byType(SuggestionCard), findsNothing);
+      expect(find.byType(SuggestionChips), findsNothing);
       expect(find.byType(TipLine), findsNothing);
       final theme = Theme.of(tester.element(find.byType(ChatEmptyState)));
       final fill = tester.widget<Material>(
@@ -276,15 +274,15 @@ void main() {
       expect(find.byType(TipLine), findsNothing);
     });
 
-    testWidgets('a card fills in its suggestion and reads as one button', (tester) async {
+    testWidgets('a chip fills in its suggestion and reads as one button', (tester) async {
       final picked = <ChatSuggestion>[];
       await _pumpState(tester, ChatEmptyState(connected: true, onSuggestion: picked.add));
       await tester.tap(find.text(defaultSuggestions[2].label));
       await tester.pump();
       expect(picked, [defaultSuggestions[2]]);
       final s = defaultSuggestions[2];
-      final semantics = tester.getSemantics(find.byType(SuggestionCard).at(2));
-      expect(semantics.label, '${s.label}, ${s.detail}');
+      final semantics = tester.getSemantics(_pill(s.label));
+      expect(semantics.label, s.label);
     });
 
     testWidgets('tip line: one tip at a time, a tap rises in the next', (tester) async {

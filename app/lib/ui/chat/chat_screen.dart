@@ -142,6 +142,10 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObserver {
   final _toTop = defaultTargetPlatform == TargetPlatform.iOS ? StatusBarTop() : null;
 
+  /// B3：小技巧不再每次都占一行——三分之一的空状态里才给一条，其余时候
+  /// 这一行根本不出现。进页面时定一次，之后不再翻。
+  late final List<String> _emptyTips = rollEmptyTips();
+
   void Function()? _endInteraction;
   bool _routeCurrent = true;
   ModalRoute<Object?>? _interactionRoute;
@@ -1851,7 +1855,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                         ? Padding(
                             padding: EdgeInsets.only(top: headerHeight, bottom: _ChatLayout.overlap),
                             child: Align(
-                              alignment: const Alignment(0, -0.25),
+                              // B3：整块靠左上（原来居中偏上），下面留白给输入条。
+                              alignment: const Alignment(0, -0.42),
                               child: SingleChildScrollView(
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
@@ -1862,6 +1867,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                       const EngineFailureCard(padding: EdgeInsets.fromLTRB(16, 0, 16, 20)),
                                     ChatEmptyState(
                                       connected: connected,
+                                      tips: _emptyTips,
                                       suggestions: ref.watch(settingsProvider.select((s) => s.chatSuggestions))
                                           ? defaultSuggestions
                                           : const [],
@@ -1914,6 +1920,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                 child: EdgeFade(
                                   // 顶部渐隐长度 = 状态栏 + 顶栏 + 24dp(headerHeight 已含 8dp)。
                                   top: headerHeight + 16,
+                                  // B1 的顶栏没有胶囊了:顶栏那一段压到全透明,
+                                  // 消息只在顶栏底边以下的 16dp 里淡入。
+                                  topHold: headerHeight,
                                   bottom: _veilHeight,
                                   child: ChatList(
                                     key: ValueKey(sessionId),
@@ -1977,17 +1986,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                         onTitleTap: sessionId == null
                             ? null
                             : () => SessionDetailPage.open(context, sessionId, toggle: true),
-                        // A phone's conversation has no room for it beside its title: the
-                        // model is shown and picked at the composer's foot while typing.
-                        // A new chat's title is only 「新对话」, so the model takes the
-                        // header's right like on a wide window — picked before typing,
-                        // once there is an engine to send to.
-                        trailing: narrow && (sessionId != null || !connected)
+                        // B1：模型名是一枚无底色的文字按钮，手机上也有位置放
+                        // 了（原来窄屏靠输入栏脚下的模型键，顶栏留给标题）。
+                        // 子代理对话没有模型 chip：它的模型由上级路由。
+                        trailing: isChild
                             ? null
                             : ModelChip(
                                 selection: sessionId == null ? pendingModel : chat?.model,
                                 onSelected: _modelTarget(),
                                 grouped: true,
+                                bare: true,
                               ),
                       ),
                     ),
@@ -2608,7 +2616,14 @@ class _ChatLayout extends MultiChildLayoutDelegate {
     positionChild(_Slot.composer, Offset(0, top));
     // A1 边缘渐隐:列表铺满整屏,内容滚到输入栏后面由 EdgeFade 渐隐。
     // veilHeight 现在存的是输入栏高度(给列表 bottomExtent 和 toast 定位)。
-    veilHeight.value = composer.height;
+    // 通知放到这一帧之后:布局里同步 setState 会触发
+    // 「Build scheduled during frame」(输入栏随键盘变高的那一帧)。
+    if (veilHeight.value != composer.height) {
+      final height = composer.height;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (veilHeight.value != height) veilHeight.value = height;
+      });
+    }
 
     layoutChild(_Slot.body, BoxConstraints.tight(size));
     positionChild(_Slot.body, Offset.zero);

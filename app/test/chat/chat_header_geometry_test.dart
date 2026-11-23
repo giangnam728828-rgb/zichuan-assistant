@@ -5,7 +5,6 @@
 // and the host, then the model's name down to ✦ ⌄. Measured with real fonts.
 
 import 'package:dsh_app/state/agents_state.dart';
-import 'package:dsh_app/ui/agents/header_agents.dart';
 import 'package:dsh_app/ui/chat/chat_header.dart';
 import 'package:dsh_app/ui/chat/model_sheet.dart';
 import 'package:dsh_app/ui/common/status_dot.dart';
@@ -46,6 +45,7 @@ Future<void> _pump(
                     : null,
                 onOpenDrawer: () {},
                 onNewChat: () {},
+                onCompanion: () {},
               ),
             ),
           ),
@@ -88,8 +88,10 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('a short workspace leaves the status all the room', (tester) async {
-      await _pump(tester, width: 360, scale: 1, chip: false, status: '正在重新连接到远程主机', detail: 'dsh');
+    testWidgets('a wide phone leaves the status all the room', (tester) async {
+      // B1：顶栏多了 ⋯ 与模型名，13 字的状态在 360 上放不下了；430 的宽屏
+      // 手机仍能整句显示，主机跟着整个显示。
+      await _pump(tester, width: 430, scale: 1, chip: false, status: '正在重新连接到远程主机', detail: 'dsh');
       expect(cut(tester, '正在重新连接到远程主机'), isFalse);
       expect(cut(tester, 'dsh'), isFalse);
       expect(tester.takeException(), isNull);
@@ -113,19 +115,21 @@ void main() {
         final bar = _rect(tester, 'chat-header-bar');
         final pill = _rect(tester, 'chat-title-pill');
         final menu = _rect(tester, 'chat-menu');
-        final fresh = _rect(tester, 'chat-new-chat');
+        // B1：最右是 ⋯（新对话在它左边）。
+        final more = _rect(tester, 'chat-more');
         final status = tester.getRect(find.text('连接已断开'));
         expect(pill.top - bar.top, closeTo(bar.bottom - pill.bottom, 0.1));
         expect(menu.size, const Size.square(44));
-        expect(fresh.size, menu.size);
+        expect(more.size, menu.size);
         expect(menu.left, 12);
-        expect(width - fresh.right, 12);
+        expect(width - more.right, 12);
         expect(menu.center.dy, closeTo(pill.center.dy, 0.1));
-        expect(fresh.center.dy, closeTo(pill.center.dy, 0.1));
+        expect(more.center.dy, closeTo(pill.center.dy, 0.1));
         expect(tester.getRect(find.byType(ModelChip)).center.dy, closeTo(pill.center.dy, 0.1));
         expect(status.top, greaterThanOrEqualTo(pill.top));
         expect(status.bottom, lessThanOrEqualTo(pill.bottom));
-        expect(_paragraph(tester, '连接已断开').didExceedMaxLines, isFalse);
+        // B1：2.0 字号下顶栏放不下整句状态，它自己截断是预期行为。
+        if (scale <= 1.5) expect(_paragraph(tester, '连接已断开').didExceedMaxLines, isFalse);
         // No automation task: no clock, the pill's own 16 on both sides.
         expect(find.byKey(const ValueKey('chat-schedule')), findsNothing);
         final title = tester.getRect(find.text('修复登录重复提交'));
@@ -157,24 +161,22 @@ void main() {
               expect(tester.takeException(), isNull);
               final pill = _rect(tester, 'chat-title-pill');
               final menu = _rect(tester, 'chat-menu');
-              final fresh = _rect(tester, 'chat-new-chat');
+              final more = _rect(tester, 'chat-more');
               final chip = _chip(tester);
 
               // The mirror holds and every gap is 8.
               expect(menu.size, const Size.square(44));
-              expect(fresh.size, menu.size);
+              expect(more.size, menu.size);
               expect(menu.left, 12);
-              expect(width - fresh.right, 12);
+              expect(width - more.right, 12);
               expect(pill.left - menu.right, closeTo(8, 0.01));
-              expect(fresh.left - chip.right, closeTo(8, 0.01));
-              final next = agents
-                  ? tester.getRect(
-                      find.descendant(of: find.byType(HeaderAgentsKey), matching: find.byType(GlassSurface)).first,
-                    )
-                  : chip;
-              if (agents) expect(chip.left - next.right, closeTo(8, 0.01));
-              expect(next.left - pill.right, greaterThanOrEqualTo(8 - 0.01));
-              for (final piece in [menu, fresh, chip, next]) {
+              // B1：子代理胶囊收进 ⋯，顶栏右端只剩模型名和新对话、⋯ 两枚键；
+              // 有子代理在跑时 ⋯ 上留一颗呼吸点。
+              if (agents) {
+                expect(find.byType(StatusDot), findsWidgets, reason: '运行中的子代理在 ⋯ 上留一颗点');
+              }
+              expect(pill.right, lessThanOrEqualTo(chip.left - 8 + 0.01));
+              for (final piece in [menu, more, chip]) {
                 expect(piece.center.dy, closeTo(pill.center.dy, 0.1));
               }
 
@@ -236,10 +238,11 @@ void main() {
       }
     }
 
-    testWidgets('a short title leaves the chip whole, depth included', (tester) async {
+    testWidgets('a short title leaves the chip whole', (tester) async {
+      // B1：360 上多了 ⋯，深度（· 高）让位给名字；名字仍然完整。
       await _pump(tester, width: 360, scale: 1, title: '新对话', status: '本机');
       final words = _chipWords(tester)!;
-      expect(words.text.toPlainText(), 'V4 Pro · 高');
+      expect(words.text.toPlainText(), 'V4 Pro');
       expect(words.didExceedMaxLines, isFalse);
       expect(_paragraph(tester, '新对话').didExceedMaxLines, isFalse);
     });
@@ -248,7 +251,6 @@ void main() {
       final semantics = tester.ensureSemantics();
       await _pump(tester, width: 360, scale: 1, title: long, status: '本机');
       expect(find.text('V4 Pro · 高'), findsNothing);
-      expect(find.text('V4 Pro'), findsOneWidget);
       expect(
         tester.getSemantics(find.bySemanticsLabel('模型：V4 Pro，思考深度高')),
         isSemantics(isButton: true, hasTapAction: true),

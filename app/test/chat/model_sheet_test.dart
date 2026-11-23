@@ -173,7 +173,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(
-      tester.getSemantics(find.bySemanticsLabel('模型：V4 Pro，思考深度高')),
+      // B1 后顶栏的模型名也是一枚模型键：同一个标签在树里有两层语义。
+      tester.getSemantics(find.bySemanticsLabel('模型：V4 Pro，思考深度高').first),
       isSemantics(isButton: true, hasTapAction: true),
     );
     semantics.dispose();

@@ -72,10 +72,12 @@ Widget _header({double scale = 1, bool top = true}) => Builder(
     child: ChatHeader(
       title: '每天的构建检查',
       status: const HeaderStatus(StatusTone.ok, '本机'),
-      trailing: ModelChip(selection: testCatalog.defaultSelection, onSelected: (_) {}, grouped: true),
+      // B1：模型名是一枚无底色的文字键，右边还有 ⋯。
+      trailing: ModelChip(selection: testCatalog.defaultSelection, onSelected: (_) {}, grouped: true, bare: true),
       onOpenDrawer: () {},
       onTitleTap: () {},
       onNewChat: () {},
+      onCompanion: () {},
     ),
   ),
 );

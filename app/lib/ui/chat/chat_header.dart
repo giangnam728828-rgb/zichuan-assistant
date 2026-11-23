@@ -3,6 +3,9 @@
 // See THIRD_PARTY_NOTICES.md.
 // Local changes: rewritten as floating chrome-glass pieces sharing one
 // BackdropGroup, on a measuring row that decides which piece gives way.
+// B1 (总方案 v4): the pieces lost their fills — one transparent line, the
+// title on the left with the host under it, the model name as a text button,
+// 新对话 and ⋯ on the right (⋯ holds 伙伴 / 子代理 / 详情).
 
 import 'dart:math' as math;
 
@@ -12,13 +15,17 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../state/adaptive_layout_state.dart';
+import '../../state/agents_state.dart';
 import '../../state/header_schedule_state.dart';
+import '../../state/sessions_state.dart';
 import '../agents/header_agents.dart';
+import '../agents/lineage_sheet.dart';
+import '../agents/team_page.dart';
 import '../common/fluid_bits.dart';
 import '../common/smooth_size.dart';
 import '../common/status_dot.dart';
 import '../shell/adaptive/adaptive_scaffold.dart' show AdaptiveChrome;
-import '../shell/adaptive/detail_panel_keys.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
 import 'header_schedule.dart';
@@ -36,17 +43,17 @@ class HeaderStatus {
   final String? spoken;
 }
 
-/// 聊天顶栏:**没有整条色带**,只有几枚浮动玻璃件;
-/// 内容滚到下面时才浮现一层页面色渐隐,与二级页面同一套做法。
-/// 打开着对话时最右是「新对话」圆键,与 ≡ 镜像。对话有进行中的自动化任务时,
-/// 标题胶囊的尾端是一颗与它同心的时钟键([HeaderScheduleCap])。
+/// 聊天顶栏:B1 之后是**一条透明的行**,没有任何胶囊或色带。标题直接站在
+/// 页面上,下面一行是状态和主机;内容滚到它下面时由列表的 EdgeFade 渐隐(A1)。
+/// 右端 `⋯` 收纳 伙伴 / 子代理 / 详情,对话有进行中的自动化任务时,标题行
+/// 尾端仍是一颗与它同心的时钟键([HeaderScheduleCap])。
 ///
 /// ```
-/// (≡) ( 修复登录重复提交 )   ( ✦ V4 Pro · 高 ⌄ ) (+)
-///     ( ● 生成中          )
+/// ≡  修复登录重复提交              V4 Pro ⌄   ＋   ⋯
+///    ● 生成中 · 本机
 ///
-/// (≡) ( 每天的构建检查 (◷) )   ( ✦ V4 Pro ⌄ ) (+)
-///     ( ● 本机             )
+/// ≡  每天的构建检查 (◷)            V4 Pro ⌄   ＋   ⋯
+///    ● 本机
 /// ```
 class ChatHeader extends ConsumerStatefulWidget {
   const ChatHeader({
@@ -167,8 +174,8 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                             dimension: 44,
                             child: GlassSurface(
                               tier: GlassTier.chrome,
-                              // 顶栏不模糊（第 4 步）：实心面 + 细线，滚动的底色由下面的 scrim 给。
-                              blur: false,
+                              // B1：顶栏去色块，键只剩图标和按下反馈。
+                              bare: true,
                               circle: true,
                               grouped: true,
                               onTap: widget.onOpenDrawer,
@@ -184,7 +191,8 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                     hint: widget.onTitleTap == null ? null : l10n.chatViewChatDetails,
                     child: GlassSurface(
                       tier: GlassTier.chrome,
-                      blur: false,
+                      // B1：标题不再有胶囊底，直接站在页面上（仍是整块可点）。
+                      bare: true,
                       stadium: true,
                       grouped: true,
                       onTap: widget.onTitleTap,
@@ -212,7 +220,11 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    HeaderTitleText(widget.title, style: titleStyle),
+                                    // B1：标题是淡色的一行（原来是胶囊里的实色标题）。
+                                    HeaderTitleText(
+                                      widget.title,
+                                      style: titleStyle?.copyWith(color: colors.onSurface.withValues(alpha: 0.86)),
+                                    ),
                                     _StatusLine(
                                       status: Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -254,52 +266,32 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                       ),
                     ),
                   ),
-                  // The agents capsule, then the model chip (a subagent
-                  // conversation has no model chip). Flexible: the chip
-                  // takes the width this row gives it.
-                  HeaderTrailingSlot(
-                    trailing: switch (widget.trailing) {
-                      final trailing? => Flexible(child: _ChipSlot(child: trailing)),
-                      null => null,
-                    },
-                  ),
-                  // 伙伴, then 新对话: it mirrors the menu key and is gone on
-                  // the new-chat screen. On a wide window the key that unfolds
-                  // 对话详情 follows them. 语音通话 moved into the composer (第 4 步).
+                  // B1：子代理入口搬进 ⋯，右边只剩模型名（它原来在
+                  // HeaderTrailingSlot 的 Row 里，现在直接进这一行）。
+                  switch (widget.trailing) {
+                    final trailing? => Padding(
+                      padding: const EdgeInsets.only(left: headerPieceGap),
+                      child: _ChipSlot(child: trailing),
+                    ),
+                    null => const SizedBox.shrink(),
+                  },
+                  // 新对话, then ⋯ (伙伴 / 子代理 / 详情). 语音通话 moved into
+                  // the composer (第 4 步).
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (widget.onCompanion case final onCompanion?)
-                        Padding(
-                          padding: const EdgeInsets.only(left: HeaderTrailingSlot.gap),
-                          child: SizedBox.square(
-                            key: const ValueKey('chat-companion'),
-                            dimension: 44,
-                            child: GlassSurface(
-                              tier: GlassTier.chrome,
-                              blur: false,
-                              circle: true,
-                              grouped: true,
-                              onTap: onCompanion,
-                              child: Tooltip(
-                                message: l10n.companionTitle,
-                                child: Center(child: Icon(AppIcons.companionInvite, size: 21, color: colors.onSurface)),
-                              ),
-                            ),
-                          ),
-                        ),
                       SmoothSize(
                         duration: AppMotion.of(context, AppMotion.quick),
                         child: widget.onNewChat == null
                             ? const SizedBox.shrink()
                             : Padding(
-                                padding: const EdgeInsets.only(left: HeaderTrailingSlot.gap),
+                                padding: const EdgeInsets.only(left: headerPieceGap),
                                 child: SizedBox.square(
                                   key: const ValueKey('chat-new-chat'),
                                   dimension: 44,
                                   child: GlassSurface(
                                     tier: GlassTier.chrome,
-                                    blur: false,
+                                    bare: true,
                                     circle: true,
                                     grouped: true,
                                     onTap: widget.onNewChat,
@@ -311,7 +303,7 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                                 ),
                               ),
                       ),
-                      const DetailPanelKey(),
+                      _HeaderMoreKey(onCompanion: widget.onCompanion, showsDetails: chrome?.showsPanelKey ?? false),
                     ],
                   ),
                 ],
@@ -400,7 +392,7 @@ class _RenderHeaderRow extends RenderBox
         RenderBoxContainerDefaultsMixin<RenderBox, _HeaderRowParentData> {
   _RenderHeaderRow(this._titleFloor, this._clockExtra);
 
-  static const _gap = HeaderTrailingSlot.gap;
+  static const _gap = headerPieceGap;
 
   double _titleFloor;
   set titleFloor(double value) {
@@ -481,13 +473,14 @@ class _RenderHeaderRow extends RenderBox
       final others = trailing.getMaxIntrinsicWidth(height) - chipWhole;
       final named = others + chip.getMinIntrinsicWidth(height);
       final compact = others + ModelChip.compactWidth;
-      // The pill's intrinsic width counts the clock; its floor doesn't.
-      final plainWhole = titleWhole - _clockExtra;
+      // The pill's max intrinsic width no longer counts the clock (B1), so
+      // its plain width is just that; the clock adds `_clockExtra` on top.
+      final plainWhole = titleWhole;
       final plainFloor = math.min(_titleFloor, plainWhole);
       // Step 5: the clock stays while the title keeps its floor beside it
       // with the chip down to ✦ ⌄.
       final clock = _clockExtra > 0 && plainFloor + _clockExtra <= room - compact;
-      final whole = clock ? titleWhole : plainWhole;
+      final whole = clock ? titleWhole + _clockExtra : titleWhole;
       final floor = clock ? plainFloor + _clockExtra : plainFloor;
       final share = math.min(math.max(floor, math.min(whole, room - named)), math.max(0.0, room - compact));
       trailingMax = room - share;
@@ -571,9 +564,11 @@ class _RenderPillContent extends RenderBox
   @override
   double computeMinIntrinsicWidth(double height) => _text.getMinIntrinsicWidth(height) + _ChatHeaderState._pillPadding;
 
+  /// B1: the pill's ideal width is its lines plus the plain side padding —
+  /// the clock's room is added separately ([_RenderHeaderRow.clockExtra]),
+  /// so a short title stops claiming it and leaves the width to the model name.
   @override
-  double computeMaxIntrinsicWidth(double height) =>
-      _text.getMaxIntrinsicWidth(height) + _end.getMaxIntrinsicWidth(height);
+  double computeMaxIntrinsicWidth(double height) => _text.getMaxIntrinsicWidth(height) + _ChatHeaderState._pillPadding;
 
   @override
   double computeMinIntrinsicHeight(double width) =>
@@ -725,4 +720,115 @@ class _StatusLabel extends StatelessWidget {
       child: Text(status.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
     ),
   );
+}
+
+/// ⋯ 菜单里的动作（B1）。
+enum _MoreAction { companion, agents, details }
+
+/// B1 的 ⋯：把 伙伴 / 子代理 / 详情 收进一枚键，顶栏因此只剩一行字与两枚图标。
+/// 子代理在跑时键上带一颗呼吸点，信息没有藏进菜单；三项都不可用时整枚键不画。
+class _HeaderMoreKey extends ConsumerWidget {
+  const _HeaderMoreKey({required this.onCompanion, required this.showsDetails});
+
+  final VoidCallback? onCompanion;
+
+  /// 宽窗口才有「对话详情」可展开（[AdaptiveChrome.showsPanelKey]）。
+  final bool showsDetails;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final sessionId = ref.watch(currentSessionProvider);
+    final agents = sessionId == null ? null : ref.watch(headerAgentsProvider(sessionId));
+    final hasTeam = agents?.hasTeam ?? false;
+    final showsAgents = agents != null && (hasTeam || agents.children > 0);
+    final running = (agents?.running ?? 0) > 0;
+    if (onCompanion == null && !showsAgents && !showsDetails) return const SizedBox.shrink();
+    void openAgents() {
+      final id = sessionId;
+      if (id == null) return;
+      if (hasTeam) {
+        Navigator.of(context).push(TeamPage.route(sessionId: id));
+      } else {
+        showLineageSheet(context, sessionId: id);
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(left: headerPieceGap),
+      child: PopupMenuButton<_MoreAction>(
+        key: const ValueKey('chat-more'),
+        tooltip: l10n.commonMore,
+        padding: EdgeInsets.zero,
+        position: PopupMenuPosition.under,
+        onSelected: (value) => switch (value) {
+          _MoreAction.companion => onCompanion?.call(),
+          _MoreAction.agents => openAgents(),
+          _MoreAction.details => ref.read(layoutPrefsProvider.notifier).setPanelOpen(true),
+        },
+        itemBuilder: (context) => [
+          if (onCompanion != null)
+            PopupMenuItem<_MoreAction>(
+              key: const ValueKey('chat-companion'),
+              value: _MoreAction.companion,
+              child: _MoreRow(icon: AppIcons.companionInvite, label: l10n.companionTitle),
+            ),
+          if (showsAgents)
+            PopupMenuItem<_MoreAction>(
+              key: const ValueKey('chat-agents'),
+              value: _MoreAction.agents,
+              child: Semantics(
+                button: true,
+                // 胶囊搬进菜单后，读屏仍听见「3 个子代理，1 个运行中」。
+                label: agentsEntryLabel(agents, l10n),
+                excludeSemantics: true,
+                child: _MoreRow(
+                  icon: hasTeam ? AppIcons.team : AppIcons.subagents,
+                  label: hasTeam ? l10n.botsAgentTeam : l10n.botsSubagents,
+                ),
+              ),
+            ),
+          if (showsDetails)
+            PopupMenuItem<_MoreAction>(
+              key: const ValueKey('chat-panel-key'),
+              value: _MoreAction.details,
+              child: _MoreRow(icon: AppIcons.sidebar, label: l10n.shellChatDetails),
+            ),
+        ],
+        child: SizedBox.square(
+          dimension: 44,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Icon(AppIcons.more, size: 22, color: theme.colorScheme.onSurface),
+              if (running) const Positioned(top: 11, right: 12, child: StatusDot(tone: StatusTone.busy, size: 6)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 菜单里的一行：图标 + 名字。
+class _MoreRow extends StatelessWidget {
+  const _MoreRow({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium),
+        ),
+      ],
+    );
+  }
 }

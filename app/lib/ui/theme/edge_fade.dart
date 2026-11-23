@@ -26,10 +26,18 @@ import 'feather.dart';
 /// 光斑)。系统高对比度下渐隐缩短到 [highContrastFade],避免长尾糊字。
 /// 减少动画不影响渐隐:它是静态的。
 class EdgeFade extends ConsumerWidget {
-  const EdgeFade({super.key, required this.top, required this.bottom, required this.child});
+  const EdgeFade({super.key, required this.top, required this.bottom, this.topHold = 0, required this.child});
 
   /// 顶部渐隐高度:状态栏安全区 + 顶栏高度 + 24dp。
   final double top;
+
+  /// 顶部渐隐里**完全不显示**的一段(顶栏的底边)。
+  ///
+  /// B1 把顶栏的胶囊去掉了:标题、模型名、⋯ 都是无底色的字,消息从它们
+  /// 背后透出来就会糊成一片。默认的 0 → 1 缓动在顶栏这一段还有 30% 左右
+  /// 的不透明度,正好压在标题上;把这一段按 [topHold] 压到 0,内容只在顶栏
+  /// 底边以下 20dp 里淡入,标题底下就是干净的背景。
+  final double topHold;
 
   /// 输入栏高度(动态)。底部渐隐高度 = 它 + [_bottomTail](32dp),随输入栏
   /// 多行 / 键盘弹起一起变。
@@ -62,7 +70,7 @@ class EdgeFade extends ConsumerWidget {
         return RepaintBoundary(
           child: ShaderMask(
             blendMode: BlendMode.dstIn,
-            shaderCallback: (bounds) => _fadeShader(bounds.size, topFade, bottomFade),
+            shaderCallback: (bounds) => _fadeShader(bounds.size, topFade, bottomFade, topHold),
             child: child,
           ),
         );
@@ -75,8 +83,8 @@ class EdgeFade extends ConsumerWidget {
 const _samples = 8;
 
 /// 顶 / 底两段缓动渐隐合成的一条线性渐变。中间保持不透明,两端沿
-/// easeInOutCubic 淡出,不出现线性硬切的折痕。
-Shader _fadeShader(Size size, double topFade, double bottomFade) {
+/// easeInOutCubic 淡出,不出现线性硬切的折痕。顶部前 [topHold] 一段保持全透明。
+Shader _fadeShader(Size size, double topFade, double bottomFade, double topHold) {
   final h = size.height;
   if (h <= 0) {
     return LinearGradient(colors: const [Colors.white, Colors.white]).createShader(Offset.zero & size);
@@ -93,10 +101,15 @@ Shader _fadeShader(Size size, double topFade, double bottomFade) {
   // 顶部段:透明 → 不透明。
   if (topFade > 0) {
     final end = mid ?? topStop;
-    for (var i = 0; i <= _samples; i++) {
+    final hold = (topHold / h).clamp(0.0, end);
+    if (hold > 0) {
+      colors.add(Colors.white.withValues(alpha: 0));
+      stops.add(0.0);
+    }
+    for (var i = hold > 0 ? 1 : 0; i <= _samples; i++) {
       final t = i / _samples;
       colors.add(Colors.white.withValues(alpha: Curves.easeInOutCubic.transform(t)));
-      stops.add(end * t);
+      stops.add(hold + (end - hold) * t);
     }
     if (mid != null) {
       colors.add(Colors.white);
@@ -150,8 +163,7 @@ class _VeilFallback extends StatelessWidget {
         child,
         // 底部版 BackdropVeil 要铺满整页、和页面左上角对齐,StackFit.expand 给它整屏约束。
         if (bottom > 0) IgnorePointer(child: BackdropVeil(solidHeight: _Fixed(bottom - 14), feather: 14)),
-        if (top > 0)
-          Positioned(left: 0, right: 0, top: 0, child: TopFade(height: top)),
+        if (top > 0) Positioned(left: 0, right: 0, top: 0, child: TopFade(height: top)),
       ],
     );
   }
