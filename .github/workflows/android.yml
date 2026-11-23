@@ -1,5 +1,10 @@
 name: Android CI
 
+# Tag 构建要创建 Release 并挂 APK：仓库默认 workflow 权限是 read，
+# 不显式声明的话 softprops/action-gh-release 会 403（Resource not accessible）。
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ main ]
