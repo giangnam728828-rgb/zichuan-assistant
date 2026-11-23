@@ -6,7 +6,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../../l10n/l10n.dart';
-import '../../theme/app_icons.dart';
 import '../../theme/theme.dart';
 import '../chat_rows.dart';
 import 'stream_row.dart';
@@ -166,7 +165,10 @@ class _TurnProcessState extends State<TurnProcess> with SingleTickerProviderStat
         onTap: _toggle,
         child: Row(
           children: [
-            StreamLead(child: Icon(AppIcons.completed, size: 18, color: DshColors.of(context).textTertiary)),
+            // 第 5 步：折叠头用「节点」而不是一个勾图标——7dp 的圆点落在
+            // 图形列中线上，展开后 StreamThread 的竖线正好从它下面接着走。
+            // 尺寸与位置沿用 StreamLead(24)，几何不变量不变。
+            StreamLead(child: _ProcessNode(active: widget.row.trace.running)),
             const SizedBox(width: StreamRow.gap),
             Expanded(
               child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: StreamRow.label(context)),
@@ -236,6 +238,32 @@ class _TurnProcessState extends State<TurnProcess> with SingleTickerProviderStat
             ),
           ),
       ],
+    );
+  }
+}
+
+/// 过程折叠头的节点：7dp 圆点。这一轮还在跑时是强调色，结束后是淡灰。
+class _ProcessNode extends StatelessWidget {
+  const _ProcessNode({required this.active});
+
+  final bool active;
+
+  static const _size = 7.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final dsh = DshColors.of(context);
+    return Center(
+      child: Container(
+        key: const ValueKey('process-node'),
+        width: _size,
+        height: _size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: active ? colors.primary : dsh.textTertiary.withValues(alpha: 0.55),
+        ),
+      ),
     );
   }
 }

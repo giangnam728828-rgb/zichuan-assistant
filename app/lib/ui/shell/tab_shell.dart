@@ -9,6 +9,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/all_features_page.dart';
@@ -62,6 +63,17 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
   double _direction = 1;
   bool _keyboardUp = false;
 
+  /// 滚动收起（方案第 3 步 IA：滚动收起 / 恢复）。
+  ///
+  /// 内容往下翻时导航让位（读得多的时候屏幕更大），往上翻或停下就回来。
+  /// 和键盘联动共用同一条 [_reveal]，所以底部留白、输入栏位置都跟着连续变；
+  /// 键盘在的时候以键盘为准（别和输入法抢）。
+  bool _scrolledAway = false;
+  Timer? _scrollBack;
+
+  /// 上一次滚动位置：用像素差判断方向（dragDetails 在合成滚动里不总带 delta）。
+  double _lastPixels = 0;
+
   bool get _reduce => MediaQuery.maybeDisableAnimationsOf(context) ?? false;
   bool get _compact => MediaQuery.sizeOf(context).height < ShellMetrics.compactHeight;
 
@@ -89,10 +101,57 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
     _syncKeyboard(MediaQuery.of(context).viewInsets.bottom > 0);
   }
 
+  /// 列表滚动：向下累计超过阈值就收起，向上或停止 180ms 内恢复。
+  bool _onScroll(ScrollNotification n) {
+
+    if (_keyboardUp) return false;
+    if (n.metrics.axis != Axis.vertical) return false;
+    switch (n) {
+      case ScrollUpdateNotification(:final metrics):
+        final delta = metrics.pixels - _lastPixels;
+        _lastPixels = metrics.pixels;
+        if (delta > 1 && !_scrolledAway && metrics.pixels > 24) {
+          _scrolledAway = true;
+          _scrollBack?.cancel();
+          _reveal.reverse();
+        } else if ((delta < -1 || metrics.pixels <= 0) && _scrolledAway) {
+          _scheduleNavBack();
+        }
+      case OverscrollNotification(:final metrics):
+        // 已经拖到列表顶（往回翻的尽头）：导航立刻回来。
+        if (metrics.pixels <= 0 && _scrolledAway) _scheduleNavBack();
+      case UserScrollNotification(direction: ScrollDirection.reverse):
+        // 往回翻（手指往下推、看更早的内容）：导航回来。
+        if (_scrolledAway) _scheduleNavBack();
+      case ScrollEndNotification():
+      case UserScrollNotification(direction: ScrollDirection.idle):
+        // 停下来不抢着弹回来：往下读时导航保持让位（常用 App 的习性）。
+        // 只有往上翻或回到顶部才恢复（见上面 ScrollUpdateNotification 的分支）。
+        break;
+      default:
+        break;
+    }
+    return false;
+  }
+
+  void _scheduleNavBack() {
+
+    _scrolledAway = false;
+    _scrollBack?.cancel();
+    // 与键盘收起同一条延迟：滚动刚停时不立刻弹回来，避免抖动。
+    _scrollBack = Timer(ShellMetrics.navReturnDelay, () {
+      if (mounted && !_keyboardUp) _reveal.forward();
+    });
+  }
+
   void _syncKeyboard(bool up) {
     if (up == _keyboardUp) return;
     _keyboardUp = up;
     _navBack?.cancel();
+    if (up) {
+      _scrollBack?.cancel();
+      _scrolledAway = false;
+    }
     if (up) {
       // 键盘弹起：导航立刻收起。
       _reveal.reverse();
@@ -108,12 +167,15 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
   void dispose() {
     _warm?.cancel();
     _navBack?.cancel();
+    _scrollBack?.cancel();
     _reveal.dispose();
     _switch.dispose();
     super.dispose();
   }
 
   void _onTabChanged(RootTab tab, {required bool reduce}) {
+    // 换标签等于换一份列表：滚动基线归零，免得用上一个标签的位置判方向。
+    _lastPixels = 0;
     // build 里直接改集合：这一帧本来就会重建，不需要 setState。
     _built.add(tab);
     if (tab == _last) return;
@@ -167,7 +229,9 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
           // 四页统一动画：200ms 淡入 + 8dp 方向位移；隐藏标签暂停 ticker。
           // AnimatedBuilder 必须监听：只读一次 _switch.value 会在切换后永久停在该值。
           // 内容整块抬到导航上方（padding 跟随 _reveal 连续变），输入栏才不会被盖住。
-          AnimatedBuilder(
+          NotificationListener<ScrollNotification>(
+            onNotification: _onScroll,
+            child: AnimatedBuilder(
             animation: Listenable.merge([_switch, _reveal]),
             builder: (context, child) {
               final fade = reduce ? 1.0 : _switch.value.clamp(0.0, 1.0);
@@ -193,8 +257,9 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
                   ),
               ],
             ),
+            ),
           ),
-          // 底部导航：随键盘动画连续收起/展开，底部间距 = 安全区 + 8dp。
+          // 底部导航：随键盘/滚动动画连续收起/展开，底部间距 = 安全区 + 8dp。
           Positioned(
             left: 0,
             right: 0,

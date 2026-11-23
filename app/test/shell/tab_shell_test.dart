@@ -6,6 +6,7 @@
 import 'package:dsh_app/state/adaptive_layout_state.dart';
 import 'package:dsh_app/state/sessions_state.dart';
 import 'package:dsh_app/ui/sessions/sessions_page.dart';
+import 'package:dsh_app/ui/chat/chat_screen.dart';
 import 'package:dsh_app/ui/chat/composer.dart';
 import 'package:dsh_app/ui/shell/bottom_nav.dart';
 import 'package:dsh_app/ui/shell/home_shell.dart';
@@ -138,5 +139,37 @@ void main() {
       find.descendant(of: find.byType(BottomNav), matching: find.byType(Opacity)).first,
     );
     expect(back.opacity, greaterThan(0.8));
+  });
+
+  testWidgets('⑤ 往下翻时导航收起，往上翻/停下后回来（方案第 3 步 IA）', (tester) async {
+    useWindow(tester, const Size(390, 844));
+    mockClipboard(tester);
+    await tester.pumpWidget(homeApp());
+    await pumpFrames(tester, 8);
+
+    double navOpacity() => tester
+        .widget<Opacity>(find.descendant(of: find.byType(BottomNav), matching: find.byType(Opacity)).first)
+        .opacity;
+    expect(navOpacity(), greaterThan(0.8));
+
+    // 历史页的会话列表够长，能真正滚动（对话页那条会话已经滚到底了）。
+    await _tapTab(tester, RootTab.history);
+    await pumpFrames(tester, 8);
+
+    // 往下翻：导航让位。
+    await tester.drag(find.byType(SessionsPage), const Offset(0, -260));
+    await pumpFrames(tester, 10);
+    expect(navOpacity(), lessThan(0.3), reason: '往下读时导航收起');
+
+    // 停下不弹回来（往下读时保持让位）。
+    await pumpFrames(tester, 12);
+    expect(navOpacity(), lessThan(0.3), reason: '停住时导航不回弹');
+
+    // 往上翻：回来（先走 120ms 延迟，再等动画）。
+    await tester.drag(find.byType(SessionsPage), const Offset(0, 160));
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump(const Duration(milliseconds: 220));
+    await pumpFrames(tester, 8);
+    expect(navOpacity(), greaterThan(0.8), reason: '往上翻就回来');
   });
 }
