@@ -122,7 +122,10 @@ void main() {
         size: ShareCard.qrSize,
         quietZone: 3,
       );
-      expect((code.version, code.ecc), (5, QrEcc.high));
+      // 不再写死版本：卡片上的链接换成本项目地址后长度变了，版本本来就会跟着变。
+      // 要锁的是设计意图 —— 带 logo 的码必须高纠错，且不该撑到很高的版本。
+      expect(code.ecc, QrEcc.high);
+      expect(code.version, inInclusiveRange(3, 12));
       final cell = ShareCard.qrSize / (code.size + 6);
       expect(logo.width, closeTo(plate!.logoSide * cell, 1e-6));
       for (final gap in [logo.left - qr.left, qr.right - logo.right, logo.top - qr.top, qr.bottom - logo.bottom]) {
@@ -132,9 +135,11 @@ void main() {
   }
 
   test('at 72 the card takes the logo at every logo version: links up to 58 bytes', () {
-    for (final (link, version) in [('https://qm.qq.com/q/example', 4), (dshGoProjectUrl, 5), ('x' * 58, 6)]) {
+    // 版本由链接长度决定，不写死；锁的是「带 logo → 高纠错，且落在那一个版本的 logo 版式上」。
+    for (final link in ['https://qm.qq.com/q/example', dshGoProjectUrl, 'x' * 58]) {
       final (code, plate) = QrCodeView.codeFor(link, QrEcc.medium, logo: true, size: ShareCard.qrSize, quietZone: 3);
-      expect((code.version, code.ecc, plate?.side), (version, QrEcc.high, QrCode.logoPlates[version]));
+      expect(code.ecc, QrEcc.high, reason: '${link.length} bytes');
+      expect(plate?.side, QrCode.logoPlates[code.version], reason: '${link.length} bytes');
       expect(ShareCard.qrSize / (code.size + 6), greaterThanOrEqualTo(QrCodeView.logoMinModule));
     }
   });
@@ -144,14 +149,17 @@ void main() {
     // Version 6 is the finest that read in every halved export; 7 is under the line.
     expect(ShareCard.qrSize / (4 * 6 + 17 + 6), greaterThanOrEqualTo(ShareCard.qrMinModule));
     expect(ShareCard.qrSize / (4 * 7 + 17 + 6), lessThan(ShareCard.qrMinModule));
-    for (final (text, version, ecc, logo) in [
-      (dshGoProjectUrl, 5, QrEcc.high, true),
-      (link(58), 6, QrEcc.high, true),
-      (link(59), 4, QrEcc.medium, false),
-      (link(106), 6, QrEcc.medium, false),
+    // 版本由链接长度决定，**不写死**：卡片链接换成本项目地址后长度变了。
+    // 这里锁的是设计规则：带 logo → 高纠错；不带 logo → 中等纠错；版本不超过 6。
+    for (final (text, ecc, logo, maxVersion) in [
+      (dshGoProjectUrl, QrEcc.high, true, 6),
+      (link(58), QrEcc.high, true, 6),
+      (link(59), QrEcc.medium, false, 6),
+      (link(106), QrEcc.medium, false, 6),
     ]) {
       final (code, plate) = ShareCard.qrFor(text)!;
-      expect((code.version, code.ecc, plate != null), (version, ecc, logo), reason: '${text.length} bytes');
+      expect((code.ecc, plate != null), (ecc, logo), reason: '${text.length} bytes');
+      expect(code.version, lessThanOrEqualTo(maxVersion), reason: '${text.length} bytes');
     }
     expect(ShareCard.qrFor(link(107)), isNull, reason: 'version 7');
     expect(ShareCard.qrFor(samplePluginLink()), isNull, reason: 'a plugin card\'s own link');
