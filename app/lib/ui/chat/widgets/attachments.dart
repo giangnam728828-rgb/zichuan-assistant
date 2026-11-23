@@ -40,22 +40,26 @@ class AttachButton extends StatelessWidget {
       label: l10n.chatAddAttachment,
       child: Tooltip(
         message: l10n.chatAddAttachment,
-        child: InkResponse(
-          onTap: onPressed == null
-              ? null
-              : () {
-                  HapticFeedback.selectionClick();
-                  onPressed!();
-                },
-          radius: 20,
-          child: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(color: scheme.onSurface.withValues(alpha: 0.06), shape: BoxShape.circle),
-            child: Icon(
-              AppIcons.add,
-              size: 22,
-              color: enabled ? scheme.onSurface : scheme.onSurface.withValues(alpha: 0.38),
+        child: Material(
+          type: MaterialType.transparency,
+          // 水波要画在玻璃自己这一层:画到外壳背景层上会被玻璃盖住,透出来是一块灰。
+          child: InkResponse(
+            onTap: onPressed == null
+                ? null
+                : () {
+                    HapticFeedback.selectionClick();
+                    onPressed!();
+                  },
+            radius: 20,
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(color: scheme.onSurface.withValues(alpha: 0.06), shape: BoxShape.circle),
+              child: Icon(
+                AppIcons.add,
+                size: 22,
+                color: enabled ? scheme.onSurface : scheme.onSurface.withValues(alpha: 0.38),
+              ),
             ),
           ),
         ),

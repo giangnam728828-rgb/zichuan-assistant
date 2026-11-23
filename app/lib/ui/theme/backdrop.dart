@@ -100,6 +100,45 @@ class _BackdropScope extends InheritedWidget {
   bool updateShouldNotify(_BackdropScope old) => old.picture != picture;
 }
 
+/// 整屏背景的一份拷贝,给**离屏层**垫底。
+///
+/// 玻璃的 `BackdropFilter` 只能采样同一个合成层里**已经画过**的内容。页面
+/// 的 `Scaffold` 是透明的、背景画在外层,所以一旦有人包了 `Opacity`(标签
+/// 切换的淡入就是),Flutter 会开一个离屏层,层里没有背景,模糊就采到透明、
+/// 透出来是一块灰——切回对话时输入栏两侧最明显。
+///
+/// 把它垫在 `Opacity` 里、页面之下,这一小段里玻璃就采得到和外面一模一样
+/// 的背景。画法与 [AppBackdrop] 同源(渐变 + 静态光晕 + 壁纸),看不出接缝;
+/// 淡入一结束就没有离屏层,这层也随之撤掉,外层的光斑不被长期盖住。
+class BackdropFill extends StatelessWidget {
+  const BackdropFill({super.key, this.glow = true});
+
+  /// 是否画静态光晕(与 [AppBackdrop] 的默认一致)。
+  final bool glow;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = DshSurfaces.of(context);
+    return IgnorePointer(
+      child: RepaintBoundary(
+        child: SizedBox.expand(
+          child: CustomPaint(
+            painter: _BackdropPainter(
+              top: s.backdropTop,
+              bottom: s.backdropBottom,
+              glowPrimary: glow ? s.glowPrimary.withValues(alpha: s.glowPrimary.a * 0.5) : null,
+              glowSecondary: glow ? s.glowSecondary.withValues(alpha: s.glowSecondary.a * 0.5) : null,
+              picture: _BackdropScope.of(context),
+              // 按整屏算:页面被底部导航抬起时,渐变不会跟着压缩。
+              area: MediaQuery.sizeOf(context),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// [AppBackdrop] 的一角:同一张背景,只画底部 [solidHeight] + [feather] 这一条,
 /// 底部 [solidHeight] 实心,往上 [feather] 缓缓淡出。
 ///

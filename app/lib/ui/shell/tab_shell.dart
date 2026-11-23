@@ -242,7 +242,16 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
                   opacity: fade,
                   child: Transform.translate(
                     offset: Offset(reduce ? 0 : (1 - fade) * 8 * direction, 0),
-                    child: child,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        // 淡入时 Opacity 会开一个离屏层:层里没有背景,输入栏的玻璃
+                        // 模糊就采到透明,两侧透出一块灰。垫一层与外壳同源的背景,
+                        // 玻璃才采得到真背景;淡入结束(不再有离屏层)立刻撤掉,光斑照旧。
+                        if (fade < 1) const BackdropFill() else const SizedBox.shrink(),
+                        child ?? const SizedBox.shrink(),
+                      ],
+                    ),
                   ),
                 ),
               );
