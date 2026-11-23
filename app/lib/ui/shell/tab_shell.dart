@@ -235,7 +235,8 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
             animation: Listenable.merge([_switch, _reveal]),
             builder: (context, child) {
               final fade = reduce ? 1.0 : _switch.value.clamp(0.0, 1.0);
-              final lift = (ShellMetrics.navHeight + ShellMetrics.navGap + safeBottom) * _reveal.value;
+              // 与 ShellInsets 同一个公式：抬页面和列表留白不会各算一份漂开。
+              final lift = ShellMetrics.extentAt(_reveal.value, safeBottom: safeBottom);
               return Padding(
                 padding: EdgeInsets.only(bottom: lift),
                 child: Opacity(

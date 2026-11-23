@@ -9,7 +9,11 @@ import 'package:flutter/material.dart';
 /// 底部导航的几何常量。改这里，四个页面一起跟着变。
 abstract final class ShellMetrics {
   /// 导航本体高度（不含安全区）。
-  static const navHeight = 64.0;
+  ///
+  /// 48（标签触控高度）+ 6×2（玻璃上下内边距）。A2 之前写的是 64，
+  /// 比实际多 4dp；加上输入栏自己的 8dp 底距，输入栏与导航的间隙成了
+  /// 12dp。改成实测值后正好 8dp，「底部浮岛」才归得成一组。
+  static const navHeight = 60.0;
 
   /// 导航离屏幕底边的距离：手势条安全区 + 8dp。
   static const navGap = 8.0;
@@ -22,6 +26,11 @@ abstract final class ShellMetrics {
 
   /// 键盘收起后延迟这么久再显示导航，避开输入法动画。
   static const navReturnDelay = Duration(milliseconds: 120);
+
+  /// 底部整组在动画值 [t] 时占的高度：导航 + 间隙 + 安全区。
+  ///
+  /// 外壳抬页面、页面算列表留白都只读这一个公式，两处不会再各写一份漂开。
+  static double extentAt(double t, {required double safeBottom}) => (navHeight + navGap + safeBottom) * t;
 }
 
 /// 底部占用的动画状态：0 = 完全收起（键盘弹起），1 = 完全展开。
@@ -49,7 +58,7 @@ class ShellInsets extends InheritedWidget {
   double get navExtent => ShellMetrics.navHeight + ShellMetrics.navGap;
 
   /// 某一刻底部要留的总高度。
-  double extentAt(double t, {required double safeBottom}) => (navExtent + safeBottom) * t;
+  double extentAt(double t, {required double safeBottom}) => ShellMetrics.extentAt(t, safeBottom: safeBottom);
 
   /// 给列表/滚动区用的底部留白，随动画连续变化。
   Widget paddingFor({

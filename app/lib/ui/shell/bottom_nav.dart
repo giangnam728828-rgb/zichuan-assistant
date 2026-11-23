@@ -85,59 +85,64 @@ class BottomNav extends ConsumerWidget {
           );
         },
         child: Padding(
+          // 与输入栏、顶栏同一条边线（12dp），整组「底部浮岛」才对得齐。
           padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
+            left: 12,
+            right: 12,
             bottom: (MediaQuery.paddingOf(context).bottom + ShellMetrics.navGap),
           ),
           child: MediaQuery.withClampedTextScaling(
             // 导航是 chrome：大字号下钳到 1.3，标签不会撑破 48dp 的触控高度。
             maxScaleFactor: 1.3,
             child: Semantics(
-            container: true,
-            explicitChildNodes: true,
-            label: '主导航',
-            child: GlassSurface(
-              tier: GlassTier.chrome,
-              borderRadius: const BorderRadius.all(Radius.circular(AppShape.float)),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final tab in RootTab.values)
-                    Expanded(
-                      child: _TabKey(
-                        tab: tab,
-                        selected: tab == current,
-                        compact: compact,
-                        reduceAnimations: reduce,
-                        badge: switch (tab) {
-                          RootTab.chat => badges.chatRunning,
-                          RootTab.history => badges.pending > 0 || badges.running,
-                          _ => false,
-                        },
-                        badgeCount: tab == RootTab.history ? badges.pending : 0,
-                        badgeBusy: tab == RootTab.chat ? badges.chatRunning : badges.pending == 0 && badges.running,
-                        onTap: () => _onTap(context, ref, tab),
-                        onLongPress: switch (tab) {
-                          RootTab.chat => () {
-                            HapticFeedback.mediumImpact();
-                            switchTab(context, RootTab.chat, intent: TabIntent.newChat);
-                          },
-                          RootTab.history => () {
-                            HapticFeedback.mediumImpact();
-                            switchTab(context, RootTab.history, intent: TabIntent.focusSearch);
-                          },
-                          _ => null,
-                        },
-                      ),
-                    ),
-                ],
+              container: true,
+              explicitChildNodes: true,
+              label: '主导航',
+              // 高度写死成常量：玻璃高度只由这里决定，与输入栏的间隙才稳定在 8dp。
+              child: SizedBox(
+                height: ShellMetrics.navHeight,
+                child: GlassSurface(
+                  tier: GlassTier.chrome,
+                  borderRadius: const BorderRadius.all(Radius.circular(AppShape.float)),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final tab in RootTab.values)
+                        Expanded(
+                          child: _TabKey(
+                            tab: tab,
+                            selected: tab == current,
+                            compact: compact,
+                            reduceAnimations: reduce,
+                            badge: switch (tab) {
+                              RootTab.chat => badges.chatRunning,
+                              RootTab.history => badges.pending > 0 || badges.running,
+                              _ => false,
+                            },
+                            badgeCount: tab == RootTab.history ? badges.pending : 0,
+                            badgeBusy: tab == RootTab.chat ? badges.chatRunning : badges.pending == 0 && badges.running,
+                            onTap: () => _onTap(context, ref, tab),
+                            onLongPress: switch (tab) {
+                              RootTab.chat => () {
+                                HapticFeedback.mediumImpact();
+                                switchTab(context, RootTab.chat, intent: TabIntent.newChat);
+                              },
+                              RootTab.history => () {
+                                HapticFeedback.mediumImpact();
+                                switchTab(context, RootTab.history, intent: TabIntent.focusSearch);
+                              },
+                              _ => null,
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
         ),
-      ),
       ),
     );
   }
