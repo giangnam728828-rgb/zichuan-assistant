@@ -87,6 +87,7 @@ import '../shell/root_tab.dart';
 import '../shell/shell_insets.dart';
 import '../shell/drawer/folder_sheets.dart';
 import '../theme/app_icons.dart';
+import '../theme/edge_fade.dart';
 import '../theme/theme.dart';
 import '../wallpaper/wallpaper_backdrop.dart';
 import '../workspace/workspace_switcher.dart' show showWorkspaceSheet;
@@ -507,7 +508,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
       showComposerToast(
         context,
         message,
-        composerHeight: _veilHeight.value + _ChatLayout.overlap,
+        composerHeight: _veilHeight.value,
         actionLabel: actionLabel,
         onAction: onAction,
       );
@@ -912,7 +913,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
           unawaited(_voice.start());
         }
         if (merged.problem ?? request.note case final line?) {
-          showComposerToast(context, line, composerHeight: _veilHeight.value + _ChatLayout.overlap);
+          showComposerToast(context, line, composerHeight: _veilHeight.value);
         }
       }
     } finally {
@@ -1910,20 +1911,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                               // Keyed by conversation: opening another one fades it in.
                               child: FluidFadeIn(
                                 key: ValueKey(sessionId),
-                                child: ChatList(
-                                  key: ValueKey(sessionId),
-                                  sessionId: sessionId,
-                                  toTop: _toTop,
-                                  topInset: headerHeight,
-                                  bottomInset: _ChatLayout.overlap,
-                                  scrolledUnder: _scrolledUnder,
-                                  onWithdraw: _withdraw,
-                                  onSendNow: _sendNow,
-                                  onEditPrompt: _compose,
-                                  onResend: _resend,
-                                  onQuote: readOnly ? null : (passage) => _quote(sessionId, passage),
-                                  onToast: _composerToast,
-                                  onSwitchModel: readOnly ? null : _switchModel,
+                                child: EdgeFade(
+                                  // 顶部渐隐长度 = 状态栏 + 顶栏 + 24dp(headerHeight 已含 8dp)。
+                                  top: headerHeight + 16,
+                                  bottom: _veilHeight,
+                                  child: ChatList(
+                                    key: ValueKey(sessionId),
+                                    sessionId: sessionId,
+                                    toTop: _toTop,
+                                    topInset: headerHeight,
+                                    bottomInset: _ChatLayout.overlap,
+                                    bottomExtent: _veilHeight,
+                                    scrolledUnder: _scrolledUnder,
+                                    onWithdraw: _withdraw,
+                                    onSendNow: _sendNow,
+                                    onEditPrompt: _compose,
+                                    onResend: _resend,
+                                    onQuote: readOnly ? null : (passage) => _quote(sessionId, passage),
+                                    onToast: _composerToast,
+                                    onSwitchModel: readOnly ? null : _switchModel,
+                                  ),
                                 ),
                               ),
                             ),
@@ -1938,15 +1945,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                         child: PluginOverlayLayer(sessionId: sessionId),
                       ),
                     ),
-                  ),
-                  // The page's own backdrop again under the composer area: content
-                  // scrolled behind the composer and strip fades into it, so the
-                  // gaps between them show the background, never a sliver of text.
-                  // Solid from 6 below the column's top; the fade above stays inside
-                  // the list's 8dp bottom padding, so the last message is untouched.
-                  LayoutId(
-                    id: _Slot.veil,
-                    child: BackdropVeil(solidHeight: _veilHeight),
                   ),
                   LayoutId(
                     id: _Slot.header,
@@ -2576,25 +2574,27 @@ class _HeaderAside extends StatelessWidget {
   }
 }
 
-enum _Slot { body, pluginOverlay, veil, header, palette, composer }
+enum _Slot { body, pluginOverlay, header, palette, composer }
 
-/// 整页布局:先排输入条区域,挂在它上沿的东西(列表的下沿、底色遮罩、
-/// 斜杠面板)在同一次布局里跟上。
+/// 整页布局:先排输入条区域,挂在它上沿的东西(列表的下沿、斜杠面板)在
+/// 同一次布局里跟上。列表本体铺满整屏(A1 边缘渐隐),内容滚到输入栏后面
+/// 由 EdgeFade 渐隐。
 ///
 /// 不走「帧后报高度、下一帧再 setState」:那样胶囊升起 / 收回的每一帧列表
 /// 都晚一拍,最后一条消息和胶囊之间时而压住、时而露出一道缝。
 class _ChatLayout extends MultiChildLayoutDelegate {
   _ChatLayout(this.veilHeight);
 
-  /// 列表视口伸到输入条上沿以下的距离:底色在那里已经是实心,看不见裁切。
+  /// 列表视口伸到输入条上沿以下的距离(A1 前:底色在那里已经实心,看不见
+  /// 裁切;现在只用于空状态的底部留白,列表本身铺满整屏)。
   static const overlap = 6.0;
 
   /// 斜杠面板离屏幕两边、离输入条上沿的距离。
   static const _side = 12.0;
   static const _gap = 6.0;
 
-  /// 写给底色遮罩:从输入条上沿往下 [overlap] 起实心,到页面底。遮罩在
-  /// 布局之后才画,这一帧就按新高度画。
+  /// 输入栏高度。A1 前写给底色遮罩;现在作为列表的 bottomExtent 和
+  /// composer toast 的定位高度。
   final ValueNotifier<double> veilHeight;
 
   @override
@@ -2606,12 +2606,12 @@ class _ChatLayout extends MultiChildLayoutDelegate {
     final composer = layoutChild(_Slot.composer, along);
     final top = size.height - composer.height;
     positionChild(_Slot.composer, Offset(0, top));
-    veilHeight.value = math.max(0, composer.height - overlap);
+    // A1 边缘渐隐:列表铺满整屏,内容滚到输入栏后面由 EdgeFade 渐隐。
+    // veilHeight 现在存的是输入栏高度(给列表 bottomExtent 和 toast 定位)。
+    veilHeight.value = composer.height;
 
-    layoutChild(_Slot.body, BoxConstraints.tight(Size(width, math.max(0, top + overlap))));
+    layoutChild(_Slot.body, BoxConstraints.tight(size));
     positionChild(_Slot.body, Offset.zero);
-    layoutChild(_Slot.veil, BoxConstraints.tight(size));
-    positionChild(_Slot.veil, Offset.zero);
     final header = layoutChild(_Slot.header, along);
     positionChild(_Slot.header, Offset.zero);
     // Web content cannot paint or receive touches on native navigation/input.
@@ -2627,7 +2627,7 @@ class _ChatLayout extends MultiChildLayoutDelegate {
         'height': size.height,
         'composerHeight': composer.height,
         'composerTop': top,
-        'bodyHeight': math.max(0, top + overlap),
+        'bodyHeight': size.height,
         'paletteHeight': palette.height,
       });
     }

@@ -16,7 +16,6 @@ import '../../state/header_schedule_state.dart';
 import '../agents/header_agents.dart';
 import '../common/fluid_bits.dart';
 import '../common/smooth_size.dart';
-import '../theme/feather.dart';
 import '../common/status_dot.dart';
 import '../shell/adaptive/adaptive_scaffold.dart' show AdaptiveChrome;
 import '../shell/adaptive/detail_panel_keys.dart';
@@ -81,10 +80,9 @@ class ChatHeader extends ConsumerStatefulWidget {
   /// composer's own row, so the header keeps only 标题 / 模型 / 伙伴 / 新对话.
   final VoidCallback? onCompanion;
 
-  /// Whether content has scrolled under the bar, 0..1. Drives the top fade:
-  /// at rest the page is one clean surface, the fade only appears once there is
-  /// something to fade (same as every secondary page, see `AppPage`). Null
-  /// when nothing scrolls (new chat): no fade.
+  /// Whether content has scrolled under the bar, 0..1. A1 删除了顶栏纱幕,
+  /// 渐隐改由列表的 EdgeFade 负责,此值当前不再驱动任何遮罩;保留参数以兼容
+  /// 现有测试与未来的 B1 顶栏重做。
   final ValueListenable<double>? scrolledUnder;
 
   /// 顶栏的高度(不含状态栏),与二级页面的返回键栏一致。列表顶部留白按它算。
@@ -144,23 +142,11 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
     // Wide windows: next to the rail (it has its own ≡) the key goes, and ≡
     // says what it does there (fold or unfold the list).
     final chrome = AdaptiveChrome.maybeOf(context);
-    // The stack is only as tall as the bar; the fade runs 12dp past it, so it
-    // must not clip (a clipped fade is a hard line right under the pills).
+    // A1 边缘渐隐:顶栏不再铺纱幕,内容滚到顶栏后面时由列表的 EdgeFade 渐隐,
+    // 顶栏本身全透明。
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          child: widget.scrolledUnder == null
-              ? const SizedBox.shrink()
-              : ValueListenableBuilder<double>(
-                  valueListenable: widget.scrolledUnder!,
-                  builder: (context, t, child) => Opacity(opacity: t, child: child),
-                  child: _HeaderScrim(height: top + barHeight, under: top + barHeight + 12),
-                ),
-        ),
         Padding(
           padding: EdgeInsets.fromLTRB(12, top, 12, 0),
           child: BackdropGroup(
@@ -356,45 +342,6 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
     final statusLine = _dot + _dotGap + _statusPainter.width;
     final title = scaler.scale(15);
     return _pillPadding * 2 + math.max(title * 5, math.min(statusLine, title * 8));
-  }
-}
-
-/// 顶栏随滚动渐显的底与细线（第 4 步，2026-11-22 修正）。
-///
-/// 早先这里铺的是 `surfaces.backdropTop` 纯色，结果顶栏那条是中性白、下面却是带
-/// 青调的页面底（截图实测顶 y≈200 处 RGB 245/245/245，正文 229/239/238）——看上去
-/// 就是「顶部颜色突然割裂」。现在底色复用页面背景自己的画法（[BackdropVeil.top]，
-/// 与 [TopFade] 同一套），只额外加一条 1px 细线；没滚动时整层为 0，页面是一整块。
-class _HeaderScrim extends StatelessWidget {
-  const _HeaderScrim({required this.height, required this.under});
-
-  /// 到顶栏下沿为止的实底高度（含状态栏）。
-  final double height;
-
-  /// 淡出下沿：纱幕在这里结束，细线画在 [height] 上。
-  final double under;
-
-  @override
-  Widget build(BuildContext context) {
-    final line = DshSurfaces.of(context).pill.hairline;
-    // 高度必须自己给：外面的 Positioned 只给了左右和 top，高度是无界的。
-    return SizedBox(
-      height: under,
-      width: double.infinity,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          TopFade(height: under),
-          Positioned(
-            left: 0,
-            right: 0,
-            top: height,
-            height: 1,
-            child: ColoredBox(color: line),
-          ),
-        ],
-      ),
-    );
   }
 }
 

@@ -93,6 +93,7 @@ class ChatList extends ConsumerStatefulWidget {
     required this.topInset,
     this.scrolledUnder,
     required this.bottomInset,
+    this.bottomExtent,
     this.onWithdraw,
     this.onSendNow,
     this.onEditPrompt,
@@ -115,6 +116,11 @@ class ChatList extends ConsumerStatefulWidget {
   /// content stops `bottomInset + 8` above the viewport bottom; short content
   /// stays aligned to the top instead.
   final double bottomInset;
+
+  /// 输入栏(composer)的高度。提供时(聊天页 A1 边缘渐隐),列表铺满整屏,
+  /// 内容滚到输入栏后面由 EdgeFade 渐隐;底部留白用它动态计算,让最新一行
+  /// 停在输入栏上方 [_fadeTail] 处。null 时保持原有 [bottomInset] 停靠行为。
+  final ValueListenable<double>? bottomExtent;
 
   /// Set to how far content has scrolled under the top bar (0..1); the header
   /// fades in its backdrop by it.
@@ -254,6 +260,9 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
   /// Further than this is not a next line: a jump, as before.
   static const _glideReach = 240.0;
 
+  /// 边缘渐隐的底部尾巴:输入栏高度之外再留这么多给文字淡出(A1)。
+  static const _fadeTail = 32.0;
+
   bool get _glidable => _fluid && !_snapNext;
 
   void _startGlide() {
@@ -357,6 +366,9 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
   bool _draftSays = false;
 
   double? _lastViewport;
+
+  /// 上一次的输入栏(composer)高度,检测变化时与 [viewport] 一样处理跟随。
+  double? _lastComposerHeight;
   int _lastPendingCount = 0;
   bool _followScheduled = false;
 
@@ -904,11 +916,13 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
   }
 
   void _rememberPrependAnchor(List<ChatRow> previousRows, int previousSplit) {
+    final bottomEdge = (_lastViewport ?? 0) -
+        (widget.bottomExtent != null ? widget.bottomExtent!.value + _fadeTail : widget.bottomInset);
     for (final row in _laidOutForwardRows(previousRows, previousSplit)) {
       if (!_index.containsKey(row.key)) continue;
       final viewport = RenderAbstractViewport.of(row.body);
       final top = row.body.localToGlobal(Offset.zero, ancestor: viewport).dy;
-      if (top + row.body.size.height <= widget.topInset || top >= (_lastViewport ?? 0) - widget.bottomInset) continue;
+      if (top + row.body.size.height <= widget.topInset || top >= bottomEdge) continue;
       _prependAnchor = (key: row.key, offset: row.offset);
       return;
     }
@@ -957,20 +971,26 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
     ref.listen(chatRevealProvider, (_, reveal) {
       if (reveal?.sessionId == widget.sessionId) jumpToBottom();
     });
-    return MarkdownImageScope(
+    Widget buildList() => MarkdownImageScope(
       sessionId: widget.sessionId,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final viewport = constraints.maxHeight;
-          if (_lastViewport != null && _lastViewport != viewport && _pinned) {
+          final composerHeight = widget.bottomExtent?.value ?? 0.0;
+          final geometryChanged =
+              (_lastViewport != null && _lastViewport != viewport) ||
+              (_lastComposerHeight != null && _lastComposerHeight != composerHeight);
+          if (geometryChanged && _pinned) {
             _follow();
           }
           // The chat page's pet stands over the composer: the last line
           // stops clear of it (0 without a pet).
-          final bottomPad = widget.bottomInset + AppSpace.sm + headroom;
+          final bottomPad = widget.bottomExtent != null
+              ? composerHeight + _fadeTail + headroom
+              : widget.bottomInset + AppSpace.sm + headroom;
           final anchor = viewport <= 0 ? 1.0 : ((viewport - bottomPad) / viewport).clamp(0.0, 1.0);
           final anchorPixels = viewport * anchor;
-          if (_lastViewport != null && !_pinned && _scroll.hasClients) {
+          if ((_lastViewport != null || _lastComposerHeight != null) && !_pinned && _scroll.hasClients) {
             // The composer can shrink when a turn ends. Preserve the same
             // visible history as its bottom-anchored viewport grows, without
             // ending a drag or fling with jumpTo.
@@ -978,6 +998,7 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
             if (shift != 0) _scroll.position.correctBy(shift);
           }
           _lastViewport = viewport;
+          _lastComposerHeight = composerHeight;
           _anchorPixels = anchorPixels;
 
           return Stack(
@@ -1048,7 +1069,7 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
               // 手机上阅读列就是整屏宽。
               Positioned(
                 right: math.max(0.0, (constraints.maxWidth - AppSpace.readingWidth) / 2) + AppSpace.floatInset,
-                bottom: widget.bottomInset + 12,
+                bottom: widget.bottomExtent != null ? widget.bottomExtent!.value + 12 : widget.bottomInset + 12,
                 // The pet keeps out of the key's way while it shows.
                 child: ValueListenableBuilder<bool>(
                   valueListenable: _showJump,
@@ -1065,6 +1086,14 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
           );
         },
       ),
+    );
+
+    // 输入栏高度变化时重建列表几何:bottomPad / anchor 跟着走,贴底则跟随。
+    final bottomExtent = widget.bottomExtent;
+    if (bottomExtent == null) return buildList();
+    return ValueListenableBuilder<double>(
+      valueListenable: bottomExtent,
+      builder: (context, _, _) => buildList(),
     );
   }
 
