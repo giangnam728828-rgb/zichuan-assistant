@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../theme/theme.dart';
 
+/// 边界（川水第 6 步）：名字里的 "hero" 指「详情页的头图」，**不是** Flutter 的
+/// [Hero] 共享元素。共享元素动画只允许用在**路由跳转**（点一个条目、页面从它长出来）——
+/// 不要为了列表内部的局部变化套 `Hero`：那会在滚动/流式更新时触发跨路由的飞行动画，
+/// 低端机上还多一帧合成。本组件不参与任何 `Hero` 飞行。
+
 /// Header of a detail page (skeleton B): a graphic, the title (two lines at
 /// most), one line of status, and two or three figures underneath.
 ///
