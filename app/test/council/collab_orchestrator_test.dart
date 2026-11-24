@@ -113,8 +113,12 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  CollabOrchestrator make(FakeDriver driver, {String Function()? newId}) =>
-      CollabOrchestrator(driver: driver, store: store, newId: newId ?? () => 'run1');
+  CollabOrchestrator make(FakeDriver driver, {String Function()? newId}) => CollabOrchestrator(
+    driver: driver,
+    store: store,
+    newId: newId ?? () => 'run1',
+    retryDelay: (_, _) => Duration.zero,
+  );
 
   Future<CollabRun> waitTerminal(CollabOrchestrator o, String id) async {
     CollabRun? last;

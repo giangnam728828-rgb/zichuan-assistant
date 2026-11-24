@@ -72,15 +72,32 @@ final class CollabOrchestrator {
     required CollabStore store,
     String Function()? newId,
     DateTime Function()? clock,
+    Duration Function(int attempt, TurnOutcome last)? retryDelay,
   }) : _driver = driver,
        _store = store,
        _newId = newId ?? _defaultId,
-       _clock = clock ?? DateTime.now;
+       _clock = clock ?? DateTime.now,
+       _retryDelay = retryDelay ?? _defaultRetryDelay;
 
   final CollabSessionDriver _driver;
   final CollabStore _store;
   final String Function() _newId;
   final DateTime Function() _clock;
+
+  /// 失败重试前的等待：限流给更长的时间，普通错误短等。
+  final Duration Function(int attempt, TurnOutcome last) _retryDelay;
+
+  static Duration _defaultRetryDelay(int attempt, TurnOutcome last) {
+    final text = (last.error ?? '').toLowerCase();
+    final limited =
+        text.contains('429') ||
+        text.contains('rate') ||
+        text.contains('limit') ||
+        text.contains('限流') ||
+        text.contains('too many');
+    if (limited) return attempt <= 1 ? const Duration(seconds: 4) : const Duration(seconds: 8);
+    return const Duration(milliseconds: 600);
+  }
 
   final _events = StreamController<CollabRun>.broadcast();
   bool _disposed = false;
@@ -421,6 +438,11 @@ final class CollabOrchestrator {
         });
       } finally {
         _activeSessions.remove(sessionId);
+      }
+      // 还有一次机会：先退避再试（限流等更久）；用户已取消就收手。
+      if (attempts < 2) {
+        if (_require(runId).cancelRequested) return last;
+        await Future<void>.delayed(_retryDelay(attempts, last));
       }
     }
     return last;
