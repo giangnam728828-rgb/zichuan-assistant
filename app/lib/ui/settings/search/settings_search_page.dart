@@ -205,10 +205,11 @@ class _SettingsSearchPageState extends ConsumerState<SettingsSearchPage> {
                       children: [
                         for (final hit in group)
                           if (hit.spot case final spot?)
-                            _SpotResult(hit: hit, spot: spot, onOpen: _openSpot)
+                            _SpotResult(hit: hit, spot: spot, query: query.trim(), onOpen: _openSpot)
                           else
                             ListPageRow(
                               title: hit.feature!.title,
+                              highlight: query.trim(),
                               subtitle: [l10n.hubSettingsAllFeatures, hit.section!.title].join(' › '),
                               onTap: hit.feature!.needsSession && session == null
                                   ? null
@@ -282,10 +283,11 @@ final _pluginSpotsProvider = Provider.autoDispose<List<SettingSpot>>((ref) {
 });
 
 class _SpotResult extends ConsumerWidget {
-  const _SpotResult({required this.hit, required this.spot, required this.onOpen});
+  const _SpotResult({required this.hit, required this.spot, required this.query, required this.onOpen});
 
   final SearchHit hit;
   final SettingSpot spot;
+  final String query;
   final void Function(SettingSpot spot, {required bool available}) onOpen;
 
   @override
@@ -297,6 +299,7 @@ class _SpotResult extends ConsumerWidget {
         (spot.isEntry ? null : unavailableReason(ref, SettingsIndex.page(spot.page).condition, l10n));
     return ListPageRow(
       title: spot.titleOn(harmony: ref.watch(operatingSystemProvider) == 'ohos')(l10n),
+      highlight: query,
       titleNote: hit.synonym,
       subtitle: reason ?? SettingsIndex.path(spot, l10n).join(' › '),
       onTap: () => onOpen(spot, available: reason == null),

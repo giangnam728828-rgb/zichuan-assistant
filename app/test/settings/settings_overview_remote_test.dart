@@ -58,15 +58,15 @@ Future<void> _pump(WidgetTester tester, List<Override> overrides) async {
 void main() {
   testWidgets('no runtime, remote host: the card is the host', (tester) async {
     await _pump(tester, _overrides());
-    expect(find.text('实验室服务器'), findsOneWidget);
-    expect(find.text('远程主机 · 已连接'), findsOneWidget);
+    // 标题和「主机」行都写着这台主机；点标题进远程主机页。
+    expect(find.text('实验室服务器'), findsNWidgets(2));
+    expect(find.text('远程主机'), findsWidgets);
+    expect(find.text('已连接'), findsWidgets);
     expect(find.text('登录 DeepSeek 账号'), findsNothing);
     expect(find.text('或填写 API Key'), findsNothing);
     expect(find.bySemanticsLabel('远程主机：实验室服务器，已连接'), findsOneWidget);
-    // The engine line stays: it is where the runtime gets installed.
-    expect(find.text('本机引擎 · 未安装'), findsOneWidget);
 
-    await tester.tap(find.text('实验室服务器'));
+    await tester.tap(find.text('实验室服务器').first);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     expect(find.byType(RemoteScreen), findsOneWidget);
@@ -74,25 +74,27 @@ void main() {
 
   testWidgets('no runtime, remote host, API Key saved: still the host', (tester) async {
     await _pump(tester, _overrides(settings: const AppSettings(loaded: true, apiKey: 'sk-0123456789abcdef')));
-    expect(find.text('实验室服务器'), findsOneWidget);
+    expect(find.text('实验室服务器'), findsNWidgets(2));
     expect(find.text('DeepSeek API Key'), findsNothing);
   });
 
   testWidgets('a link that failed reads as such', (tester) async {
     await _pump(tester, _overrides(link: HostLinkPhase.failed));
-    expect(find.text('远程主机 · 连接失败'), findsOneWidget);
+    expect(find.text('连接失败'), findsWidgets);
   });
 
   testWidgets('no runtime, still on 本机: sign-in as before', (tester) async {
     await _pump(tester, _overrides(host: HostRef.local));
     expect(find.text('登录 DeepSeek 账号'), findsOneWidget);
     expect(find.text('实验室服务器'), findsNothing);
+    expect(find.text('本机'), findsOneWidget);
   });
 
   testWidgets('runtime installed, remote host: sign-in as before', (tester) async {
     await _pump(tester, _overrides(runtime: runningStatus));
     expect(find.text('登录 DeepSeek 账号'), findsOneWidget);
-    expect(find.text('实验室服务器'), findsNothing);
+    // 主机行仍写着当前主机，只是卡片标题回到了账号。
+    expect(find.text('实验室服务器'), findsOneWidget);
   });
 
   goldenBoth('settings_remote_only', () => const SettingsScreen(), overrides: _overrides);

@@ -581,7 +581,7 @@ abstract class L10n {
   /// No description provided for @accessSummaryMessage.
   ///
   /// In zh, this message translates to:
-  /// **'随时可在「设置 › 通用 › 系统权限」补开'**
+  /// **'随时可在「设置 › 通用与帮助 › 系统权限」补开'**
   String get accessSummaryMessage;
 
   /// No description provided for @accessFinishFailed.
@@ -593,7 +593,7 @@ abstract class L10n {
   /// No description provided for @accessVoiceDownload.
   ///
   /// In zh, this message translates to:
-  /// **'语音模型（约 {size} MB）会在引擎就绪后开始下载，进度在「设置 › 通用 › 语音输入」里查看'**
+  /// **'语音模型（约 {size} MB）会在引擎就绪后开始下载，进度在「设置 › 通用与帮助 › 语音输入」里查看'**
   String accessVoiceDownload(int size);
 
   /// No description provided for @accessPageTitle.
@@ -16679,7 +16679,7 @@ abstract class L10n {
   /// No description provided for @hubSettingsAppearance.
   ///
   /// In zh, this message translates to:
-  /// **'外观'**
+  /// **'外观与交互'**
   String get hubSettingsAppearance;
 
   /// No description provided for @hubSettingsChatTextSize.
@@ -16723,6 +16723,18 @@ abstract class L10n {
   /// In zh, this message translates to:
   /// **'本机引擎'**
   String get hubSettingsEngine;
+
+  /// No description provided for @hubConfigHost.
+  ///
+  /// In zh, this message translates to:
+  /// **'主机'**
+  String get hubConfigHost;
+
+  /// No description provided for @hubConfigModel.
+  ///
+  /// In zh, this message translates to:
+  /// **'模型'**
+  String get hubConfigModel;
 
   /// No description provided for @hubSettingsProviders.
   ///
@@ -17108,11 +17120,11 @@ abstract class L10n {
   /// **'、'**
   String get hubPluginComponentSeparator;
 
-  /// No description provided for @hubGroupAi.
+  /// No description provided for @hubGroupModels.
   ///
   /// In zh, this message translates to:
-  /// **'AI'**
-  String get hubGroupAi;
+  /// **'模型与协作'**
+  String get hubGroupModels;
 
   /// No description provided for @hubGroupCapabilities.
   ///
@@ -17123,20 +17135,14 @@ abstract class L10n {
   /// No description provided for @hubGroupGeneral.
   ///
   /// In zh, this message translates to:
-  /// **'通用'**
+  /// **'通用与帮助'**
   String get hubGroupGeneral;
 
   /// No description provided for @hubGroupHosts.
   ///
   /// In zh, this message translates to:
-  /// **'主机'**
+  /// **'主机与连接'**
   String get hubGroupHosts;
-
-  /// No description provided for @hubGroupHelp.
-  ///
-  /// In zh, this message translates to:
-  /// **'帮助与关于'**
-  String get hubGroupHelp;
 
   /// No description provided for @hubPersonalization.
   ///

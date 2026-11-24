@@ -275,14 +275,14 @@ class L10nEn extends L10n {
   }
 
   @override
-  String get accessSummaryMessage => 'Turn on the rest anytime in Settings › General › System permissions';
+  String get accessSummaryMessage => 'Turn on the rest anytime in Settings › General & help › System permissions';
 
   @override
   String get accessFinishFailed => 'Couldn’t finish setup';
 
   @override
   String accessVoiceDownload(int size) {
-    return 'The voice model (about $size MB) starts downloading once the engine is ready. Follow it in Settings › General › Voice input.';
+    return 'The voice model (about $size MB) starts downloading once the engine is ready. Follow it in Settings › General & help › Voice input.';
   }
 
   @override
@@ -9489,7 +9489,7 @@ class L10nEn extends L10n {
   String get hubSettingsPreferences => 'Personal preferences';
 
   @override
-  String get hubSettingsAppearance => 'Appearance';
+  String get hubSettingsAppearance => 'Appearance & interaction';
 
   @override
   String get hubSettingsChatTextSize => 'Chat text size';
@@ -9511,6 +9511,12 @@ class L10nEn extends L10n {
 
   @override
   String get hubSettingsEngine => 'Local engine';
+
+  @override
+  String get hubConfigHost => 'Host';
+
+  @override
+  String get hubConfigModel => 'Model';
 
   @override
   String get hubSettingsProviders => 'Models';
@@ -9777,19 +9783,16 @@ class L10nEn extends L10n {
   String get hubPluginComponentSeparator => ', ';
 
   @override
-  String get hubGroupAi => 'AI';
+  String get hubGroupModels => 'Models & teamwork';
 
   @override
   String get hubGroupCapabilities => 'Capabilities';
 
   @override
-  String get hubGroupGeneral => 'General';
+  String get hubGroupGeneral => 'General & help';
 
   @override
-  String get hubGroupHosts => 'Hosts';
-
-  @override
-  String get hubGroupHelp => 'Help and about';
+  String get hubGroupHosts => 'Hosts & connection';
 
   @override
   String get hubPersonalization => 'Personalization';

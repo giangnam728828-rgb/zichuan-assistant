@@ -6,7 +6,6 @@ import 'package:dsh_app/runtime/runtime_state.dart';
 import 'package:dsh_app/state/hosts_state.dart';
 import 'package:dsh_app/state/settings_state.dart';
 import 'package:dsh_app/ui/common/list_page_row.dart';
-import 'package:dsh_app/ui/common/overview_card.dart';
 import 'package:dsh_app/ui/common/search_capsule.dart';
 import 'package:dsh_app/ui/settings/search/settings_search_page.dart';
 import 'package:dsh_app/ui/settings/settings_screen.dart';
@@ -52,7 +51,7 @@ void main() {
       expect(capsule.left, moreOrLessEquals(16, epsilon: _tol));
       expect(_width - capsule.right, moreOrLessEquals(16, epsilon: _tol));
       final card = tester.getRect(
-        find.descendant(of: find.byType(OverviewCard), matching: find.byType(GlassSurface)).first,
+        find.descendant(of: find.byType(SettingsOverview), matching: find.byType(GlassSurface)).first,
       );
       expect(capsule.left, moreOrLessEquals(card.left, epsilon: _tol));
       expect(capsule.right, moreOrLessEquals(card.right, epsilon: _tol));

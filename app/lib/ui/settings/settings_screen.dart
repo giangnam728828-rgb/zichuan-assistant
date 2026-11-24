@@ -14,6 +14,8 @@ import '../../state/connection_state.dart';
 import '../../state/engine_settings_state.dart';
 import '../../state/features_state.dart';
 import '../../state/hosts_state.dart';
+import '../../state/model_defaults_state.dart';
+import '../../state/models_state.dart';
 import '../../state/phone_state.dart';
 import '../../state/plugins_state.dart';
 import '../../state/sessions_state.dart';
@@ -24,6 +26,7 @@ import '../../state/update_state.dart';
 import '../account/account_page.dart';
 import '../account/account_widgets.dart';
 import '../chat/balance_widgets.dart' show formatMoney;
+import '../chat/model_sheet.dart' show effortLabel, modelShortName;
 import '../common/ask_ai.dart';
 import '../common/overview_card.dart';
 import '../common/search_capsule.dart';
@@ -32,10 +35,10 @@ import '../engine/engine_screen.dart';
 import '../engine/engine_status.dart';
 import '../engine_settings/engine_settings_hub.dart';
 import '../engine_settings/web_search_page.dart';
-import 'media_settings_page.dart';
 import '../features/feature_catalog.dart' show communityPage;
 import '../features/feature_format.dart' show permissionName;
 import '../features/permission_page.dart';
+import 'media_settings_page.dart';
 import '../onboarding/api_key_page.dart' show maskApiKey;
 import '../pets/pet_settings_page.dart';
 import '../phone/phone_control_screen.dart';
@@ -67,21 +70,11 @@ import 'settings_widgets.dart';
 import 'system_access_page.dart';
 import 'voice_settings_page.dart';
 
-/// One hue per group on the hub: rows of a group share it.
-abstract final class SettingsHues {
-  static const ai = 0;
-  static const abilities = 4;
-  static const appearance = 1;
-  static const general = 5;
-  static const hosts = 6;
-  static const help = 7;
-}
-
-/// Settings hub: search, the overview card (account, balance, engine), then
-/// six groups by what people come to do — AI, 能力, 外观, 通用, 主机, 帮助与
-/// 关于 (docs/design/settings-ia.md §4.2). Every row that opens a page says
-/// where it stands; nothing here loosens a safeguard or deletes anything:
-/// those live on their own pages.
+/// Settings hub (B4, 去 DSH Go 化): a large title with the search box under
+/// it, the 当前配置 card (account · host · model · state), then five panels —
+/// 模型与协作, 能力, 外观与交互, 主机与连接, 通用与帮助. Every row says where
+/// it stands on the right; none of them loosens a safeguard or deletes
+/// anything: those live on their own pages.
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -103,11 +96,12 @@ class SettingsScreen extends ConsumerWidget {
     Widget? text(String? value, {Color? color}) =>
         value == null ? null : Text(value, style: color == null ? null : TextStyle(color: color));
 
-    // AI.
+    // 模型与协作.
     final permission = _permissionValue(ref);
     final prefs = canEditReplyPrefs(ref)
         ? (replyPrefsSummary(ref) == null ? l10n.commonNotSet : l10n.hubValueSet)
         : null;
+    final model = _modelLabel(ref);
     // 能力.
     final phone = android || ios ? ref.watch(phoneProvider) : null;
     final phoneValue = phone == null || !phone.loaded || !phone.status.ready
@@ -123,12 +117,12 @@ class SettingsScreen extends ConsumerWidget {
     final newApi = search == null
         ? null
         : search.valueOf(const FieldRef(WebSearchSettingsPage.webNs, ['searchProvider'])) == 'deepseek-search-api';
-    // 通用. HarmonyOS has no battery exemption to report.
+    // 通用与帮助. HarmonyOS has no battery exemption to report.
     final exempt = android ? ref.watch(batteryExemptProvider).value : null;
-    // 主机.
+    // 主机与连接.
     final ssh = ref.watch(hostsProvider.select((s) => s.ssh.length));
     final hostName = host.isLocal ? l10n.commonThisPhone : ref.watch(hostNameProvider(host)) ?? l10n.commonRemoteHost;
-    // 帮助与关于.
+    // 通用与帮助.
     final update = ref.watch(appUpdateProvider);
     final newVersion = update.hasUpdate && !update.isSkipped;
 
@@ -145,24 +139,25 @@ class SettingsScreen extends ConsumerWidget {
         ),
         const SettingsOverview(),
         SettingsSection(
-          title: l10n.hubGroupAi,
+          title: l10n.hubGroupModels,
+          rowHeight: SettingsMetrics.hubRowHeight,
+          rowHeightTwoLine: SettingsMetrics.hubRowHeightTwoLine,
+          monochrome: true,
           children: [
             SettingsTile(
               icon: AppIcons.providers,
-              tint: SettingsHues.ai,
               spot: SettingsIndex.entry(SettingsPageId.models),
+              value: text(model),
               onTap: () => _push(context, const ProvidersPage()),
             ),
             SettingsTile(
               icon: AppIcons.permissions,
-              tint: SettingsHues.ai,
               spot: SettingsIndex.entry(SettingsPageId.permission),
               value: text(permission?.$1, color: permission?.$2 == true ? colors.warning : null),
               onTap: () => _push(context, PermissionPage(sessionId: ref.read(currentSessionProvider))),
             ),
             SettingsTile(
               icon: AppIcons.profile,
-              tint: SettingsHues.ai,
               spot: SettingsIndex.entry(SettingsPageId.personalization),
               value: text(prefs),
               onTap: () => _push(context, const PersonalizationPage()),
@@ -171,11 +166,13 @@ class SettingsScreen extends ConsumerWidget {
         ),
         SettingsSection(
           title: l10n.hubGroupCapabilities,
+          rowHeight: SettingsMetrics.hubRowHeight,
+          rowHeightTwoLine: SettingsMetrics.hubRowHeightTwoLine,
+          monochrome: true,
           children: [
             if (android || ios)
               SettingsTile(
                 icon: AppIcons.phoneControl,
-                tint: SettingsHues.abilities,
                 spot: SettingsIndex.entry(SettingsPageId.phone),
                 value: text(phoneValue, color: phoneValue == l10n.hubValueOneStep ? colors.warning : null),
                 onTap: () => _push(context, const PhoneControlScreen()),
@@ -183,7 +180,6 @@ class SettingsScreen extends ConsumerWidget {
             else
               SettingsTile(
                 icon: AppIcons.phoneControl,
-                tint: SettingsHues.abilities,
                 spot: SettingsIndex.entry(SettingsPageId.systemActions),
                 value: text(
                   ref.watch(systemActionsProvider.select((s) => s.enabled)) ? l10n.pluginsTurnedOn : l10n.hubValueOff,
@@ -192,21 +188,18 @@ class SettingsScreen extends ConsumerWidget {
               ),
             SettingsTile(
               icon: AppIcons.webSearch,
-              tint: SettingsHues.abilities,
               spot: SettingsIndex.entry(SettingsPageId.webSearch),
               value: text(newApi == null ? null : (newApi ? l10n.engineSearchNewApiBadge : l10n.commonDefault)),
               onTap: () => _push(context, const WebSearchSettingsPage()),
             ),
             SettingsTile(
               icon: AppIcons.generateMedia,
-              tint: SettingsHues.abilities,
               spot: SettingsIndex.entry(SettingsPageId.media),
               onTap: () => _push(context, const MediaSettingsPage()),
             ),
-            if (ref.watch(operatingSystemProvider) == 'ohos') const LinuxEnvironmentTile(tint: SettingsHues.abilities),
+            if (ref.watch(operatingSystemProvider) == 'ohos') const LinuxEnvironmentTile(),
             SettingsTile(
               icon: AppIcons.plugin,
-              tint: SettingsHues.abilities,
               spot: SettingsIndex.entry(SettingsPageId.plugins),
               value: plugins == null || plugins == 0
                   ? null
@@ -217,16 +210,18 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => _push(context, const PluginsScreen()),
             ),
             // The plugins' own settings sections, when the host has any.
-            ...pluginSettingsTiles(ref, tint: SettingsHues.abilities),
+            ...pluginSettingsTiles(ref),
           ],
         ),
         SettingsSection(
           title: l10n.hubSettingsAppearance,
+          rowHeight: SettingsMetrics.hubRowHeight,
+          rowHeightTwoLine: SettingsMetrics.hubRowHeightTwoLine,
+          monochrome: true,
           children: [
-            const AppearanceEntryTile(tint: SettingsHues.appearance),
+            const AppearanceEntryTile(),
             SettingsSegmentTile<double>(
               icon: AppIcons.textSize,
-              tint: SettingsHues.appearance,
               spot: Spots.chatTextSize,
               segments: [for (final (scale, label) in chatTextScales) PillSegment(scale, label)],
               selected: settings.chatTextScale,
@@ -234,31 +229,57 @@ class SettingsScreen extends ConsumerWidget {
             ),
             SettingsSwitchTile(
               icon: AppIcons.foldTurns,
-              tint: SettingsHues.appearance,
               spot: Spots.foldTurns,
               value: settings.foldCompletedTurns,
               onChanged: (v) => unawaited(notifier.setFoldCompletedTurns(v)),
             ),
-            const PetEntryTile(tint: SettingsHues.appearance),
+            const PetEntryTile(),
+            const PerformanceSettingsTile(),
+          ],
+        ),
+        SettingsSection(
+          title: l10n.hubGroupHosts,
+          rowHeight: SettingsMetrics.hubRowHeight,
+          rowHeightTwoLine: SettingsMetrics.hubRowHeightTwoLine,
+          monochrome: true,
+          children: [
+            SettingsTile(
+              icon: AppIcons.engine,
+              spot: SettingsIndex.entry(SettingsPageId.engine),
+              value: StatusChip(tone: engine.tone, label: engine.label),
+              onTap: () => _push(context, const EngineScreen()),
+            ),
+            SettingsTile(
+              icon: AppIcons.remoteHosts,
+              spot: SettingsIndex.entry(SettingsPageId.remote),
+              value: ssh == 0 ? null : Text(l10n.hubValueHosts(ssh)),
+              onTap: () => _push(context, const RemoteScreen()),
+            ),
+            SettingsTile(
+              icon: AppIcons.configure,
+              spot: SettingsIndex.entry(SettingsPageId.engineParams),
+              value: Text(hostName),
+              onTap: () => _push(context, const EngineSettingsHubPage()),
+            ),
           ],
         ),
         SettingsSection(
           title: l10n.hubGroupGeneral,
+          rowHeight: SettingsMetrics.hubRowHeight,
+          rowHeightTwoLine: SettingsMetrics.hubRowHeightTwoLine,
+          monochrome: true,
           children: [
             SettingsTile(
               icon: AppIcons.swap,
-              tint: SettingsHues.general,
               spot: SettingsIndex.entry(SettingsPageId.interface),
               value: Text(uiMode.label),
               onTap: () => _push(context, const InterfacePage()),
             ),
-            const LanguageSettingsTile(tint: SettingsHues.general),
-            const NotificationSettingsTile(tint: SettingsHues.general),
-            const VoiceSettingsTile(tint: SettingsHues.general),
-            const PerformanceSettingsTile(tint: SettingsHues.general),
+            const LanguageSettingsTile(),
+            const NotificationSettingsTile(),
+            const VoiceSettingsTile(),
             SettingsTile(
               icon: AppIcons.keepAlive,
-              tint: SettingsHues.general,
               spot: SettingsIndex.entry(SettingsPageId.background),
               value: text(
                 exempt == null ? null : (exempt ? l10n.hubValueAllowed : l10n.hubValueNeedsSetup),
@@ -268,71 +289,34 @@ class SettingsScreen extends ConsumerWidget {
             ),
             SettingsTile(
               icon: AppIcons.systemAccess,
-              tint: SettingsHues.general,
               spot: SettingsIndex.entry(SettingsPageId.systemAccess),
               onTap: () => _push(context, const SystemAccessPage()),
             ),
             SettingsTile(
               icon: AppIcons.privacy,
-              tint: SettingsHues.general,
               spot: SettingsIndex.entry(SettingsPageId.privacy),
               onTap: () => _push(context, const PrivacyPage()),
             ),
-          ],
-        ),
-        SettingsSection(
-          title: l10n.hubGroupHosts,
-          children: [
-            SettingsTile(
-              icon: AppIcons.engine,
-              tint: SettingsHues.hosts,
-              spot: SettingsIndex.entry(SettingsPageId.engine),
-              value: StatusChip(tone: engine.tone, label: engine.label),
-              onTap: () => _push(context, const EngineScreen()),
-            ),
-            SettingsTile(
-              icon: AppIcons.remoteHosts,
-              tint: SettingsHues.hosts,
-              spot: SettingsIndex.entry(SettingsPageId.remote),
-              value: ssh == 0 ? null : Text(l10n.hubValueHosts(ssh)),
-              onTap: () => _push(context, const RemoteScreen()),
-            ),
-            SettingsTile(
-              icon: AppIcons.configure,
-              tint: SettingsHues.hosts,
-              spot: SettingsIndex.entry(SettingsPageId.engineParams),
-              value: Text(hostName),
-              onTap: () => _push(context, const EngineSettingsHubPage()),
-            ),
-          ],
-        ),
-        SettingsSection(
-          title: l10n.hubGroupHelp,
-          children: [
             if (ref.watch(askAiAvailableProvider))
               SettingsTile(
                 key: const ValueKey('settings-ask-ai'),
                 icon: AppIcons.askAi,
-                tint: SettingsHues.help,
                 spot: Spots.askAi,
                 value: Text(l10n.askAiTooltip),
                 onTap: () => unawaited(askAi(context, AskAiTopic.overview)),
               ),
             SettingsTile(
               icon: AppIcons.community,
-              tint: SettingsHues.help,
               spot: Spots.community,
               onTap: () => _push(context, communityPage()),
             ),
             SettingsTile(
               icon: AppIcons.diagnostics,
-              tint: SettingsHues.help,
               spot: SettingsIndex.entry(SettingsPageId.diagnostics),
               onTap: () => _push(context, const DiagnosticsPage()),
             ),
             SettingsTile(
               icon: AppIcons.info,
-              tint: SettingsHues.help,
               spot: SettingsIndex.entry(SettingsPageId.about),
               value: newVersion
                   ? UpdateBadge(l10n.hubAboutNewVersion)
@@ -358,8 +342,7 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  /// 权限's value: the default for new conversations, and whether it is one
-  /// that stops asking (shown in the warning colour).
+  /// Who is paying (DeepSeek account or API Key) and how the balance stands.
   (String, bool)? _permissionValue(WidgetRef ref) {
     final local = ref.watch(activeHostProvider).isLocal;
     final auto = ref.watch(settingsProvider.select((s) => s.autoApproveCommands));
@@ -373,13 +356,27 @@ class SettingsScreen extends ConsumerWidget {
     final name = state.options.where((o) => o.value == value).firstOrNull?.name;
     return (permissionName(value, name), value == 'danger-full-access' || value == 'auto');
   }
+
+  /// 模型's value: the new-chat default the host has, else the catalog's own;
+  /// null until either is known.
+  String? _modelLabel(WidgetRef ref) {
+    final catalog = ref.watch(currentModelCatalogProvider);
+    final settings = ref.exists(engineSettingsProvider) ? ref.watch(engineSettingsProvider).value : null;
+    final selection = settings == null ? null : defaultModelSelection(settings);
+    final model = selection ?? catalog?.defaultSelection;
+    if (model == null) return null;
+    return [
+      modelShortName(model, catalog),
+      if (model.reasoningEffort case final effort?) effortLabel(effort),
+    ].join(' · ');
+  }
 }
 
-/// The hub's overview card: who is paying (DeepSeek account or API Key) and
-/// the balance, with the engine's state underneath. The card opens 账号, the
-/// engine line opens 引擎. With no runtime on this phone and a remote host in
-/// use there is nothing here to sign in to: the card shows that host and
-/// opens 远程主机.
+/// The hub's 当前配置 card: who is signed in (or which host isn't this phone),
+/// the host in use, the model new chats start on, and the state dot. The
+/// header opens 账号 (or 远程主机 when this phone has no runtime and works
+/// through one); the host row opens the engine/host page, the model row opens
+/// 模型.
 class SettingsOverview extends ConsumerStatefulWidget {
   const SettingsOverview({super.key});
 
@@ -402,13 +399,13 @@ class _SettingsOverviewState extends ConsumerState<SettingsOverview> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final colors = DshColors.of(context);
     final account = ref.watch(accountProvider);
-    final settings = ref.watch(settingsProvider);
     final balance = ref.watch(balanceProvider);
     final wallets = ref.watch(accountWalletBalanceProvider);
     final runtime = ref.watch(localRuntimeProvider);
-    final engine = EngineStatusView.of(runtime);
-    final colors = DshColors.of(context);
     final active = ref.watch(activeHostProvider);
     final remoteOnly = runtime.status.runtimeMissing && !active.isLocal;
 
@@ -426,8 +423,8 @@ class _SettingsOverviewState extends ConsumerState<SettingsOverview> {
     final String subtitle;
     var warn = false;
     var mono = false;
-    // Set when the card shows the remote host: its link state.
-    String? hostLink;
+    // Set when the card shows the remote host instead of the account.
+    var hostCard = false;
     switch (account.phase) {
       case AccountPhase.signedIn:
         leading = AccountAvatar(profile: account.profile, size: OverviewCard.avatarSize);
@@ -438,20 +435,18 @@ class _SettingsOverviewState extends ConsumerState<SettingsOverview> {
         title = l10n.hubSettingsAccount;
         subtitle = l10n.hubSettingsSigningIn;
       case _ when remoteOnly:
-        final link = HostStatusView.ofLink(ref.watch(hostLinkStatusProvider(active)).value ?? HostLinkStatus.idle);
         leading = OverviewGlyph(hostKindIcon(active.kind), tint: hostKindTint(active.kind));
         title = ref.watch(hostNameProvider(active)) ?? l10n.commonRemoteHost;
-        subtitle = [l10n.commonRemoteHost, link.label].join(' · ');
-        warn = link.tone == StatusTone.error || link.tone == StatusTone.warn;
-        hostLink = link.label;
-      case _ when settings.hasApiKey:
+        subtitle = l10n.commonRemoteHost;
+        hostCard = true;
+      case _ when ref.watch(settingsProvider).hasApiKey:
         leading = const OverviewGlyph(AppIcons.apiKey);
         title = l10n.hubSettingsApiKey;
         if (balance.status == BalanceStatus.invalidKey) {
           subtitle = l10n.hubSettingsInvalidKey;
           warn = true;
         } else {
-          subtitle = balanceLine ?? maskApiKey(settings.apiKey);
+          subtitle = balanceLine ?? maskApiKey(ref.watch(settingsProvider).apiKey);
           mono = balanceLine == null;
           warn = low;
         }
@@ -464,30 +459,187 @@ class _SettingsOverviewState extends ConsumerState<SettingsOverview> {
         title = l10n.hubSettingsSignInAccount;
         subtitle = l10n.hubSettingsOrApiKey;
     }
-    final dsh = runtime.status.dshVersion;
-    // The card is 账号's way in (its title is whoever is signed in).
+
+    final status = watchHostStatus(ref, active);
+    final hostName = ref.watch(hostNameProvider(active)) ?? (active.isLocal ? l10n.commonThisPhone : l10n.commonRemoteHost);
+    final catalog = ref.watch(currentModelCatalogProvider);
+    final settings = ref.exists(engineSettingsProvider) ? ref.watch(engineSettingsProvider).value : null;
+    final model = (settings == null ? null : defaultModelSelection(settings)) ?? catalog?.defaultSelection;
+    // 还不知道时留空，不写「未设置」：那像是在报错。
+    final modelLabel = model == null ? null : modelShortName(model, catalog);
+    final effort = model?.reasoningEffort;
+
     return SpotAnchor(
       spot: SettingsIndex.entry(SettingsPageId.account),
-      child: OverviewCard(
-        leading: leading,
-        title: Text(title),
-        subtitle: Text(
-          subtitle,
-          style: mono
-              ? AppType.monoLabel(color: Theme.of(context).colorScheme.onSurfaceVariant).copyWith(fontSize: 13)
-              : warn
-              ? TextStyle(color: colors.warning)
-              : null,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        child: GlassSurface(
+          tier: GlassTier.card,
+          borderRadius: AppShape.radiusLg,
+          child: Material(
+            // The row highlights paint on the glass, not under it.
+            type: MaterialType.transparency,
+            clipBehavior: Clip.antiAlias,
+            shape: const RoundedSuperellipseBorder(borderRadius: AppShape.radiusLg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Semantics(
+                  button: true,
+                  label: hostCard
+                      ? l10n.hubSettingsHostSemantics(title, status.label)
+                      : l10n.hubSettingsAccountSemantics(title, subtitle),
+                  excludeSemantics: true,
+                  child: InkWell(
+                    onTap: () => _push(hostCard ? const RemoteScreen() : const AccountPage()),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 8, 14),
+                      child: Row(
+                        children: [
+                          SizedBox.square(
+                            dimension: OverviewCard.avatarSize,
+                            child: Center(child: leading),
+                          ),
+                          const SizedBox(width: OverviewCard.gap),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  subtitle,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: mono
+                                      ? AppType.monoLabel(color: scheme.onSurfaceVariant).copyWith(fontSize: 13, height: 1.5)
+                                      : AppType.tabular(
+                                          theme.textTheme.bodyMedium!.copyWith(
+                                            color: warn ? colors.warning : scheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AnimatedStatusDot(tone: status.tone, size: 8),
+                                const SizedBox(width: 6),
+                                ConstrainedBox(
+                                  constraints: const BoxConstraints(maxWidth: 84),
+                                  child: Text(
+                                    status.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const OverviewChevron(),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SizedBox(
+                    height: 0.5,
+                    child: ColoredBox(
+                      color: theme.brightness == Brightness.dark
+                          ? Colors.white.withValues(alpha: 0.08)
+                          : scheme.onSurface.withValues(alpha: 0.08),
+                    ),
+                  ),
+                ),
+                _ConfigRow(
+                  icon: hostKindIcon(active.kind),
+                  label: l10n.hubConfigHost,
+                  value: hostName,
+                  onTap: () => _push(active.isLocal ? const EngineScreen() : const RemoteScreen()),
+                ),
+                _ConfigRow(
+                  icon: AppIcons.providers,
+                  label: l10n.hubConfigModel,
+                  value: modelLabel,
+                  note: effort == null ? null : effortLabel(effort),
+                  onTap: () => _push(const ProvidersPage()),
+                ),
+              ],
+            ),
+          ),
         ),
-        semanticLabel: hostLink != null
-            ? l10n.hubSettingsHostSemantics(title, hostLink)
-            : l10n.hubSettingsAccountSemantics(title, subtitle),
-        onTap: () => _push(hostLink != null ? const RemoteScreen() : const AccountPage()),
-        footer: OverviewFooter(
-          tone: engine.tone,
-          text: [l10n.hubSettingsEngine, engine.label, if (dsh != null) 'DSH $dsh'].join(' · '),
+      ),
+    );
+  }
+}
+
+/// One line of the 当前配置 card: 图标、名字、右侧的当前值与箭头。
+class _ConfigRow extends StatelessWidget {
+  const _ConfigRow({required this.icon, required this.label, required this.value, this.note, required this.onTap});
+
+  final IconData icon;
+  final String label;
+  final String? value;
+
+  /// A few words after the value (the effort level, a host's state).
+  final String? note;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final colors = DshColors.of(context);
+    final note = this.note;
+    return InkWell(
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+          child: Row(
+            children: [
+              Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 10),
+              Text(label, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurface)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: value == null
+                    ? const SizedBox.shrink()
+                    : Text.rich(
+                        TextSpan(
+                          text: value,
+                          children: [
+                            if (note != null)
+                              TextSpan(text: ' · $note', style: TextStyle(color: colors.textTertiary)),
+                          ],
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                        style: AppType.tabular(theme.textTheme.bodyMedium!.copyWith(color: scheme.onSurfaceVariant)),
+                      ),
+              ),
+              const SizedBox(width: 4),
+              const OverviewChevron(),
+            ],
+          ),
         ),
-        onFooterTap: () => _push(const EngineScreen()),
       ),
     );
   }

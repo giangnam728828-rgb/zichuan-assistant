@@ -43,7 +43,7 @@ class PerformancePage extends ConsumerWidget {
     final notifier = ref.read(performancePrefsProvider.notifier);
     final ohos = ref.watch(operatingSystemProvider) == 'ohos';
     return AppPage.list(
-      title: l10n.performanceTitle,
+      title: l10n.performanceEffects,
       children: [
         SettingsSection(
           footer: Text(thermal ? l10n.performanceCooling : l10n.performanceChoiceHint),

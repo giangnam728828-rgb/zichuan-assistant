@@ -51,29 +51,59 @@ abstract final class SettingsMetrics {
   static const textStart = inset + icon + iconGap;
   static const rowHeight = 52.0;
   static const rowHeightTwoLine = 64.0;
+
+  /// B4: the hub's rows are 56 tall, its two-line rows 68. Secondary pages
+  /// keep the denser 52/64 — only [SettingsSection] on the hub asks for it.
+  static const hubRowHeight = 56.0;
+  static const hubRowHeightTwoLine = 68.0;
 }
 
 /// Title style of every settings row (15 / 1.4).
 TextStyle? settingsTitleStyle(BuildContext context) =>
     Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.4);
 
-/// Round tinted icon for a settings row. [tint] picks one of the 8 fixed identity
-/// pairs (pastel container + deep glyph). On hub pages every row of a group uses
-/// the group's one tint.
+/// 设置行的图标。B4 起首页（[SettingsSection.monochrome]）用一枚川青单色
+/// 小方块（32dp、10 圆角）；其余页面仍是原来的 8 组身份色圆底，颜色不是
+/// 唯一信息，只是分组的记号。
+///
+/// [tint] 只在圆底时着色：首页传进来的值不再改变颜色。
 class SettingsIcon extends StatelessWidget {
-  const SettingsIcon(this.icon, {super.key, this.tint = 0, this.danger = false});
+  const SettingsIcon(this.icon, {super.key, this.tint = 0, this.danger = false, this.monochrome = false});
 
   final IconData icon;
   final int tint;
   final bool danger;
+  final bool monochrome;
 
   @override
   Widget build(BuildContext context) {
     final colors = DshColors.of(context);
-    final bg = danger ? colors.dangerContainer : colors.identity[tint % colors.identity.length];
-    final fg = danger ? colors.onDangerContainer : colors.onIdentity[tint % colors.onIdentity.length];
+    final scheme = Theme.of(context).colorScheme;
+    if (!monochrome) {
+      final i = tint % colors.identity.length;
+      return DecoratedBox(
+        decoration: ShapeDecoration(
+          color: danger ? colors.dangerContainer : colors.identity[i],
+          shape: const CircleBorder(),
+        ),
+        child: SizedBox.square(
+          dimension: SettingsMetrics.icon,
+          child: Icon(
+            icon,
+            size: SettingsMetrics.iconGlyph,
+            color: danger ? colors.onDangerContainer : colors.onIdentity[i],
+          ),
+        ),
+      );
+    }
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final fg = danger ? colors.danger : scheme.primary;
+    final bg = danger ? colors.dangerContainer : scheme.primary.withValues(alpha: dark ? 0.16 : 0.10);
     return DecoratedBox(
-      decoration: ShapeDecoration(color: bg, shape: const CircleBorder()),
+      decoration: ShapeDecoration(
+        color: bg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppShape.sm)),
+      ),
       child: SizedBox.square(
         dimension: SettingsMetrics.icon,
         child: Icon(icon, size: SettingsMetrics.iconGlyph, color: fg),
@@ -106,8 +136,8 @@ class SettingsLineIcon extends StatelessWidget {
 
 /// One row: icon · title (+ subtitle) · value · chevron/trailing.
 ///
-/// Single-line rows are 52 tall, rows with a subtitle 64; the whole row is the
-/// tap target (a soft highlight, no ripple). A [Switch] passed as [trailing]
+/// Single-line rows are 52 tall (56 on the hub), rows with a subtitle 64 (68);
+/// the whole row is the tap target (a soft highlight, no ripple). A [Switch] passed as [trailing]
 /// is drawn without its extra tap padding so switch rows are as tall as the rest.
 class SettingsTile extends StatelessWidget {
   const SettingsTile({
@@ -169,7 +199,9 @@ class SettingsTile extends StatelessWidget {
         highlightColor: scheme.onSurface.withValues(alpha: 0.05),
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            minHeight: subtitle == null ? SettingsMetrics.rowHeight : SettingsMetrics.rowHeightTwoLine,
+            minHeight: subtitle == null
+                ? SettingsRowHeight.of(context)
+                : SettingsRowHeight.twoLineOf(context),
           ),
           child: Padding(
             padding: EdgeInsets.fromLTRB(
@@ -181,7 +213,14 @@ class SettingsTile extends StatelessWidget {
             child: Row(
               children: [
                 if (icon != null) ...[
-                  tinted ? SettingsIcon(icon, tint: tint, danger: danger) : SettingsLineIcon(icon, danger: danger),
+                  tinted
+                      ? SettingsIcon(
+                          icon,
+                          tint: tint,
+                          danger: danger,
+                          monochrome: SettingsRowHeight.monochromeOf(context),
+                        )
+                      : SettingsLineIcon(icon, danger: danger),
                   const SizedBox(width: SettingsMetrics.iconGap),
                 ],
                 Expanded(
@@ -314,6 +353,37 @@ class InfoRow extends StatelessWidget {
   }
 }
 
+/// Row height for the rows under it: the hub asks for 56, everything else
+/// keeps [SettingsMetrics.rowHeight] (52).
+class SettingsRowHeight extends InheritedWidget {
+  const SettingsRowHeight({
+    super.key,
+    required this.height,
+    required this.twoLine,
+    this.monochrome = false,
+    required super.child,
+  });
+
+  final double height;
+  final double twoLine;
+
+  /// The hub's rows: one 川青 square instead of a group-coloured disc.
+  final bool monochrome;
+
+  static double of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SettingsRowHeight>()?.height ?? SettingsMetrics.rowHeight;
+
+  static double twoLineOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SettingsRowHeight>()?.twoLine ?? SettingsMetrics.rowHeightTwoLine;
+
+  static bool monochromeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SettingsRowHeight>()?.monochrome ?? false;
+
+  @override
+  bool updateShouldNotify(SettingsRowHeight oldWidget) =>
+      oldWidget.height != height || oldWidget.twoLine != twoLine || oldWidget.monochrome != monochrome;
+}
+
 /// A group of rows with a small, faint title above the card and an optional
 /// one-line footnote under it (title → card 8, card → footnote 8, groups 24
 /// apart). Titles and footnotes start 24 from the
@@ -326,6 +396,9 @@ class SettingsSection extends StatelessWidget {
     this.footer,
     this.margin = kSettingsGroupMargin,
     this.spot,
+    this.rowHeight,
+    this.rowHeightTwoLine,
+    this.monochrome = false,
   });
 
   final String? title;
@@ -339,6 +412,14 @@ class SettingsSection extends StatelessWidget {
   final Widget? footer;
   final EdgeInsetsGeometry margin;
 
+  /// The rows' height in this card; null keeps the page default (52/64).
+  final double? rowHeight;
+  final double? rowHeightTwoLine;
+
+  /// Draw the rows' icons as one 川青 square (the hub) rather than the
+  /// group-coloured discs.
+  final bool monochrome;
+
   /// Style of section titles, for places that draw one without a card.
   static TextStyle? titleStyle(BuildContext context) => groupTitleStyle(context);
 
@@ -348,7 +429,7 @@ class SettingsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
+    final content = Padding(
       padding: margin,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -381,6 +462,13 @@ class SettingsSection extends StatelessWidget {
             ),
         ],
       ),
+    );
+    if (rowHeight == null && rowHeightTwoLine == null && !monochrome) return content;
+    return SettingsRowHeight(
+      height: rowHeight ?? SettingsMetrics.rowHeight,
+      twoLine: rowHeightTwoLine ?? SettingsMetrics.rowHeightTwoLine,
+      monochrome: monochrome,
+      child: content,
     );
   }
 }
@@ -449,7 +537,9 @@ class SettingsSegmentTile<T> extends StatelessWidget {
             final inline = lead + titleWidth + 16 + pillWidth <= constraints.maxWidth;
             final heading = [
               if (icon != null) ...[
-                tinted ? SettingsIcon(icon, tint: tint) : SettingsLineIcon(icon),
+                tinted
+                    ? SettingsIcon(icon, tint: tint, monochrome: SettingsRowHeight.monochromeOf(context))
+                    : SettingsLineIcon(icon),
                 const SizedBox(width: SettingsMetrics.iconGap),
               ],
             ];

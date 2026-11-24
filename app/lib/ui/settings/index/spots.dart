@@ -370,12 +370,12 @@ const pluginFormPrefix = 'plugin:';
 // ── Pages ────────────────────────────────────────────────────────────────────
 
 // The hub's groups, by intent (docs/design/settings-ia.md §4.2).
-String _ai(L10n l) => l.hubGroupAi;
+String _ai(L10n l) => l.hubGroupModels;
 String _abilities(L10n l) => l.hubGroupCapabilities;
 String _look(L10n l) => l.hubSettingsAppearance;
 String _general(L10n l) => l.hubGroupGeneral;
 String _hosts(L10n l) => l.hubGroupHosts;
-String _help(L10n l) => l.hubGroupHelp;
+String _help(L10n l) => l.hubGroupGeneral;
 
 final _pages = <SettingsPageMeta>[
   SettingsPageMeta(SettingsPageId.hub, title: (l) => l.commonSettings, parent: null, links: const ['settings']),
@@ -554,8 +554,8 @@ final _pages = <SettingsPageMeta>[
   ),
   SettingsPageMeta(
     SettingsPageId.performance,
-    title: (l) => l.performanceTitle,
-    group: _general,
+    title: (l) => l.performanceEffects,
+    group: _look,
     keywords: (l) => l.searchKwPerformance,
     links: const ['performance'],
   ),

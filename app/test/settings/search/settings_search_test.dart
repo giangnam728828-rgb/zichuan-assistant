@@ -11,6 +11,7 @@ import 'package:dsh_app/state/ask_ai.dart';
 import 'package:dsh_app/state/compose_inbox.dart';
 import 'package:dsh_app/state/hosts_state.dart';
 import 'package:dsh_app/state/settings_state.dart';
+import 'package:dsh_app/ui/common/list_page_row.dart';
 import 'package:dsh_app/ui/features/feature_catalog.dart';
 import 'package:dsh_app/ui/settings/index/spot_anchor.dart';
 import 'package:dsh_app/ui/settings/index/spots.dart';
@@ -189,13 +190,35 @@ void main() {
       await tester.tap(find.text('深色模式'));
       await tester.pumpAndSettle();
       expect(find.textContaining('外观'), findsWidgets);
-      expect(find.text('设置 › 外观 › 主题'), findsOneWidget);
+      expect(find.text('设置 › 外观与交互 › 主题'), findsOneWidget);
     });
 
     testWidgets('a synonym hit names the synonym after the title', (tester) async {
       await _pumpSearch(tester);
       await _type(tester, '别问我');
       expect(find.textContaining(' · 别问我'), findsWidgets);
+    });
+
+    testWidgets('a title match is picked out in the accent colour', (tester) async {
+      await _pumpSearch(tester);
+      await _type(tester, '通知');
+      final title = tester.widget<Text>(
+        find.descendant(of: find.byType(ListPageRow).first, matching: find.byType(Text)).first,
+      );
+      Iterable<TextSpan> flatten(InlineSpan span) sync* {
+        if (span is! TextSpan) return;
+        yield span;
+        for (final child in span.children ?? const <InlineSpan>[]) {
+          yield* flatten(child);
+        }
+      }
+
+      final spans = flatten(title.textSpan!);
+      expect(
+        spans.any((span) => span.text == '通知' && span.style?.fontWeight == FontWeight.w600),
+        isTrue,
+        reason: 'the matched two characters are drawn heavier in the accent colour',
+      );
     });
 
     testWidgets('a result opens its page at the row, back comes here, and the search is remembered', (tester) async {

@@ -1,7 +1,7 @@
 // The regrouped hub, measured: every card 16 from both screen edges, every
 // group's icon discs in one column 16 inside the cards, titles in one column,
-// group headings on the 24 line, rows 52 tall, the search capsule over the
-// overview card on the same edges; a group's discs share its hue.
+// group headings on the 24 line, rows 56 tall, the search capsule over the
+// 当前配置 card on the same edges; every icon is the same 川青 square.
 
 import 'package:dsh_app/l10n/l10n.dart';
 import 'package:dsh_app/runtime/runtime_state.dart';
@@ -45,7 +45,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final sections = tester.widgetList<SettingsSection>(find.byType(SettingsSection)).toList();
-    expect([for (final s in sections) s.title], ['AI', '能力', '外观', '通用', '主机', '帮助与关于']);
+    expect([for (final s in sections) s.title], ['模型与协作', '能力', '外观与交互', '主机与连接', '通用与帮助']);
 
     final capsule = tester.getRect(find.byType(SearchCapsuleButton));
     for (final section in find.byType(SettingsSection).evaluate()) {
@@ -58,12 +58,6 @@ void main() {
       expect(card.right, moreOrLessEquals(capsule.right, epsilon: _tol));
       final heading = (section.widget as SettingsSection).title!;
       expect(tester.getRect(find.text(heading)).left, moreOrLessEquals(24, epsilon: _tol), reason: heading);
-
-      // One hue per group.
-      final discs = tester.widgetList<SettingsIcon>(
-        find.descendant(of: find.byWidget(section.widget), matching: find.byType(SettingsIcon)),
-      );
-      expect({for (final d in discs) d.tint}.length, 1, reason: heading);
     }
 
     // Every disc in one column, 16 in; every title in one column.
@@ -72,13 +66,46 @@ void main() {
     }
     for (final tile in tester.widgetList<SettingsTile>(find.byType(SettingsTile))) {
       final title = tile.title ?? tile.spot!.title(appL10n);
-      final row = find.ancestor(of: find.text(title), matching: find.byType(ConstrainedBox)).first;
-      expect(tester.getSize(row).height, SettingsMetrics.rowHeight, reason: title);
+      // 当前配置卡里也写着「主机」「模型」：只在行的子树里找。
+      final label = find.descendant(of: find.byWidget(tile), matching: find.text(title));
+      final row = find.ancestor(of: label, matching: find.byType(ConstrainedBox)).first;
+      expect(tester.getSize(row).height, SettingsMetrics.hubRowHeight, reason: title);
       expect(
-        tester.getRect(find.text(title)).left,
+        tester.getRect(label).left,
         moreOrLessEquals(16 + SettingsMetrics.textStart, epsilon: _tol),
         reason: title,
       );
     }
   });
+
+  // B4 验收：系统字号 1.3 倍，浅色与深色都不溢出，整页能滚到底。
+  for (final brightness in Brightness.values) {
+    testWidgets('1.3x text scrolls to 关于 without overflow (${brightness.name})', (tester) async {
+      tester.view.devicePixelRatio = 2;
+      tester.view.physicalSize = const Size(_width * 2, 844 * 2);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        goldenApp(
+          home: MediaQuery.withClampedTextScaling(
+            minScaleFactor: 1.3,
+            maxScaleFactor: 1.3,
+            child: const SettingsScreen(),
+          ),
+          brightness: brightness,
+          overrides: [
+            activeHostProvider.overrideWith(() => FixedActiveHost(HostRef.local)),
+            hostsProvider.overrideWith(FixedHosts.new),
+            localRuntimeProvider.overrideWith(
+              () => FakeRuntime(const LocalRuntimeState(loaded: true, status: runningStatus)),
+            ),
+            settingsProvider.overrideWith(() => FakeSettings(const AppSettings(loaded: true))),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -4000));
+      await tester.pumpAndSettle();
+      expect(find.text('关于知川助手'), findsOneWidget);
+    });
+  }
 }

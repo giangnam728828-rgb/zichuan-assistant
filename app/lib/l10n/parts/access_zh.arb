@@ -124,9 +124,9 @@
       }
     }
   },
-  "accessSummaryMessage": "随时可在「设置 › 通用 › 系统权限」补开",
+  "accessSummaryMessage": "随时可在「设置 › 通用与帮助 › 系统权限」补开",
   "accessFinishFailed": "没能完成设置",
-  "accessVoiceDownload": "语音模型（约 {size} MB）会在引擎就绪后开始下载，进度在「设置 › 通用 › 语音输入」里查看",
+  "accessVoiceDownload": "语音模型（约 {size} MB）会在引擎就绪后开始下载，进度在「设置 › 通用与帮助 › 语音输入」里查看",
   "@accessVoiceDownload": {
     "placeholders": {
       "size": {

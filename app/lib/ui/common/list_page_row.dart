@@ -31,6 +31,7 @@ class ListPageRow extends StatelessWidget {
     this.spot,
     this.titleStyle,
     this.titleNote,
+    this.highlight,
     this.titleMaxLines = 1,
     this.subtitle,
     this.subtitleColor,
@@ -68,6 +69,10 @@ class ListPageRow extends StatelessWidget {
   /// A few words after the title, in the tertiary colour and cut first when
   /// the line is short (a search result's matching synonym).
   final String? titleNote;
+
+  /// The words to mark inside the title (a search query): the first match is
+  /// drawn in the accent colour, semibold.
+  final String? highlight;
   final int titleMaxLines;
   final String? subtitle;
   final Color? subtitleColor;
@@ -123,16 +128,33 @@ class ListPageRow extends StatelessWidget {
           color: danger ? colors.danger : scheme.onSurface,
         );
     final note = titleNote;
-    final titleText = note == null || note.isEmpty
+    // 搜索结果把命中的那几个字挑出来：第一个匹配加粗、用主色。
+    TextSpan titleSpan() {
+      final query = highlight?.trim() ?? '';
+      final i = query.isEmpty ? -1 : resolvedTitle.toLowerCase().indexOf(query.toLowerCase());
+      if (i < 0) return TextSpan(text: resolvedTitle);
+      return TextSpan(
+        children: [
+          TextSpan(text: resolvedTitle.substring(0, i)),
+          TextSpan(
+            text: resolvedTitle.substring(i, i + query.length),
+            style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w600),
+          ),
+          TextSpan(text: resolvedTitle.substring(i + query.length)),
+        ],
+      );
+    }
+
+    // 没有高亮也没有附注时仍是一段普通文字（读屏与测试都读 data）。
+    final plain = (note == null || note.isEmpty) && (highlight == null || highlight!.trim().isEmpty);
+    final titleText = plain
         ? Text(resolvedTitle, maxLines: titleMaxLines, overflow: TextOverflow.ellipsis, style: resolvedTitleStyle)
         : Text.rich(
             TextSpan(
-              text: resolvedTitle,
               children: [
-                TextSpan(
-                  text: ' · $note',
-                  style: TextStyle(color: colors.textTertiary),
-                ),
+                titleSpan(),
+                if (note != null && note.isNotEmpty)
+                  TextSpan(text: ' · $note', style: TextStyle(color: colors.textTertiary)),
               ],
             ),
             maxLines: titleMaxLines,

@@ -269,14 +269,14 @@ class L10nZh extends L10n {
   }
 
   @override
-  String get accessSummaryMessage => '随时可在「设置 › 通用 › 系统权限」补开';
+  String get accessSummaryMessage => '随时可在「设置 › 通用与帮助 › 系统权限」补开';
 
   @override
   String get accessFinishFailed => '没能完成设置';
 
   @override
   String accessVoiceDownload(int size) {
-    return '语音模型（约 $size MB）会在引擎就绪后开始下载，进度在「设置 › 通用 › 语音输入」里查看';
+    return '语音模型（约 $size MB）会在引擎就绪后开始下载，进度在「设置 › 通用与帮助 › 语音输入」里查看';
   }
 
   @override
@@ -8992,7 +8992,7 @@ class L10nZh extends L10n {
   String get hubSettingsPreferences => '个人偏好';
 
   @override
-  String get hubSettingsAppearance => '外观';
+  String get hubSettingsAppearance => '外观与交互';
 
   @override
   String get hubSettingsChatTextSize => '对话字号';
@@ -9014,6 +9014,12 @@ class L10nZh extends L10n {
 
   @override
   String get hubSettingsEngine => '本机引擎';
+
+  @override
+  String get hubConfigHost => '主机';
+
+  @override
+  String get hubConfigModel => '模型';
 
   @override
   String get hubSettingsProviders => '模型';
@@ -9248,19 +9254,16 @@ class L10nZh extends L10n {
   String get hubPluginComponentSeparator => '、';
 
   @override
-  String get hubGroupAi => 'AI';
+  String get hubGroupModels => '模型与协作';
 
   @override
   String get hubGroupCapabilities => '能力';
 
   @override
-  String get hubGroupGeneral => '通用';
+  String get hubGroupGeneral => '通用与帮助';
 
   @override
-  String get hubGroupHosts => '主机';
-
-  @override
-  String get hubGroupHelp => '帮助与关于';
+  String get hubGroupHosts => '主机与连接';
 
   @override
   String get hubPersonalization => '个性化';

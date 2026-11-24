@@ -140,9 +140,9 @@
       }
     }
   },
-  "accessSummaryMessage": "随时可在「设置 › 通用 › 系统权限」补开",
+  "accessSummaryMessage": "随时可在「设置 › 通用与帮助 › 系统权限」补开",
   "accessFinishFailed": "没能完成设置",
-  "accessVoiceDownload": "语音模型（约 {size} MB）会在引擎就绪后开始下载，进度在「设置 › 通用 › 语音输入」里查看",
+  "accessVoiceDownload": "语音模型（约 {size} MB）会在引擎就绪后开始下载，进度在「设置 › 通用与帮助 › 语音输入」里查看",
   "@accessVoiceDownload": {
     "placeholders": {
       "size": {
@@ -5392,7 +5392,7 @@
   "hubSettingsPhoneControl": "手机操控",
   "hubSettingsPhoneControlHint": "看屏幕、帮你点按",
   "hubSettingsPreferences": "个人偏好",
-  "hubSettingsAppearance": "外观",
+  "hubSettingsAppearance": "外观与交互",
   "hubSettingsChatTextSize": "对话字号",
   "hubSettingsCollapseSteps": "完成后收起过程",
   "hubSettingsCollapseStepsHint": "思考与工具调用收成一行",
@@ -5400,6 +5400,8 @@
   "hubSettingsWebPhoneLayoutHint": "为手机屏幕重排网页版",
   "hubSettingsEngineExtensions": "引擎与扩展",
   "hubSettingsEngine": "本机引擎",
+  "hubConfigHost": "主机",
+  "hubConfigModel": "模型",
   "hubSettingsProviders": "模型",
   "hubSettingsEngineSettings": "引擎参数",
   "hubSettingsShareConfig": "分享配置",
@@ -5619,11 +5621,10 @@
     }
   },
   "hubPluginComponentSeparator": "、",
-  "hubGroupAi": "AI",
+  "hubGroupModels": "模型与协作",
   "hubGroupCapabilities": "能力",
-  "hubGroupGeneral": "通用",
-  "hubGroupHosts": "主机",
-  "hubGroupHelp": "帮助与关于",
+  "hubGroupGeneral": "通用与帮助",
+  "hubGroupHosts": "主机与连接",
   "hubPersonalization": "个性化",
   "hubPersonalizationAboutYou": "关于你",
   "hubPersonalizationReplies": "回答",

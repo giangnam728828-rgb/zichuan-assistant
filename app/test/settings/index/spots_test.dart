@@ -107,8 +107,8 @@ void main() {
     // A page shows the pages down to itself; a row the page it is on.
     expect(SettingsIndex.path(SettingsIndex.entry(SettingsPageId.phone), zh), ['设置', '能力', '手机操控']);
     expect(SettingsIndex.path(Spots.phoneConfirm, zh), ['设置', '能力', '手机操控']);
-    expect(SettingsIndex.path(SettingsIndex.entry(SettingsPageId.permission), zh), ['设置', 'AI', '权限']);
-    expect(SettingsIndex.path(Spots.phoneFiles, en), ['Settings', 'AI', 'Permissions']);
+    expect(SettingsIndex.path(SettingsIndex.entry(SettingsPageId.permission), zh), ['设置', '模型与协作', '权限']);
+    expect(SettingsIndex.path(Spots.phoneFiles, en), ['Settings', 'Models & teamwork', 'Permissions']);
     expect(SettingsIndex.path(Spots.chatTextSize, zh), ['设置', zh.hubSettingsAppearance]);
   });
 }
