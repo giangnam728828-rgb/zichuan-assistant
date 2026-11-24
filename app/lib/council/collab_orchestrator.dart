@@ -231,6 +231,8 @@ final class CollabOrchestrator {
             await _roundOne(runId);
           case CollabPhase.reviewing:
             await _review(runId);
+          case CollabPhase.verifying:
+            await _verify(runId);
           case CollabPhase.synthesizing:
             await _synthesize(runId);
           case CollabPhase.done:
@@ -262,11 +264,14 @@ final class CollabOrchestrator {
     if (_require(runId).phase == CollabPhase.queued) {
       await _transition(runId, CollabPhase.round1);
     }
-    final run = _require(runId);
-    final pending = [
-      for (final seat in run.spec.seats)
-        if (!run.seatOf(seat.id).isUsable) seat,
-    ];
+    var run = _require(runId);
+    // 循证：第一轮只问权威席位（主席），其余席位到校验轮再上场。
+    final pending = run.spec.mode == CollabMode.evidence
+        ? [run.spec.chair]
+        : [
+            for (final seat in run.spec.seats)
+              if (!run.seatOf(seat.id).isUsable) seat,
+          ];
     await _eachSeat(
       runId,
       pending,
@@ -286,8 +291,41 @@ final class CollabOrchestrator {
       await _transition(runId, CollabPhase.failed, failure: '所有席位都没能给出答案');
       return;
     }
-    final next = latest.spec.mode == CollabMode.deliberative ? CollabPhase.reviewing : CollabPhase.synthesizing;
+    final next = switch (latest.spec.mode) {
+      CollabMode.deliberative => CollabPhase.reviewing,
+      CollabMode.evidence => CollabPhase.verifying,
+      CollabMode.quick => CollabPhase.synthesizing,
+    };
     await _transition(runId, next);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 校验轮（循证）：权威首答 + 其余席位校验补漏
+
+  Future<void> _verify(String runId) async {
+    var run = _require(runId);
+    final authority = run.spec.chair;
+    final first = run.seatOf(authority.id).best;
+    if (first == null || first.isEmpty) {
+      await _transition(runId, CollabPhase.failed, failure: '权威席位没有给出首答');
+      return;
+    }
+    final seats = [
+      for (final seat in run.spec.seats)
+        if (seat.id != authority.id && !run.seatOf(seat.id).isUsable) seat,
+    ];
+    await _eachSeat(
+      runId,
+      seats,
+      (current, seat) => _verifyPrompt(current, seat, first),
+      (seat, outcome) => _update(runId, (current) {
+        if (outcome.kind != TurnKind.completed) return current;
+        final state = current.seatOf(seat.id);
+        return current.withSeat(seat.id, state.copyWith(status: SeatStatus.answered, answer: outcome.text.trim()));
+      }),
+    );
+    if (_require(runId).cancelRequested) throw _Cancelled();
+    await _transition(runId, CollabPhase.synthesizing);
   }
 
   List<({String label, String text})> _answers(CollabRun run, {String? exceptId}) => [
@@ -501,6 +539,30 @@ final class CollabOrchestrator {
       ..writeln('- 保留你认为正确的内容，明确你改变了什么、为什么。')
       ..writeln('- 不要迎合多数：如果坚持原判断，说明其他成员漏掉了什么。')
       ..writeln('- 输出修订后的完整答案，200 到 400 字。');
+    return buffer.toString();
+  }
+
+  String _verifyPrompt(CollabRun run, SeatSpec seat, String first) {
+    final buffer = StringBuffer()
+      ..writeln('你是议会中的验证者。一位权威成员已经就下面的议题给出首答，请你校验并补漏。')
+      ..writeln()
+      ..writeln('【议题】')
+      ..writeln(run.spec.question)
+      ..writeln()
+      ..writeln('【首答】')
+      ..writeln(first)
+      ..writeln();
+    if (seat.role.briefing.isNotEmpty) {
+      buffer
+        ..writeln('【你的角色】')
+        ..writeln(seat.role.briefing)
+        ..writeln();
+    }
+    buffer
+      ..writeln('【要求】')
+      ..writeln('- 指出首答里的事实错误、逻辑漏洞或遗漏，逐条写明。')
+      ..writeln('- 补充你认为必要的点；如果你认同首答，说明你核对了什么。')
+      ..writeln('- 不要重复首答的全文，控制在 150 到 300 字。');
     return buffer.toString();
   }
 

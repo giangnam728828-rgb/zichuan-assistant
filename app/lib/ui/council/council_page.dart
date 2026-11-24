@@ -19,6 +19,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../council/collab_models.dart';
 import '../../council/collab_orchestrator.dart';
 import '../../council/collab_store.dart';
+import '../../council/verdict_parser.dart';
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
 import '../chat/model_brand_mark.dart';
@@ -33,6 +34,8 @@ class CouncilPage extends ConsumerStatefulWidget {
 class _CouncilPageState extends ConsumerState<CouncilPage> {
   final _question = TextEditingController();
   final _selected = <String>{}; // 'provider|model'
+  final _roles = <String, SeatRole>{}; // 'provider|model' → 角色
+  final _efforts = <String, String>{}; // 'provider|model' → reasoningEffort
   CollabMode _mode = CollabMode.quick;
 
   CollabOrchestrator? _orchestrator;
@@ -107,7 +110,16 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
         final provider = parts.first;
         final model = parts.sublist(1).join('|');
         final name = _modelName(catalog, provider, model);
-        seats.add(SeatSpec(id: 'seat${index++}', provider: provider, model: model, label: name));
+        seats.add(
+          SeatSpec(
+            id: 'seat${index++}',
+            provider: provider,
+            model: model,
+            label: name,
+            role: _roles[key] ?? SeatRole.none,
+            reasoningEffort: _efforts[key],
+          ),
+        );
       }
       final run = await orchestrator.submit(
         CouncilSpec(
@@ -243,6 +255,11 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
                 ],
               ),
             ],
+        if (_selected.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text('成员与角色', style: theme.textTheme.titleSmall),
+          for (final key in _selected.toList()) _seatEditRow(key, catalog),
+        ],
         const SizedBox(height: 20),
         Text('运行方式', style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
@@ -250,13 +267,18 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
           segments: const [
             ButtonSegment(value: CollabMode.quick, label: Text('快速'), icon: Icon(Icons.bolt_outlined)),
             ButtonSegment(value: CollabMode.deliberative, label: Text('审议'), icon: Icon(Icons.forum_outlined)),
+            ButtonSegment(value: CollabMode.evidence, label: Text('循证'), icon: Icon(Icons.fact_check_outlined)),
           ],
           selected: {_mode},
           onSelectionChanged: (set) => setState(() => _mode = set.first),
         ),
         const SizedBox(height: 8),
         Text(
-          _mode == CollabMode.quick ? '各席位并行作答，主席直接综合。' : '第一轮后互看匿名答案修订一轮，成本约 2 倍。',
+          switch (_mode) {
+            CollabMode.quick => '各席位并行作答，主席直接综合。',
+            CollabMode.deliberative => '第一轮后互看匿名答案修订一轮，成本约 2 倍。',
+            CollabMode.evidence => '权威席位先答，其余成员只做校验与补漏。',
+          },
           style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
         if (_error != null) ...[
@@ -274,6 +296,158 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
           ),
         ),
       ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 裁决的结构化渲染
+
+  Widget _verdictBody(BuildContext context, String verdict) {
+    final theme = Theme.of(context);
+    final parsed = parseVerdict(verdict);
+    if (!parsed.isStructured) {
+      return SelectableText(verdict, style: theme.textTheme.bodyMedium);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (parsed.conclusion case final conclusion?)
+          SelectableText(conclusion, style: theme.textTheme.bodyLarge),
+        if (parsed.confidence case final c?) ...[
+          const SizedBox(height: 8),
+          _confidenceRow(theme, c),
+        ],
+        if (parsed.consensus.isNotEmpty)
+          _verdictSection(theme, '共识', parsed.consensus, theme.colorScheme.primary),
+        if (parsed.disagreement.isNotEmpty)
+          _verdictSection(theme, '分歧', parsed.disagreement, theme.colorScheme.tertiary),
+        if (parsed.toVerify.isNotEmpty)
+          _verdictSection(theme, '建议核实', parsed.toVerify, theme.colorScheme.onSurfaceVariant),
+      ],
+    );
+  }
+
+  Widget _confidenceRow(ThemeData theme, Confidence confidence) {
+    final (label, active, color) = switch (confidence) {
+      Confidence.high => ('置信度 高', 3, theme.colorScheme.primary),
+      Confidence.mid => ('置信度 中', 2, theme.colorScheme.tertiary),
+      Confidence.low => ('置信度 低', 1, theme.colorScheme.error),
+    };
+    return Row(
+      children: [
+        Text(label, style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        const SizedBox(width: 8),
+        for (var i = 1; i <= 3; i++)
+          Container(
+            width: 20,
+            height: 4,
+            margin: const EdgeInsets.only(right: 3),
+            decoration: BoxDecoration(
+              color: i <= active ? color : theme.colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _verdictSection(ThemeData theme, String title, List<String> items, Color accent) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 3,
+                height: 12,
+                decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(width: 6),
+              Text(title, style: theme.textTheme.labelLarge),
+            ],
+          ),
+          const SizedBox(height: 4),
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.only(left: 9, top: 2),
+              child: Text('\u00b7 $item', style: theme.textTheme.bodyMedium),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 已选成员：角色与深度思考
+
+  Widget _seatEditRow(String key, ModelCatalog? catalog) {
+    final theme = Theme.of(context);
+    final parts = key.split('|');
+    final provider = parts.first;
+    final model = parts.sublist(1).join('|');
+    final name = _modelName(catalog, provider, model);
+    var efforts = const <ReasoningEffort>[];
+    if (catalog != null) {
+      for (final group in catalog.groups) {
+        for (final info in group.models) {
+          if (info.provider == provider && info.id == model) efforts = info.efforts;
+        }
+      }
+    }
+    final brand = brandOf(provider, model);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Icon(_brandIcon(brand), size: 18, color: brandColor(brand, theme.colorScheme.primary)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium),
+          ),
+          DropdownButton<SeatRole>(
+            value: _roles[key] ?? SeatRole.none,
+            underline: const SizedBox.shrink(),
+            style: theme.textTheme.labelMedium,
+            items: [
+              for (final role in SeatRole.values) DropdownMenuItem(value: role, child: Text(role.label)),
+            ],
+            onChanged: (role) => setState(() {
+              if (role != null) _roles[key] = role;
+            }),
+          ),
+          if (efforts.isNotEmpty) ...[
+            const SizedBox(width: 4),
+            DropdownButton<String>(
+              value: _efforts[key] ?? '',
+              underline: const SizedBox.shrink(),
+              style: theme.textTheme.labelMedium,
+              items: [
+                const DropdownMenuItem(value: '', child: Text('默认思考')),
+                for (final effort in efforts)
+                  DropdownMenuItem(value: effort.id, child: Text(effort.name)),
+              ],
+              onChanged: (value) => setState(() {
+                if (value == null) return;
+                if (value.isEmpty) {
+                  _efforts.remove(key);
+                } else {
+                  _efforts[key] = value;
+                }
+              }),
+            ),
+          ],
+          IconButton(
+            tooltip: '移除',
+            icon: const Icon(Icons.close, size: 16),
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+            onPressed: () => setState(() => _selected.remove(key)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -341,7 +515,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    SelectableText(run.verdict!, style: theme.textTheme.bodyMedium),
+                    _verdictBody(context, run.verdict!),
                   ],
                 ),
               ),
@@ -386,11 +560,25 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
           Icon(_brandIcon(brand), size: 18, color: brandColor(brand, theme.colorScheme.primary)),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              seat.displayName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium,
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    seat.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ),
+                if (seat.role != SeatRole.none)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Text(
+                      seat.role.label,
+                      style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                  ),
+              ],
             ),
           ),
           if (state.tokensOut > 0)

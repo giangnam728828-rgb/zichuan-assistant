@@ -47,6 +47,9 @@ enum CollabPhase {
   /// 审议轮：互看匿名答案后修订（仅 [CollabMode.deliberative]）。
   reviewing,
 
+  /// 校验轮：权威首答之后，其余席位校验与补漏（仅 [CollabMode.evidence]）。
+  verifying,
+
   /// 主席综合出裁决。
   synthesizing,
 
@@ -187,8 +190,12 @@ final class CouncilSpec {
   final String? workspaceId;
 
   /// 预计调用次数（界面上「预计 N 次调用」就显示它）。
-  int get estimatedCalls =>
-      seats.length * (mode == CollabMode.deliberative ? 2 : 1) + (mode == CollabMode.evidence ? 1 : 0) + 1;
+  /// 循证 = 权威首答 1 次 + 其余席位校验 (N-1) 次 + 主席综合 1 次。
+  int get estimatedCalls => switch (mode) {
+    CollabMode.quick => seats.length + 1,
+    CollabMode.deliberative => seats.length * 2 + 1,
+    CollabMode.evidence => seats.length + 1,
+  };
 
   /// 主席席位（chairId 匹配不到时退回第一个）。
   SeatSpec get chair => seats.firstWhere(

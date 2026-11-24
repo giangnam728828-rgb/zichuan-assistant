@@ -247,6 +247,20 @@ void main() {
     await o.dispose();
   });
 
+  test('循证模式：权威先答，其余席位校验，调用 N+1 次', () async {
+    final driver = FakeDriver({});
+    final o = make(driver);
+    await o.submit(spec(mode: CollabMode.evidence));
+    final done = await waitTerminal(o, 'run1');
+    expect(done.phase, CollabPhase.done);
+    expect(done.callsUsed, 4); // 1 首答 + 2 校验 + 1 综合
+    final verifyPrompts = driver.prompts.values.expand((ps) => ps.where((p) => p.contains('验证者')));
+    expect(verifyPrompts, hasLength(2));
+    expect(verifyPrompts.first, contains('【首答】'));
+    expect(done.answeredCount, 3);
+    await o.dispose();
+  });
+
   test('断点续跑：盘上一半的进度，恢复后不重复问已答的席位', () async {
     // 手工摆一个「进程被杀时」的盘上状态：seat0 已答，seat1 卡在 running，seat2 未开始。
     final base = CollabRun(
