@@ -6,6 +6,7 @@
 // actual glyphs. Goldens are pixel-exact to this toolchain and font set.
 
 import 'package:dsh_app/ui/chat/chat_screen.dart';
+import 'package:dsh_app/ui/chat/empty_actions.dart';
 import 'package:dsh_app/ui/chat/empty_state.dart';
 import 'package:dsh_app/ui/chat/widgets/live_clock.dart';
 import 'package:dsh_app/ui/chat/widgets/whale_tail.dart';
@@ -23,6 +24,9 @@ void main() {
     chatClock = () => DateTime(2026, 10, 23, 15, 20);
     // The activity pill's copy follows the date (holidays, weekends).
     runClock = () => DateTime(2026, 10, 23, 15, 20);
+    // 空状态那行提示是抽的：金标要固定同一句。
+    emptyTipsRoll = () => true;
+    tipStart = (_) => 0;
   });
 
   // English smoke goldens (i18n): the same screens in English, light only.

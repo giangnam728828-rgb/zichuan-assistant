@@ -12,6 +12,7 @@ import 'package:dsh_app/ui/chat/composer.dart';
 import 'package:dsh_app/ui/chat/empty_state.dart' show chatClock;
 import 'package:dsh_app/ui/chat/model_sheet.dart';
 import 'package:dsh_app/ui/chat/widgets/attachments.dart' show AttachButton;
+import 'package:dsh_app/ui/theme/app_icons.dart';
 import 'package:dsh_app/ui/session/conversation_overview.dart';
 import 'package:dsh_app/ui/session/conversation_panel.dart';
 import 'package:dsh_app/ui/session/conversation_panes.dart';
@@ -71,105 +72,34 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('typing opens the composer: corners tighten, the model shows, then it folds', (tester) async {
+    testWidgets('a phone: one fixed card, two rows, whatever the focus and the keyboard', (tester) async {
       await screen(tester, const Size(390, 844));
-      final row = find.byKey(const ValueKey('composer-model'));
-      BorderRadiusGeometry? corners() => tester
-          .widget<GlassSurface>(find.ancestor(of: find.byType(TextField), matching: find.byType(GlassSurface)).first)
-          .borderRadius;
-      final capsule = corners();
-      final resting = tester.getSize(find.byType(Composer)).height;
-      await tester.tap(find.byType(TextField));
-      await tester.pumpAndSettle();
-      expect(corners(), isNot(capsule));
-      expect(tester.getSize(find.byType(Composer)).height, greaterThan(resting));
-      await tester.tap(row);
-      await tester.pumpAndSettle();
-      expect(find.text('思考深度'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await tester.tapAt(const Offset(195, 60));
-      await tester.pumpAndSettle();
-      expect(corners(), isNot(capsule), reason: 'it waited behind the sheet');
-      FocusManager.instance.primaryFocus?.unfocus();
-      await tester.pumpAndSettle();
-      expect(corners(), capsule);
-      expect(tester.getSize(find.byType(Composer)).height, resting);
-    });
+      // B2：输入栏常驻两行，圆角固定 float，不再随焦点 / 键盘变形。
+      final card = find.ancestor(of: find.byType(TextField), matching: find.byType(GlassSurface)).first;
+      BorderRadiusGeometry? corners() => tester.widget<GlassSurface>(card).borderRadius;
+      final resting = corners();
+      expect(resting, const BorderRadius.all(Radius.circular(AppShape.float)));
+      expect(
+        find.descendant(of: find.byType(Composer), matching: find.byType(BackdropFilter)),
+        findsNothing,
+        reason: '半透明实心底，不做真模糊',
+      );
+      final field = tester.getRect(find.byType(TextField));
+      final plus = tester.getRect(find.byType(AttachButton));
+      expect(field.bottom, lessThanOrEqualTo(plus.top), reason: '输入区在控制行上方');
+      expect(field.left - tester.getRect(find.byType(Composer)).left, closeTo(14, 0.5), reason: '文字从 14 起');
 
-    testWidgets('the keyboard going down closes it, with the field still focused', (tester) async {
-      await screen(tester, const Size(390, 844));
-      BorderRadiusGeometry? corners() => tester
-          .widget<GlassSurface>(find.ancestor(of: find.byType(TextField), matching: find.byType(GlassSurface)).first)
-          .borderRadius;
-      final capsule = corners();
-      final resting = tester.getSize(find.byType(Composer)).height;
       await tester.tap(find.byType(TextField));
       await tester.pumpAndSettle();
+      expect(corners(), resting);
       tester.view.viewInsets = const FakeViewPadding(bottom: 300);
       await tester.pumpAndSettle();
-      final field = tester.getSize(find.byType(TextField)).width;
-      expect(find.byType(TextField), findsOneWidget);
+      expect(corners(), resting, reason: '键盘弹起只挪位置，不改形状');
+      expect(tester.getSize(find.byType(Composer)).height, greaterThan(0));
       tester.view.viewInsets = FakeViewPadding.zero;
       await tester.pumpAndSettle();
-      expect(FocusManager.instance.primaryFocus?.hasFocus, isTrue);
-      expect(corners(), capsule);
-      expect(tester.getSize(find.byType(Composer)).height, resting);
-      expect(tester.getSize(find.byType(TextField)).width, lessThan(field));
-      // And tapping back in opens it again.
-      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
-      await tester.pumpAndSettle();
-      expect(corners(), isNot(capsule));
-    });
-
-    testWidgets('the keys slide down evenly as it opens, no jump', (tester) async {
-      await screen(tester, const Size(390, 844));
-      final key = find.byKey(const ValueKey('composer-model'));
-      expect(tester.getSize(find.byType(Composer)).height, greaterThan(0));
-      await tester.tap(find.byType(TextField));
-      await tester.pump();
-      var last = tester.getSize(find.byType(Composer)).height;
-      var largest = 0.0;
-      for (var i = 0; i < 24; i++) {
-        await tester.pump(const Duration(milliseconds: 16));
-        final now = tester.getSize(find.byType(Composer)).height;
-        largest = largest > (now - last).abs() ? largest : (now - last).abs();
-        last = now;
-      }
-      await tester.pumpAndSettle();
-      expect(largest, lessThan(8), reason: 'the height moves a little every frame');
-      final plus = tester.getRect(find.byType(AttachButton));
-      final glass = tester.getRect(find.byType(Composer));
-      // The same gap all round the second row: beside the pill and to the glass.
-      expect(tester.getRect(key).left - plus.right, moreOrLessEquals(plus.left - glass.left, epsilon: 0.5));
-      expect(glass.bottom - plus.bottom, moreOrLessEquals(plus.left - glass.left, epsilon: 0.5));
-      expect(tester.getRect(key).center.dy, moreOrLessEquals(plus.center.dy, epsilon: 0.5));
-      expect(tester.getRect(key).width, lessThan(160), reason: 'as wide as its words, the rest left free');
-      expect(tester.getRect(key).top, greaterThan(tester.getRect(find.byType(TextField)).top));
-    });
-
-    testWidgets('the model pill grows with large text instead of spilling', (tester) async {
-      await tester.pumpWidget(
-        testApp(
-          Builder(
-            builder: (context) => MediaQuery(
-              data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(4)),
-              child: Scaffold(
-                body: Center(
-                  child: ComposerModelPill(selection: testCatalog.defaultSelection, onSelected: (_) {}),
-                ),
-              ),
-            ),
-          ),
-          overrides: _harness().overrides,
-        ),
-      );
-      await tester.pump();
-      final pill = tester.getRect(find.byKey(const ValueKey('composer-model')));
-      final words = tester.getRect(find.byType(RichText).last);
-      expect(pill.height, greaterThan(36));
-      expect(pill.height, words.height, reason: 'as tall as its words, whatever room it is given');
-      expect(pill.top, lessThanOrEqualTo(words.top));
-      expect(pill.bottom, greaterThanOrEqualTo(words.bottom));
+      expect(corners(), resting);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('a wide window keeps its chip', (tester) async {
@@ -177,16 +107,16 @@ void main() {
       expect(find.byType(ModelChip), findsOneWidget);
       await tester.tap(find.byType(TextField));
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('composer-model')), findsNothing, reason: 'the chip says it');
+      // B1 起模型只在顶栏；输入栏里没有第二枚模型键。
+      expect(find.byKey(const ValueKey('composer-model')), findsNothing);
+      expect(find.byKey(const ValueKey('composer-mode')), findsOneWidget);
     });
   });
 
-  group('the composer\'s gaps', () {
-    // Something taller than a key beside the send key, as the context ring can be.
-    Future<FocusNode> composer(WidgetTester tester) async {
+  group('the composer\'s control row', () {
+    // A ring taller than a key beside the send key, as the context ring can be.
+    Future<void> composer(WidgetTester tester) async {
       usePhoneView(tester);
-      final focus = FocusNode();
-      addTearDown(focus.dispose);
       await tester.pumpWidget(
         testApp(
           Scaffold(
@@ -194,46 +124,39 @@ void main() {
               alignment: Alignment.bottomCenter,
               child: Composer(
                 controller: TextEditingController(),
-                focusNode: focus,
                 connected: true,
                 running: false,
                 onSend: () {},
                 onStop: () {},
                 leading: AttachButton(onPressed: () {}),
+                modePill: const SizedBox(key: Key('mode'), width: 100, height: 36),
                 accessory: const SizedBox(key: Key('ring'), width: 50, height: 44),
-                footer: const SizedBox(key: Key('pill'), width: 100, height: 36),
               ),
             ),
           ),
         ),
       );
-      return focus;
+      await tester.pump();
     }
 
-    void even(WidgetTester tester, {required bool open}) {
-      final glass = tester.getRect(find.byType(Composer));
+    testWidgets('keys, the mode pill and the ring on one line, even gaps', (tester) async {
+      await composer(tester);
+      final card = tester.getRect(find.byType(Composer));
       final plus = tester.getRect(find.byType(AttachButton));
-      final side = plus.left - glass.left;
-      expect(glass.bottom - plus.bottom, moreOrLessEquals(side, epsilon: 0.5), reason: 'below the keys');
-      if (!open) expect(plus.top - glass.top, moreOrLessEquals(side, epsilon: 0.5), reason: 'above them');
+      final mode = tester.getRect(find.byKey(const Key('mode')));
       final ring = tester.getRect(find.byKey(const Key('ring')));
-      expect(ring.center.dy, moreOrLessEquals(plus.center.dy, epsilon: 0.5), reason: 'one centre line');
-      if (open) {
-        final pill = tester.getRect(find.byKey(const Key('pill')));
-        expect(pill.center.dy, moreOrLessEquals(plus.center.dy, epsilon: 0.5), reason: 'one centre line');
-        expect(pill.left - plus.right, moreOrLessEquals(side, epsilon: 0.5), reason: 'beside the pill');
+      final send = tester.getRect(
+        find.ancestor(of: find.byIcon(AppIcons.send), matching: find.byType(AnimatedContainer)).first,
+      );
+      // ＋ 与胶囊在左，环与发送在右，边距都是 6。
+      expect(plus.left - card.left, moreOrLessEquals(6, epsilon: 0.5));
+      expect(mode.left - plus.right, moreOrLessEquals(6, epsilon: 0.5));
+      expect(card.right - send.right, moreOrLessEquals(6, epsilon: 0.5));
+      final tallest = [plus, mode, ring, send].reduce((a, b) => a.height >= b.height ? a : b);
+      expect(card.bottom - tallest.bottom, moreOrLessEquals(6, epsilon: 0.5));
+      for (final piece in [plus, mode, ring, send]) {
+        expect(piece.center.dy, moreOrLessEquals(plus.center.dy, epsilon: 0.5), reason: 'one centre line');
       }
-    }
-
-    testWidgets('are even at rest and open, with something tall beside the key', (tester) async {
-      final focus = await composer(tester);
-      even(tester, open: false);
-      focus.requestFocus();
-      await tester.pumpAndSettle();
-      even(tester, open: true);
-      focus.unfocus();
-      await tester.pumpAndSettle();
-      even(tester, open: false);
     });
   });
 

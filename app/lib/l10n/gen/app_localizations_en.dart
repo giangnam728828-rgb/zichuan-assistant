@@ -4137,6 +4137,9 @@ class L10nEn extends L10n {
   String get chatComposerHint => 'Message DSH…';
 
   @override
+  String get chatComposerMode => 'Mode';
+
+  @override
   String get chatStopGenerating => 'Stop generating';
 
   @override

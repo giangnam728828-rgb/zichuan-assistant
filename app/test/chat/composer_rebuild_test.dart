@@ -13,9 +13,9 @@ class _Input extends TextEditingController {
 }
 
 class _Rig {
-  _Rig({String text = '', this.withFooter = false}) : input = _Input(text: text);
+  _Rig({String text = '', this.withModePill = false}) : input = _Input(text: text);
 
-  final bool withFooter;
+  final bool withModePill;
   _Input input;
   final focus = FocusNode();
   bool running = false;
@@ -35,7 +35,7 @@ class _Rig {
             child: Composer(
               controller: input,
               focusNode: focus,
-              footer: withFooter ? const Text('Model') : null,
+              modePill: withModePill ? const Text('标准模式') : null,
               running: running,
               connected: connected,
               sessionReady: sessionReady,
@@ -76,9 +76,9 @@ class _Builds {
 void main() {
   setUpAll(loadTestFonts);
 
-  Future<_Rig> mount(WidgetTester tester, {String text = '', bool withFooter = false}) async {
+  Future<_Rig> mount(WidgetTester tester, {String text = '', bool withModePill = false}) async {
     usePhoneView(tester);
-    final rig = _Rig(text: text, withFooter: withFooter);
+    final rig = _Rig(text: text, withModePill: withModePill);
     final initial = rig.input;
     addTearDown(initial.dispose);
     addTearDown(rig.focus.dispose);
@@ -86,9 +86,9 @@ void main() {
     return rig;
   }
 
-  for (final withFooter in [false, true]) {
-    testWidgets('typing a nonempty draft leaves composer controls idle (footer $withFooter)', (tester) async {
-      final rig = await mount(tester, text: '草稿', withFooter: withFooter);
+  for (final withModePill in [false, true]) {
+    testWidgets('typing a nonempty draft leaves composer controls idle (mode pill $withModePill)', (tester) async {
+      final rig = await mount(tester, text: '草稿', withModePill: withModePill);
       final field = tester.widget<TextField>(find.byType(TextField));
       final builds = _Builds()..observe();
       for (var i = 1; i <= 20; i++) {
@@ -103,7 +103,7 @@ void main() {
         expect(rig.input.text, text);
         expect(tester.state<EditableTextState>(find.byType(EditableText)).renderEditable.text!.toPlainText(), text);
       }
-      builds.report('20 nonempty typing updates, footer=$withFooter');
+      builds.report('20 nonempty typing updates, modePill=$withModePill');
       expect(builds.editors, greaterThan(0), reason: 'the live editor must still render changed text');
       expect(builds.chrome, 0);
       expect(tester.widget<TextField>(find.byType(TextField)), same(field));

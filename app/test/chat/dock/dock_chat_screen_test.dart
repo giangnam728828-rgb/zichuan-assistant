@@ -40,8 +40,11 @@ double _lastRowBottom(WidgetTester tester) {
 double _columnTop(WidgetTester tester) =>
     tester.getRect(find.ancestor(of: find.byType(Composer), matching: find.byType(SafeArea)).first).top;
 
-/// 0 when the last row sits 8 above the composer column.
-double _seam(WidgetTester tester) => _columnTop(tester) - 8 - _lastRowBottom(tester);
+/// 0 when the last row sits exactly the list's fade tail above the composer
+/// column: `ChatList` stops content `composerHeight + _fadeTail` above the
+/// viewport bottom, so the seam is measured against that tail (32), not the
+/// 8 the tail was when this helper was written.
+double _seam(WidgetTester tester) => _columnTop(tester) - 32 - _lastRowBottom(tester);
 
 Future<FakeChatController> _open(WidgetTester tester, ChatState state) async {
   usePhoneView(tester);

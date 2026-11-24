@@ -572,7 +572,6 @@ class _SuggestionChip extends StatelessWidget {
 }
 
 /// Where the tip line starts (tests pin it so the copy is reproducible).
-@visibleForTesting
 int Function(int count) tipStart = (count) => math.Random().nextInt(count);
 
 /// How long one tip stays before the next rises in.

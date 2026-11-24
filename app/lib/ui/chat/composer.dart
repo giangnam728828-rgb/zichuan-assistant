@@ -5,12 +5,9 @@
 // key; model picking lives in the header chip; one send action, since DSH
 // queues prompts sent mid-turn.
 
-import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
@@ -27,20 +24,26 @@ import 'voice/voice_widgets.dart';
 /// The editor's line height, as a multiple of its font size.
 const _lineHeight = 1.45;
 
-/// 输入条:chrome 玻璃 + 28 圆角,1–6 行自动增高,右下角发送 / 停止。
+/// 输入条（B2）：一张两行的卡片，常驻。上面是 1–6 行自动增高的输入区，
+/// 下面一行控件：左 ＋ 与「模式」胶囊，右 上下文环、通话、语音 / 发送。
 ///
-/// 两颗 36 圆键是胶囊的"端盖":四周都留 [_keyGap],单行时胶囊高 48、
-/// 圆角 28 = 键半径 20 + 8,圆键与胶囊两端同心;文字在 40 高里居中。
-/// 多行时键贴底,底边和侧边仍是 8。
+/// ```
+/// ╭──────────────────────────────────────╮
+/// │  给 DSH 发消息…                       │
+/// │  (+) ( ⚒ 标准模式 ⌄ )      (◔) (☎) (🎙)│
+/// ╰──────────────────────────────────────╯
+/// ```
 ///
-/// 语音([voice]):草稿为空时发送键是麦克风(和 ＋ 键同样的淡底圆);
-/// 听写时 ＋ 换成 ✕(取消)、发送键换成主色的停止键,中间文字处显示
-/// 识别结果,停止键左边是音量条。四颗键始终同一位置、同一尺寸。
+/// 卡片是半透明的实心底（不做真模糊）+ 1px 边线 + float 圆角 + 外投影，
+/// 生成中沿边一层强调色流光（[_ThinkingEdge]）。键盘弹起不再改形状，只是
+/// 增高，所以没有要跟着动的展开动画。
+///
+/// 语音([voice]):草稿为空时最右是麦克风(和 ＋ 键同样的淡底圆)，有字时与
+/// 发送键 120ms 交叉淡入;听写时 ＋ 换成 ✕(取消)、发送键换成主色的停止键,
+/// 中间文字处显示识别结果,停止键左边是音量条。按键始终同一位置、同一尺寸。
 class Composer extends StatefulWidget {
   const Composer({
     super.key,
-    this.footer,
-    this.keyboardInset = 0,
     required this.controller,
     required this.connected,
     required this.running,
@@ -53,6 +56,7 @@ class Composer extends StatefulWidget {
     this.sessionReady = true,
     this.accessory,
     this.leading,
+    this.modePill,
     this.tray,
     this.hasAttachments = false,
     this.onSendOptions,
@@ -68,6 +72,7 @@ class Composer extends StatefulWidget {
     this.sendWhenEmpty = false,
     this.onCall,
     this.emptySendLabel,
+    this.tight = false,
   });
 
   final TextEditingController controller;
@@ -150,14 +155,14 @@ class Composer extends StatefulWidget {
   /// (第 4 步把顶栏的语音键挪到这里，顶栏只留 标题 / 模型 / 伙伴 / 新对话).
   final VoidCallback? onCall;
 
-  /// Shown beside the keys while the field is being typed in: the capsule opens into a
-  /// rounded rectangle, the text on a line of its own and the keys and this in a row
-  /// below. It closes again when the keyboard goes. Null: the capsule stays as it is.
-  final Widget? footer;
+  /// 控制行左边的「模式」胶囊（B2）：新对话管预设与权限，已有会话管权限。
+  /// 由页面接线（composer_mode_pill.dart），这里只负责摆。
+  final Widget? modePill;
 
-  /// The keyboard's height, from a page that still knows it: how [footer] tells the
-  /// keyboard going down from the field losing focus.
-  final double keyboardInset;
+  /// 连一张完整的卡片都放不下时（横屏叠着键盘、分屏），把上留白与行距
+  /// 各收紧一点：文字才落得到状态栏之下，对话也还露得出来。
+  /// 由页面按 [tightFor] 算好传进来——卡片自己的 context 已经看不到键盘。
+  final bool tight;
 
   /// Editor lines for a page whose [pageContext] still carries the keyboard
   /// inset: six, or as many as fit in two fifths of the height above the
@@ -172,6 +177,16 @@ class Composer extends StatefulWidget {
     return (available * 0.4 / line).floor().clamp(2, 6);
   }
 
+  /// 状态栏与键盘之间放不下一张完整卡片（空草稿也放不下）时收紧布局。
+  /// 只在真正挤到放不下时成立：竖屏开了键盘仍然宽松，卡片尺寸不变，
+  /// 键盘进出时输入栏不跳。
+  static bool tightFor(BuildContext pageContext) {
+    final media = MediaQuery.of(pageContext);
+    final available =
+        media.size.height - media.viewInsets.bottom - media.viewPadding.top - media.viewPadding.bottom;
+    return available < 132;
+  }
+
   @override
   State<Composer> createState() => _ComposerState();
 }
@@ -179,65 +194,32 @@ class Composer extends StatefulWidget {
 const double _keySize = 36;
 const double _keyGap = 6;
 
+/// 卡片里文字与左右边的距离。
+const double _textInset = 14;
+
+/// 输入区上方的留白。
+const double _textPadY = 10;
+
+/// 引文 / 附件托盘与提示行离卡片左右的距离：与 28 圆角的圆心同心。
+const double _trayInset = 12;
+
+/// 控制行距卡片左右与底边：36 的键放进去，视觉上还有 6 的余量。
+const double _rowInset = 6;
+
+/// 输入区与控制行之间。
+const double _rowGap = 2;
+
 /// The composer's own text, a step under body text.
 const double _fontSize = 15.0;
 
-class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin {
+class _ComposerState extends State<Composer> {
   Duration? _lastEscape;
-  // Keep the editor and its input connection when the footer changes the layout.
+  // Keep the editor and its input connection across rebuilds.
   final _fieldKey = GlobalKey();
   late final _draftEmpty = ValueNotifier(widget.controller.text.trim().isEmpty);
 
   void _draftChanged() {
     _draftEmpty.value = widget.controller.text.trim().isEmpty;
-  }
-
-  // One value for everything that moves when the composer opens: the corners, the text's
-  // width, the height, the keys and the footer's fade. One motion, not several in step.
-  late final AnimationController _openController = AnimationController(vsync: this, duration: AppMotion.collapse);
-  late final Animation<double> _open = CurvedAnimation(parent: _openController, curve: AppMotion.collapseCurve);
-
-  /// The keyboard went down with the field still focused.
-  bool _keyboardDown = false;
-  double _keyboardPeak = 0;
-
-  void _syncOpen() {
-    if (!mounted || widget.footer == null) return;
-    // A page or sheet over it (the model sheet) takes the focus and the keyboard for a
-    // moment: they come back with it, and the composer waits as it is.
-    if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
-    final open = (widget.focusNode?.hasFocus ?? false) && !_keyboardDown;
-    _openController.duration = AppMotion.of(context, AppMotion.collapse);
-    if (open && _openController.status != AnimationStatus.forward && !_openController.isCompleted) {
-      unawaited(_openController.forward());
-    } else if (!open && _openController.status != AnimationStatus.reverse && !_openController.isDismissed) {
-      unawaited(_openController.reverse());
-    }
-  }
-
-  void _focusChanged() {
-    if (widget.focusNode?.hasFocus ?? false) _keyboardDown = false;
-    _syncOpen();
-  }
-
-  void _keyboardMoved(double before) {
-    final inset = widget.keyboardInset;
-    if (inset == before || !(ModalRoute.of(context)?.isCurrent ?? true)) return;
-    if (inset > before) {
-      _keyboardDown = false;
-      if (inset > _keyboardPeak) _keyboardPeak = inset;
-    } else if (inset < _keyboardPeak * 0.5) {
-      // Most of the way down, so not the keyboard just changing height.
-      _keyboardDown = true;
-      _keyboardPeak = 0;
-    }
-    _syncOpen();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncOpen());
   }
 
   /// The last tray shown: it stays while the tray folds away.
@@ -303,7 +285,6 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
     super.initState();
     widget.controller.addListener(_draftChanged);
     widget.voice?.onMessage = _voiceMessage;
-    widget.focusNode?.addListener(_focusChanged);
   }
 
   @override
@@ -324,14 +305,6 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
       _lastEscape = null;
     }
     _tray = widget.tray ?? _tray;
-    if (oldWidget.focusNode != widget.focusNode) {
-      oldWidget.focusNode?.removeListener(_focusChanged);
-      widget.focusNode?.addListener(_focusChanged);
-    }
-    if (oldWidget.keyboardInset != widget.keyboardInset) _keyboardMoved(oldWidget.keyboardInset);
-    if ((oldWidget.footer == null) != (widget.footer == null)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _syncOpen());
-    }
     if (oldWidget.voice != widget.voice) {
       if (oldWidget.voice?.onMessage == _voiceMessage) {
         oldWidget.voice?.onMessage = null;
@@ -344,8 +317,6 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
   void dispose() {
     widget.controller.removeListener(_draftChanged);
     _draftEmpty.dispose();
-    widget.focusNode?.removeListener(_focusChanged);
-    _openController.dispose();
     if (widget.voice?.onMessage == _voiceMessage) {
       widget.voice?.onMessage = null;
     }
@@ -392,6 +363,7 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
     // the current text size (very large text just grows the row).
     final line = MediaQuery.textScalerOf(context).scale(_fontSize) * _lineHeight;
     final textPad = math.max(4.0, (_keySize - line) / 2);
+    final tight = widget.tight;
     final voice = widget.voice;
     voice?.ensureFresh();
 
@@ -399,8 +371,7 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
     // stage this is a plain pass-through).
     return PetPerch(
       kind: PerchKind.composer,
-      child: _ComposerGlass(
-        open: widget.footer == null ? null : _open,
+      child: _ComposerCard(
         thinking: widget.running || widget.waiting,
         child: ListenableBuilder(
           // The editor listens to text, selection and composing changes itself.
@@ -536,60 +507,35 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
                 }
               },
             );
-            final footer = widget.footer;
-            final row = footer == null
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      if (leadingKey != null) ...[leadingKey, const SizedBox(width: 8)],
-                      Expanded(child: field),
-                      const SizedBox(width: 8),
-                      if (!dictating && widget.onCall != null) ...[
-                        _CallKey(onTap: widget.onCall!),
-                        const SizedBox(width: _keyGap),
-                      ],
-                      if (accessory != null) ...[accessory, const SizedBox(width: 2)],
-                      sendKey,
-                    ],
-                  )
-                : _ComposerRows(
-                    open: _open,
-                    // A new line grows the glass here: opening is its own motion, with no
-                    // second one chasing it.
-                    text: SmoothSize(
-                      duration: AppMotion.of(context, AppMotion.quick),
-                      curve: AppMotion.std,
-                      alignment: Alignment.bottomCenter,
-                      child: field,
-                    ),
-                    leading: leadingKey ?? const SizedBox.shrink(),
-                    footer: FadeTransition(opacity: _open, child: footer),
-                    // Exactly a key tall, whatever sits beside the key: the row's height is
-                    // what keeps the gaps around it even.
-                    trailing: SizedBox(
-                      height: _keySize,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (!dictating && widget.onCall != null) ...[
-                            _CallKey(onTap: widget.onCall!),
-                            const SizedBox(width: _keyGap),
-                          ],
-                          if (accessory != null) ...[accessory, const SizedBox(width: _keyGap)],
-                          sendKey,
-                        ],
-                      ),
-                    ),
-                  );
-            // The tray unfolds above the text and folds away again: the
-            // glass grows and shrinks, the text row never jumps.
+            // 两行：上面输入，下面控制行。控制行左边是 ＋ 与模式胶囊，
+            // 右边是上下文环、通话、语音 / 发送；中间的空位留给长标题。
+            final row = Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (leadingKey != null) ...[leadingKey, const SizedBox(width: _keyGap)],
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: widget.modePill ?? const SizedBox.shrink(),
+                  ),
+                ),
+                if (accessory != null) ...[accessory, const SizedBox(width: 2)],
+                if (!dictating && widget.onCall != null) ...[
+                  _CallKey(onTap: widget.onCall!),
+                  const SizedBox(width: _keyGap),
+                ],
+                sendKey,
+              ],
+            );
+            // The tray unfolds above the text and folds away again: the card
+            // grows and shrinks, the text row never jumps.
             final content = Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (widget.modeLabel case final label?)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(_keyGap, 2, _keyGap, _keyGap),
+                    padding: const EdgeInsets.fromLTRB(_trayInset, 8, _trayInset, 0),
                     child: Text(
                       label,
                       style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
@@ -597,24 +543,24 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
                   ),
                 ExpandReveal(
                   open: widget.tray != null,
-                  child: Padding(padding: const EdgeInsets.fromLTRB(_keyGap, 2, _keyGap, _keyGap), child: _tray),
+                  child: Padding(padding: const EdgeInsets.fromLTRB(_trayInset, 8, _trayInset, 0), child: _tray),
                 ),
-                // A new line grows the glass instead of popping it: anchored
-                // at the bottom, where the caret and the keys stay put.
-                if (footer != null)
-                  row
-                else
-                  SmoothSize(
+                // 输入区独占一行；新的一行让卡片长高而不是跳一下，锚在底部，
+                // 光标与按键都不动。
+                Padding(
+                  padding: EdgeInsets.fromLTRB(_textInset, tight ? 8 : _textPadY, _textInset, 0),
+                  child: SmoothSize(
                     duration: AppMotion.of(context, AppMotion.quick),
                     curve: AppMotion.std,
                     alignment: Alignment.bottomCenter,
-                    child: row,
+                    child: field,
                   ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(_rowInset, tight ? 0 : _rowGap, _rowInset, tight ? 4 : _rowInset),
+                  child: row,
+                ),
               ],
-            );
-            final padded = Padding(
-              padding: EdgeInsets.fromLTRB(leading == null ? 18 : _keyGap, _keyGap, _keyGap, _keyGap),
-              child: content,
             );
             // Dictating: the pet steps away from the voice controls, and a soft light
             // (Libraries.dev Voice) rises from the glass's bottom edge with the voice,
@@ -622,7 +568,7 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
             return PetCover(
               active: dictating,
               child: voice == null
-                  ? padded
+                  ? content
                   : Stack(
                       children: [
                         Positioned.fill(
@@ -633,12 +579,12 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
                               levelScale: voice.engine == VoiceEngine.system
                                   ? VoiceLevelScale.linear
                                   : VoiceLevelScale.playback,
-                              borderRadius: widget.footer != null && _open.value > 0.5 ? AppShape.lg : AppShape.xl,
+                              borderRadius: AppShape.float,
                               child: const SizedBox.expand(),
                             ),
                           ),
                         ),
-                        padded,
+                        content,
                       ],
                     ),
             );
@@ -649,41 +595,36 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
   }
 }
 
-/// The composer's glass. With [open], its corners tighten as the composer opens, from
-/// the capsule into a rounded rectangle.
-class _ComposerGlass extends StatelessWidget {
-  const _ComposerGlass({required this.open, required this.thinking, required this.child});
-
-  final Animation<double>? open;
+/// 输入条的底（B2）：半透明的实心填充 + 1px 边线 + float 圆角 + 外投影，
+/// 不做真模糊——它天天在眼前，省掉一层 BackdropFilter，滚动更稳。
+class _ComposerCard extends StatelessWidget {
+  const _ComposerCard({required this.thinking, required this.child});
 
   /// 这一轮正在生成：[thinking] 时输入栏边缘有一层强调色流光呼吸（2400ms），
   /// 代替发送键上的转圈（第 4 步：思考流光流畅、同屏真模糊 ≤ 3）。
   final bool thinking;
   final Widget child;
 
-  // 第 4 步：悬浮输入栏用 float(28)，展开成两行时收到 panel(20)。
-  static const _opened = BorderRadius.all(Radius.circular(AppShape.panel));
-  static const _resting = BorderRadius.all(Radius.circular(AppShape.float));
-
   @override
   Widget build(BuildContext context) {
-    final glass = _glass(context);
-    if (!thinking) return glass;
-    return _ThinkingEdge(child: glass);
-  }
-
-  Widget _glass(BuildContext context) {
-    final open = this.open;
-    if (open == null) return GlassSurface(tier: GlassTier.chrome, borderRadius: _resting, child: child);
-    return AnimatedBuilder(
-      animation: open,
-      builder: (context, child) => GlassSurface(
-        tier: GlassTier.chrome,
-        borderRadius: BorderRadius.lerp(_resting, _opened, open.value),
-        child: child,
+    final chrome = DshSurfaces.of(context).chrome;
+    final card = GlassSurface(
+      tier: GlassTier.chrome,
+      borderRadius: AppShape.radiusFloat,
+      style: GlassStyle(
+        // 玻璃的填充色，但不模糊：透出来的是实色，不是毛玻璃。
+        fill: chrome.fill,
+        fallbackFill: chrome.fallbackFill,
+        hairline: chrome.hairline,
+        rim: const Color(0x00000000),
+        hairlineWidth: 1,
+        shadows: chrome.shadows,
+        blurSigma: 0,
       ),
       child: child,
     );
+    if (!thinking) return card;
+    return _ThinkingEdge(child: card);
   }
 }
 
@@ -749,157 +690,6 @@ class _ThinkingEdgeState extends State<_ThinkingEdge> with SingleTickerProviderS
   }
 }
 
-/// A phone's composer, between one row and two, as [open] goes from 0 to 1:
-///
-/// ```
-/// (+) text…          (key)      →      text…
-///                                      (+) (footer)      (key)
-/// ```
-///
-/// It lays out rather than rebuilds on every step, and the keys travel with the bottom
-/// edge, so they slide down as the text takes the width.
-class _ComposerRows extends MultiChildRenderObjectWidget {
-  _ComposerRows({
-    required this.open,
-    required Widget text,
-    required Widget leading,
-    required Widget footer,
-    required Widget trailing,
-  }) : super(children: [text, leading, footer, trailing]);
-
-  final Animation<double> open;
-
-  @override
-  RenderObject createRenderObject(BuildContext context) => _RenderComposerRows(open);
-
-  @override
-  void updateRenderObject(BuildContext context, _RenderComposerRows renderObject) => renderObject.open = open;
-}
-
-class _ComposerRowsParentData extends ContainerBoxParentData<RenderBox> {}
-
-class _RenderComposerRows extends RenderBox
-    with
-        ContainerRenderObjectMixin<RenderBox, _ComposerRowsParentData>,
-        RenderBoxContainerDefaultsMixin<RenderBox, _ComposerRowsParentData> {
-  _RenderComposerRows(this._open);
-
-  /// Beside the text, on one row.
-  static const _gap = 8.0;
-
-  /// Between the pieces of the second row: what the glass leaves around them.
-  static const _rowGap = _keyGap;
-
-  /// The text's own inset once it has the line to itself.
-  static const _inset = 8.0;
-
-  /// Between the text and the row under it.
-  static const _rows = 2.0;
-
-  Animation<double> _open;
-  set open(Animation<double> value) {
-    if (identical(value, _open)) return;
-    if (attached) _open.removeListener(markNeedsLayout);
-    _open = value;
-    if (attached) _open.addListener(markNeedsLayout);
-    markNeedsLayout();
-  }
-
-  @override
-  void attach(PipelineOwner owner) {
-    super.attach(owner);
-    _open.addListener(markNeedsLayout);
-  }
-
-  @override
-  void detach() {
-    _open.removeListener(markNeedsLayout);
-    super.detach();
-  }
-
-  @override
-  void setupParentData(RenderBox child) {
-    if (child.parentData is! _ComposerRowsParentData) child.parentData = _ComposerRowsParentData();
-  }
-
-  /// The footer answers and is read out once it is mostly there.
-  bool get _footerLive => _open.value > 0.5;
-
-  double _textWidth(double width, double leading, double trailing) {
-    final rest = width - (leading > 0 ? leading + _gap : 0) - _gap - trailing;
-    return math.max(0.0, ui.lerpDouble(rest, width - 2 * _inset, _open.value)!);
-  }
-
-  Size _measure(BoxConstraints constraints, ChildLayouter layoutChild) {
-    final [text, leading, footer, trailing] = getChildrenAsList();
-    final width = constraints.maxWidth;
-    final loose = BoxConstraints(maxWidth: width);
-    final lead = layoutChild(leading, loose);
-    final trail = layoutChild(trailing, loose);
-    final foot = layoutChild(
-      footer,
-      BoxConstraints(maxWidth: math.max(0.0, width - lead.width - trail.width - 2 * _rowGap)),
-    );
-    final field = layoutChild(text, BoxConstraints.tightFor(width: _textWidth(width, lead.width, trail.width)));
-    final keys = math.max(math.max(lead.height, trail.height), foot.height);
-    final height = ui.lerpDouble(math.max(field.height, keys), field.height + _rows + keys, _open.value)!;
-    return constraints.constrain(Size(width, height));
-  }
-
-  @override
-  Size computeDryLayout(covariant BoxConstraints constraints) =>
-      _measure(constraints, ChildLayoutHelper.dryLayoutChild);
-
-  @override
-  void performLayout() {
-    size = _measure(constraints, ChildLayoutHelper.layoutChild);
-    final [text, leading, footer, trailing] = getChildrenAsList();
-    final t = _open.value;
-    void place(RenderBox child, double x, double y) =>
-        (child.parentData! as _ComposerRowsParentData).offset = Offset(x, y);
-    final restX = leading.size.width > 0 ? leading.size.width + _gap : 0.0;
-    final keys = math.max(math.max(leading.size.height, trailing.size.height), footer.size.height);
-    final restTop = math.max(0.0, math.max(text.size.height, keys) - text.size.height);
-    place(text, ui.lerpDouble(restX, _inset, t)!, ui.lerpDouble(restTop, 0, t)!);
-    // On one centre line, whatever their heights.
-    double centred(RenderBox child) => size.height - keys + (keys - child.size.height) / 2;
-    place(leading, 0, centred(leading));
-    place(footer, leading.size.width + _rowGap, centred(footer));
-    place(trailing, size.width - trailing.size.width, centred(trailing));
-  }
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    for (final child in getChildrenAsList()) {
-      if (child == childAfter(childAfter(firstChild!)!) && _open.value == 0) continue;
-      context.paintChild(child, (child.parentData! as _ComposerRowsParentData).offset + offset);
-    }
-  }
-
-  @override
-  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
-    final footer = childAfter(childAfter(firstChild!)!);
-    for (final child in getChildrenAsList().reversed) {
-      if (child == footer && !_footerLive) continue;
-      final hit = result.addWithPaintOffset(
-        offset: (child.parentData! as _ComposerRowsParentData).offset,
-        position: position,
-        hitTest: (result, transformed) => child.hitTest(result, position: transformed),
-      );
-      if (hit) return true;
-    }
-    return false;
-  }
-
-  @override
-  void visitChildrenForSemantics(RenderObjectVisitor visitor) {
-    final footer = childAfter(childAfter(firstChild!)!);
-    for (final child in getChildrenAsList()) {
-      if (child != footer || _footerLive) visitor(child);
-    }
-  }
-}
-
 /// What the right-hand key does.
 enum _KeyMode {
   /// ↑ send.
@@ -914,6 +704,9 @@ enum _KeyMode {
   /// ■ stop dictating and keep the text.
   stopVoice,
 }
+
+/// 麦克风与发送交叉淡入的时长（B2：120ms）。
+const _swap = AppMotion.glassIn;
 
 /// 40 圆键:↑ 发送 / ■ 停止(实心主色);🎙 麦克风是 ＋ 键那样的淡底圆。
 /// 禁用时是 onSurface 12% 的底。
@@ -1028,16 +821,16 @@ class _SendButtonState extends State<_SendButton> {
           duration: fluid && !_pressed ? AppMotion.thumbCurve.duration : AppMotion.of(context, AppMotion.press),
           curve: fluid && !_pressed ? AppMotion.thumbCurve : AppMotion.std,
           child: AnimatedContainer(
-            duration: AppMotion.of(context, AppMotion.quick),
+            // B2：麦克风 ↔ 发送 120ms 交叉淡入，底色一起过，不闪。
+            duration: _swap,
             width: _keySize,
             height: _keySize,
             decoration: BoxDecoration(color: bg, shape: _sendKeyShape),
             child: AnimatedSwitcher(
-              duration: fluid ? AppMotion.standard : AppMotion.of(context, AppMotion.quick),
-              switchInCurve: fluid ? Curves.linear : AppMotion.enter,
-              switchOutCurve: Curves.linear,
-              transitionBuilder: (child, anim) =>
-                  fluid ? _FluidKeySwap(animation: anim, child: child) : ScaleTransition(scale: anim, child: child),
+              duration: _swap,
+              switchInCurve: AppMotion.enter,
+              switchOutCurve: AppMotion.exit,
+              transitionBuilder: (child, anim) => FadeTransition(opacity: anim, child: child),
               child: widget.busy
                   ? Padding(
                       key: const ValueKey('busy'),
@@ -1051,39 +844,4 @@ class _SendButtonState extends State<_SendButton> {
       ),
     );
   }
-}
-
-/// The fluid send key's icon swap: the plane that was sent flies off up and to the
-/// right, and what comes next pops in on a spring.
-class _FluidKeySwap extends StatelessWidget {
-  const _FluidKeySwap({required this.animation, required this.child});
-
-  final Animation<double> animation;
-  final Widget child;
-
-  static const _flight = 16.0;
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: animation,
-    child: child,
-    builder: (context, child) {
-      final v = animation.value.clamp(0.0, 1.0);
-      final leaving = animation.status == AnimationStatus.reverse;
-      final flies = leaving && this.child.key == const ValueKey(_KeyMode.send);
-      final away = flies ? _flight * Curves.easeIn.transform(1 - v) : 0.0;
-      final scale = flies
-          ? 1.0
-          : leaving
-          ? 0.4 + 0.6 * v
-          : 0.4 + 0.6 * AppMotion.thumbCurve.transform(v);
-      return Opacity(
-        opacity: v,
-        child: Transform.translate(
-          offset: Offset(away, -away),
-          child: Transform.scale(scale: scale, child: child),
-        ),
-      );
-    },
-  );
 }

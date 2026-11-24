@@ -5,18 +5,14 @@
 
 import 'package:dsh_app/l10n/l10n.dart';
 import 'package:dsh_app/state/android_features.dart';
-import 'package:dsh_app/state/chat_state.dart';
 import 'package:dsh_app/state/features_state.dart';
 import 'package:dsh_app/state/risk_notice_store.dart';
 import 'package:dsh_app/state/session_modes.dart';
 import 'package:dsh_app/state/system_actions_state.dart';
 import 'package:dsh_app/ui/chat/chat_screen.dart';
-import 'package:dsh_app/ui/chat/composer.dart';
-import 'package:dsh_app/ui/chat/widgets/permission_pill.dart';
 import 'package:dsh_app/ui/chat/widgets/plus_panel.dart';
 import 'package:dsh_app/ui/common/list_page_row.dart';
 import 'package:dsh_app/ui/phone/system_actions_page.dart';
-import 'package:dsh_app/ui/theme/app_icons.dart';
 import 'package:dsh_app/ui/theme/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
@@ -290,66 +286,10 @@ void main() {
     });
   });
 
-  group('permission pill', () {
-    Future<ChatHarness> pumpChat(WidgetTester tester, SessionModes modes, {double scale = 1}) async {
+  group('mode pill on a chat', () {
+    testWidgets('a risky permission names itself and opens this chat\'s permissions', (tester) async {
       usePhoneView(tester);
       final harness = ChatHarness(newChatCatalogs: true, session: 's1');
-      await tester.pumpWidget(
-        testApp(
-          MediaQuery.withClampedTextScaling(minScaleFactor: scale, maxScaleFactor: scale, child: const ChatScreen()),
-          overrides: [
-            ...harness.overrides,
-            ..._extra(modes: modes),
-          ],
-        ),
-      );
-      await pumpFrames(tester);
-      return harness;
-    }
-
-    testWidgets('nothing for 工作区内修改', (tester) async {
-      await pumpChat(tester, const SessionModes(preset: 'workspace-write'));
-      expect(find.byType(PermissionPill), findsNothing);
-    });
-
-    for (final scale in [1.0, 1.3]) {
-      testWidgets('完全权限: on the composer\'s edge, 34 high, equal end insets (×$scale)', (tester) async {
-        await pumpChat(tester, const SessionModes(preset: 'danger-full-access'), scale: scale);
-        final pill = tester.getRect(find.byType(PermissionPill));
-        final composer = tester.getRect(find.byType(Composer));
-        expect(pill.left, moreOrLessEquals(composer.left, epsilon: 0.01));
-        expect(pill.height, PermissionPillMetrics.height);
-        expect(composer.top - pill.bottom, moreOrLessEquals(8, epsilon: 0.01));
-        final lead = tester.getRect(
-          find.descendant(of: find.byType(PermissionPill), matching: find.byIcon(AppIcons.permissionRisky)),
-        );
-        final trail = tester.getRect(
-          find
-              .ancestor(
-                of: find.descendant(of: find.byType(PermissionPill), matching: find.byIcon(AppIcons.disclosure)),
-                matching: find.byType(SizedBox),
-              )
-              .first,
-        );
-        expect(lead.left - pill.left, moreOrLessEquals(PermissionPillMetrics.inset, epsilon: 0.01));
-        expect(pill.right - trail.right, moreOrLessEquals(PermissionPillMetrics.inset, epsilon: 0.01));
-        expect(lead.size, trail.size);
-        expect(lead.center.dy, moreOrLessEquals(pill.center.dy, epsilon: 0.01));
-        expect(trail.center.dy, moreOrLessEquals(pill.center.dy, epsilon: 0.01));
-      });
-    }
-
-    testWidgets('a tap opens this chat\'s permissions', (tester) async {
-      await pumpChat(tester, const SessionModes(preset: 'auto'));
-      expect(find.text('自动审查'), findsOneWidget);
-      await tester.tap(find.byType(PermissionPill));
-      await pumpFrames(tester);
-      expect(find.text('本对话的权限'), findsOneWidget);
-    });
-
-    testWidgets('自动允许中 wins while this client allows everything', (tester) async {
-      usePhoneView(tester);
-      final harness = ChatHarness(newChatCatalogs: true, session: 's1', states: {'s1': const ChatState(loading: false, autoApprove: true)});
       await tester.pumpWidget(
         testApp(
           const ChatScreen(),
@@ -360,8 +300,14 @@ void main() {
         ),
       );
       await pumpFrames(tester);
-      expect(find.byType(AutoApprovePill), findsOneWidget);
-      expect(find.byType(PermissionPill), findsNothing);
+      // B2：权限从输入栏上方那枚独立胶囊收进了控制行的「模式」胶囊，
+      // 只有比默认更宽时才自己报名字。
+      final pill = find.byKey(const ValueKey('composer-mode'));
+      expect(pill, findsOneWidget);
+      expect(find.descendant(of: pill, matching: find.text('完全权限')), findsOneWidget);
+      await tester.tap(pill);
+      await pumpFrames(tester);
+      expect(find.text('本对话的权限'), findsOneWidget);
     });
   });
 
@@ -392,23 +338,6 @@ void goldens() {
         await tester.tap(find.text('权限'));
         await tester.pumpAndSettle();
         await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/plus_panel_permission_$suffix.png'));
-      });
-
-      testWidgets('permission pill ($suffix)', (tester) async {
-        usePhoneView(tester);
-        final harness = ChatHarness(newChatCatalogs: true, session: 's1');
-        await tester.pumpWidget(
-          testApp(
-            const ChatScreen(),
-            brightness: brightness,
-            overrides: [
-              ...harness.overrides,
-              ..._extra(modes: const SessionModes(preset: 'danger-full-access')),
-            ],
-          ),
-        );
-        await pumpFrames(tester);
-        await expectLater(find.byType(ChatScreen), matchesGoldenFile('goldens/permission_pill_$suffix.png'));
       });
     }
   });

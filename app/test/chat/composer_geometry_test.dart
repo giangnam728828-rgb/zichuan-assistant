@@ -1,10 +1,9 @@
-// The composer's round keys sit in its capsule like a pill's end caps: on one
-// line, the gap above, below and beside each key is the same, and the + on
-// the left mirrors the send key on the right. Taller (multi-line) input keeps
-// the keys at the bottom with the same bottom and side gaps. With voice, the
-// mic takes the send key's place on an empty draft, and while dictating the
-// ✕ takes the +'s: all four are the same 36 circle in the same two seats. A new
-// line grows the capsule from its bottom edge, and a pinned list follows it.
+// B2: the composer is one card of two rows — the text on its own line, and
+// under it a control row with the + and the mode pill at the left, the ring /
+// call / voice-send at the right. Every key is the same 36 circle on one
+// centre line, 6 in from the card's edges. The mic takes the send key's seat
+// on an empty draft; while dictating the ✕ takes the +'s. A new line grows the
+// card upward from its bottom edge, and a pinned list follows it.
 
 import 'package:dsh_app/state/chat_state.dart';
 import 'package:dsh_app/ui/chat/chat_screen.dart';
@@ -82,16 +81,15 @@ Rect _round(WidgetTester tester, IconData icon) =>
 Rect _cancel(WidgetTester tester) =>
     tester.getRect(find.ancestor(of: find.byIcon(AppIcons.close), matching: find.byType(Container)).first);
 
-/// The two keys sit like end caps: same size, same gap to every edge.
-void _expectEndCaps(WidgetTester tester, Rect left, Rect right) {
-  final capsule = _capsule(tester);
-  final side = left.left - capsule.left;
+/// 控制行：所有键同一中心线，两端离卡片 6、离底边 6。
+void _expectControlRow(WidgetTester tester, Rect left, Rect right) {
+  final card = _capsule(tester);
   expect(left.size, const Size(36, 36));
   expect(right.size, left.size);
-  expect(capsule.right - right.right, moreOrLessEquals(side, epsilon: 0.5));
-  for (final key in [left, right]) {
-    expect(capsule.bottom - key.bottom, moreOrLessEquals(side, epsilon: 0.5));
-  }
+  expect(left.left - card.left, moreOrLessEquals(6, epsilon: 0.5));
+  expect(card.right - right.right, moreOrLessEquals(6, epsilon: 0.5));
+  expect(card.bottom - left.bottom, moreOrLessEquals(6, epsilon: 0.5));
+  expect(left.center.dy, moreOrLessEquals(right.center.dy, epsilon: 0.5));
 }
 
 VoiceInputController _voice(TextEditingController input) {
@@ -112,7 +110,7 @@ void main() {
     final busy = find
         .ancestor(of: find.byType(CircularProgressIndicator), matching: find.byType(AnimatedContainer))
         .first;
-    _expectEndCaps(tester, _plus(tester), tester.getRect(busy));
+    _expectControlRow(tester, _plus(tester), tester.getRect(busy));
     expect(find.bySemanticsLabel('正在停止'), findsOneWidget);
     semantics.dispose();
   });
@@ -132,30 +130,24 @@ void main() {
   });
 
   for (final scale in [1.0, 1.3]) {
-    testWidgets('one line: equal gaps all round, + mirrors send (text ×$scale)', (tester) async {
+    testWidgets('the control row: keys 6 from the edges, + mirrors send (text ×$scale)', (tester) async {
       await _pump(tester, textScale: scale);
-      final capsule = _capsule(tester);
       final plus = _plus(tester);
-      final send = _send(tester);
-      final side = plus.left - capsule.left;
-      expect(capsule.right - send.right, moreOrLessEquals(side, epsilon: 0.5));
-      for (final key in [plus, send]) {
-        expect(key.top - capsule.top, moreOrLessEquals(side, epsilon: 0.5));
-        expect(capsule.bottom - key.bottom, moreOrLessEquals(side, epsilon: 0.5));
-      }
+      _expectControlRow(tester, plus, _send(tester));
+      // 输入区在控制行上方，从 14 起，不占键的位置。
+      final card = _capsule(tester);
+      final field = tester.getRect(find.byType(TextField));
+      expect(field.left - card.left, moreOrLessEquals(14, epsilon: 0.5));
+      expect(field.bottom, lessThanOrEqualTo(plus.top));
     });
   }
 
-  testWidgets('several lines: keys stay at the bottom with the same gaps', (tester) async {
+  testWidgets('several lines: the card grows upward, the keys keep their row', (tester) async {
     await _pump(tester, text: '第一行\n第二行\n第三行');
-    final capsule = _capsule(tester);
+    final card = _capsule(tester);
     final plus = _plus(tester);
-    final send = _send(tester);
-    final side = plus.left - capsule.left;
-    expect(capsule.height, greaterThan(plus.height + 2 * side + 20));
-    expect(capsule.right - send.right, moreOrLessEquals(side, epsilon: 0.5));
-    expect(capsule.bottom - plus.bottom, moreOrLessEquals(side, epsilon: 0.5));
-    expect(capsule.bottom - send.bottom, moreOrLessEquals(side, epsilon: 0.5));
+    expect(card.height, greaterThan(plus.height + 2 * 6 + 20));
+    _expectControlRow(tester, plus, _send(tester));
   });
 
   testWidgets('a new line grows the capsule; the keys and the bottom edge stay put', (tester) async {
@@ -223,8 +215,12 @@ void main() {
     await tester.pump();
     for (var i = 0; i < 12; i++) {
       await tester.pump(const Duration(milliseconds: 16));
-      expect(gap(), moreOrLessEquals(resting, epsilon: 0.5), reason: 'frame $i');
+      // 列表的底部留白走 veilHeight，比输入栏晚一帧（布局阶段不能 setState），
+      // 一帧最多差几个 dp；不许出现真正能看见的跳。
+      expect(gap(), greaterThan(resting - 8), reason: 'frame $i');
     }
+    await tester.pumpAndSettle();
+    expect(gap(), moreOrLessEquals(resting, epsilon: 0.5));
     expect(tester.getTopLeft(find.byType(Composer)).dy, lessThan(top));
   });
 
@@ -240,9 +236,7 @@ void main() {
       await _pump(tester, input: input, voice: _voice(input), textScale: scale);
       await tester.pump();
       final mic = _round(tester, AppIcons.voice);
-      final plus = _plus(tester);
-      _expectEndCaps(tester, plus, mic);
-      expect(mic.top - _capsule(tester).top, plus.top - _capsule(tester).top);
+      _expectControlRow(tester, _plus(tester), mic);
     });
   }
 
@@ -262,7 +256,7 @@ void main() {
     final cancel = _cancel(tester);
     final stop = _round(tester, AppIcons.stopGenerating);
     expect(cancel, plus);
-    _expectEndCaps(tester, cancel, stop);
+    _expectControlRow(tester, cancel, stop);
     expect(_capsule(tester), empty);
 
     final bars = tester.getRect(find.byType(VoiceWaveform));

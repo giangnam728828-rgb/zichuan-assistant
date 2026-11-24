@@ -115,8 +115,9 @@ import 'usage_sheet.dart';
 import 'voice/voice_controller.dart';
 import 'widgets/activity_strip.dart';
 import 'widgets/attachments.dart';
-import 'widgets/notice_row.dart';
+import 'widgets/composer_mode_pill.dart';
 import 'widgets/permission_pill.dart';
+import 'widgets/notice_row.dart';
 import 'widgets/plus_panel.dart';
 import 'widgets/quote_chip.dart';
 import 'widgets/read_only_bar.dart';
@@ -531,8 +532,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
 
   Timer? _composerToastWait;
 
-  /// A phone's composer opens into two rows while typing. A window too short for the
-  /// extra row keeps it on one: the model is on the side panel's 信息 there.
+  /// 手机上 (可能) 正在弹键盘：toast 因此多等一拍再出现。输入栏自 B2 起
+  /// 不论宽窄都是两行，这里只按窗口判断键盘会不会来。
   bool _composerOpens(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     return size.width < WindowClass.mediumMin && size.height >= WindowClass.compactHeight;
@@ -1812,19 +1813,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
     // messages stay in sight above the composer.
     final typing =
         MediaQuery.sizeOf(context).height < WindowClass.compactHeight && MediaQuery.viewInsetsOf(context).bottom > 0;
-    // 「自动允许中」/「完全权限」 ride on the bar right above the composer, not a
-    // row of their own: beside the activity strip while a reply generates, at
-    // the start of the capsule row otherwise. Their own row only where neither
-    // shows (read only; a phone on its side typing folds both away).
+    // 权限进了输入栏控制行的「模式」胶囊（B2），不再顶在输入栏上方；这里只
+    // 剩生成模式的胶囊（「图像 · 3:4 · 2 张」）。生成中权限仍由活动条旁边
+    // 的 _stripRisk 报一句，安全信息不进菜单。
     final running = chat?.running ?? false;
     final pillsBesideStrip = sessionId != null && running && !typing;
     final pillsInCapsules = !readOnly && !running && !typing;
-    final composerPills = _composerPills(
-      sessionId,
-      autoApprove: chat?.autoApprove ?? false,
-      generate: readOnly ? null : generate,
-      risk: !pillsBesideStrip,
-    );
+    final composerPills = _composerPills(readOnly ? null : generate);
     final headerHeight = typing ? MediaQuery.paddingOf(context).top + AppSpace.sm : ChatHeader.heightOf(context);
 
     Widget backdrop(Widget child) {
@@ -2243,6 +2238,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                     groupId: _composerGroup,
                                     // The page's context: Scaffold drops the keyboard inset below.
                                     maxLines: Composer.linesFor(context),
+                                    tight: Composer.tightFor(context),
                                     focusNode: _focus,
                                     connected: connected,
                                     running: chat?.running ?? false,
@@ -2281,13 +2277,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                     hasAttachments: _drafts.isNotEmpty,
                                     leading: AttachButton(onPressed: connected ? _attach : null),
                                     onCall: isChild ? null : _callFromHeader,
-                                    keyboardInset: MediaQuery.viewInsetsOf(context).bottom,
-                                    footer: _composerOpens(context) && !isChild
-                                        ? ComposerModelPill(
-                                            selection: sessionId == null ? pendingModel : chat?.model,
-                                            onSelected: _modelTarget(),
-                                          )
-                                        : null,
+                                    // B2：控制行左边的模式胶囊（新对话管预设与权限，
+                                    // 已有会话管权限）。
+                                    modePill: ComposerModePill(sessionId: sessionId),
                                     tray: ComposerTrayStack.maybe(
                                       quote: switch (quote) {
                                         final quote? => QuoteChip(
@@ -2328,39 +2320,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
     return UiTrace(scope: 'chat', child: screen);
   }
 
-  /// What sits on the composer's top-left edge: 「自动允许中 ×」 while this
-  /// client allows everything, else 「⚠ 完全权限 ›」 for a conversation looser
-  /// than 工作区内修改 (unless [risk] is false: they are beside the activity
-  /// strip), then the generation mode's capsule; nothing otherwise.
-  Widget? _composerPills(String? sessionId, {required bool autoApprove, GenerateParams? generate, bool risk = true}) {
-    final capsule = generate == null
-        ? null
-        : GenerateCapsule(params: generate, onTap: () => _openGenerateSheet(generate), onExit: _exitGenerate);
-    Widget? pill;
-    if (!risk) {
-      // Beside the activity strip ([_stripRisk]).
-    } else if (sessionId != null && autoApprove) {
-      pill = AutoApprovePill(onDisable: () => ref.read(chatProvider(sessionId).notifier).setAutoApprove(false));
-    } else if (sessionId != null) {
-      final risky = ref.watch(sessionModesProvider(sessionId).select((m) => m.risky ? m.preset : null));
-      if (risky != null) {
-        // Beside the mode capsule it shrinks to its ⚠ (§4.2).
-        pill = PermissionPill(
-          preset: risky,
-          compact: capsule != null,
-          onTap: () => unawaited(showPermissionSheet(context, sessionId)),
-        );
-      }
-    }
-    if (capsule == null) return pill;
-    if (pill == null) return capsule;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        pill,
-        const SizedBox(width: GenerateCapsuleMetrics.gap),
-        Flexible(child: capsule),
-      ],
+  /// 生成模式的胶囊（「图像 · 3:4 · 2 张」）；没在生成时 null。
+  Widget? _composerPills(GenerateParams? generate) {
+    if (generate == null) return null;
+    return GenerateCapsule(
+      params: generate,
+      onTap: () => _openGenerateSheet(generate),
+      onExit: _exitGenerate,
     );
   }
 

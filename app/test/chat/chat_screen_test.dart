@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show SemanticsAction;
 
+import 'package:dsh_app/ui/chat/model_sheet.dart' show ModelChip;
 import 'package:dsh_app/runtime/runtime_bridge.dart';
 import 'package:dsh_app/runtime/runtime_state.dart';
 import 'package:dsh_app/state/attachments.dart';
@@ -460,7 +461,7 @@ void main() {
       await tester.tap(find.byType(TextField));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
-      await tester.tap(find.byKey(const ValueKey('composer-model')));
+      await tester.tap(find.byType(ModelChip));
       await pumpFrames(tester, 4);
       expect(find.text('选择模型'), findsOneWidget);
       await tester.tap(find.text('V41 Flash'));

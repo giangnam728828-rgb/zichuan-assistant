@@ -5,8 +5,7 @@
 // send-options sheet. Regenerate with
 // `flutter test --update-goldens test/chat/chat_shell_test.dart`.
 
-import 'dart:math' as math;
-
+import 'package:dsh_app/ui/chat/model_sheet.dart' show ModelChip;
 import 'package:dsh_app/state/chat_state.dart';
 import 'package:dsh_app/ui/chat/chat_screen.dart';
 import 'package:dsh_app/ui/chat/composer.dart';
@@ -120,7 +119,7 @@ void main() {
     await tester.tap(find.byType(TextField));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.byKey(const ValueKey('composer-model')));
+    await tester.tap(find.byType(ModelChip));
     await pumpFrames(tester, 8);
     expect(find.text('思考深度'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -144,7 +143,7 @@ void main() {
       await tester.tap(find.byType(TextField));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
-      await tester.tap(find.byKey(const ValueKey('composer-model')));
+      await tester.tap(find.byType(ModelChip));
       await pumpFrames(tester, 6);
       expect(tester.takeException(), isNull);
       await tester.tap(find.text('V41 Flash'));
@@ -154,7 +153,11 @@ void main() {
       await pumpFrames(tester, 6);
       expect(tester.takeException(), isNull);
       expect(find.text('思考深度'), findsNothing, reason: 'closed at once');
-      expect(find.text('V41 Flash 不思考'), findsOneWidget);
+      // B1 起模型与深度都在顶栏胶囊里，深度跟一个「· 」。
+      expect(
+        find.descendant(of: find.byType(ModelChip), matching: find.textContaining('不思考')),
+        findsOneWidget,
+      );
 
       await tester.enterText(find.byType(TextField), '/');
       await pumpFrames(tester, 2);

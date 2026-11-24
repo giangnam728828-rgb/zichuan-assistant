@@ -3919,6 +3919,9 @@ class L10nZh extends L10n {
   String get chatComposerHint => '给 DSH 发消息…';
 
   @override
+  String get chatComposerMode => '模式';
+
+  @override
   String get chatStopGenerating => '停止生成';
 
   @override

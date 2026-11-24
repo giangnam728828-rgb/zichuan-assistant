@@ -7280,6 +7280,12 @@ abstract class L10n {
   /// **'给 DSH 发消息…'**
   String get chatComposerHint;
 
+  /// No description provided for @chatComposerMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'模式'**
+  String get chatComposerMode;
+
   /// No description provided for @chatStopGenerating.
   ///
   /// In zh, this message translates to:

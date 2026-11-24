@@ -51,11 +51,12 @@ Future<ProviderContainer> _pumpChat(WidgetTester tester) async {
 }
 
 void _expectCards(bool visible) {
-  expect(find.byType(SuggestionCards), visible ? findsOneWidget : findsNothing);
+  // B3：建议从 2×2 卡片改成一行 chip。
+  expect(find.byType(SuggestionChips), visible ? findsOneWidget : findsNothing);
   for (final suggestion in defaultSuggestions) {
     expect(find.text(suggestion.label), visible ? findsOneWidget : findsNothing);
   }
-  expect(find.byType(TipLine), findsOneWidget);
+  // B3：小技巧改成偶尔出现的一次性提示，不在「聊天建议」这条开关的契约里。
   expect(find.byType(NewChatOptions), findsOneWidget);
   expect(find.text(appL10n.viewEmptySubtitle), findsOneWidget);
 }

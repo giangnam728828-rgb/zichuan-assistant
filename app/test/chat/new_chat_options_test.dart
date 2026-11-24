@@ -74,8 +74,9 @@ Future<void> _pump(WidgetTester tester, ChatHarness harness, _Host host) async {
 ProviderContainer _container(WidgetTester tester) =>
     ProviderScope.containerOf(tester.element(find.byType(ChatScreen)), listen: false);
 
-Future<void> _pick(WidgetTester tester, String chip, String row) async {
-  await tester.tap(find.text(chip));
+/// B2：预设与权限都在输入栏的「模式」胶囊里，点开是一件表。
+Future<void> _pick(WidgetTester tester, String row) async {
+  await tester.tap(find.byKey(const ValueKey('composer-mode')));
   await pumpFrames(tester, 6);
   await tester.tap(find.text(row).last);
   await pumpFrames(tester, 6);
@@ -94,18 +95,19 @@ void main() {
     tipStart = (_) => 0;
   });
 
-  testWidgets('chips name the Host defaults; companion preset is not offered', (tester) async {
+  testWidgets('the mode pill names the Host default preset; companion is not offered', (tester) async {
     final host = _Host();
     await _pump(tester, ChatHarness(newChatCatalogs: true), host);
     expect(tester.takeException(), isNull);
-    expect(find.byKey(const ValueKey('new-chat-preset')), findsOneWidget);
+    // 预设写在胶囊上；权限在点开之后的同一张表里。
+    expect(find.byKey(const ValueKey('composer-mode')), findsOneWidget);
     expect(find.text('标准模式'), findsOneWidget);
-    expect(find.text('工作区内修改'), findsOneWidget);
 
-    await tester.tap(find.text('标准模式'));
+    await tester.tap(find.byKey(const ValueKey('composer-mode')));
     await pumpFrames(tester, 6);
-    expect(find.text('这次对话的预设'), findsOneWidget);
+    expect(find.text('模式'), findsWidgets);
     expect(find.text('极简模式'), findsOneWidget);
+    expect(find.text('仅可查看'), findsOneWidget);
     expect(find.text('Companion'), findsNothing);
   });
 
@@ -114,14 +116,15 @@ void main() {
     final harness = ChatHarness(created: 'fresh', newChatCatalogs: true);
     await _pump(tester, harness, host);
 
-    await _pick(tester, '标准模式', '极简模式');
-    await _pick(tester, '工作区内修改', '仅可查看');
+    await _pick(tester, '极简模式');
+    await _pick(tester, '仅可查看');
     expect(
       _container(tester).read(pendingNewChatModesProvider),
       const NewChatModes(preset: 'minimal', permission: 'read-only'),
     );
-    expect(find.text('极简模式'), findsOneWidget);
+    // 一枚胶囊只写得下一个名字：权限与工作区默认不同，安全信息优先。
     expect(find.text('仅可查看'), findsOneWidget);
+    expect(find.text('极简模式'), findsNothing);
     expect(host.calls('agentPresets/select'), isEmpty, reason: 'nothing is applied before a session exists');
 
     await _send(tester, '你好');
@@ -138,8 +141,8 @@ void main() {
     final host = _Host();
     final harness = ChatHarness(created: 'fresh', newChatCatalogs: true);
     await _pump(tester, harness, host);
-    await _pick(tester, '标准模式', '极简模式');
-    await _pick(tester, '极简模式', '标准模式');
+    await _pick(tester, '极简模式');
+    await _pick(tester, '标准模式');
     expect(_container(tester).read(pendingNewChatModesProvider).isEmpty, isTrue);
 
     await _send(tester, '你好');
@@ -154,8 +157,8 @@ void main() {
     final host = _Host()..failPermission = true;
     final harness = ChatHarness(created: 'fresh', newChatCatalogs: true);
     await _pump(tester, harness, host);
-    await _pick(tester, '标准模式', '极简模式');
-    await _pick(tester, '工作区内修改', '仅可查看');
+    await _pick(tester, '极简模式');
+    await _pick(tester, '仅可查看');
 
     await _send(tester, '你好');
     expect(harness.controllers['fresh']?.sent ?? const <String>[], isEmpty, reason: 'never under the default');
@@ -180,7 +183,7 @@ void main() {
     final host = _Host()..failPermission = true;
     final harness = ChatHarness(created: 'fresh', newChatCatalogs: true);
     await _pump(tester, harness, host);
-    await _pick(tester, '工作区内修改', '仅可查看');
+    await _pick(tester, '仅可查看');
     _container(tester).read(pendingModelProvider.notifier).select(_flash);
     await tester.pump();
 
@@ -204,7 +207,7 @@ void main() {
     addTearDown(() => SharedPreferences.setMockInitialValues({}));
     final host = _Host()..failPermission = true;
     await _pump(tester, ChatHarness(created: 'fresh', newChatCatalogs: true), host);
-    await _pick(tester, '工作区内修改', '仅可查看');
+    await _pick(tester, '仅可查看');
     await _send(tester, '你好');
     expect(host.calls('commands/execute'), hasLength(1));
     await tester.pump(const Duration(seconds: 5));
@@ -239,7 +242,7 @@ void main() {
     final host = _Host()..presets.add({'id': 'ptc'});
     final harness = ChatHarness(created: 'fresh', newChatCatalogs: true);
     await _pump(tester, harness, host);
-    await _pick(tester, '标准模式', '极简模式');
+    await _pick(tester, '极简模式');
     host.presets = [
       for (final preset in host.presets)
         if (preset['id'] != 'minimal') preset,

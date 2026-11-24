@@ -9,6 +9,7 @@ import 'package:dsh_app/state/attachments.dart' show sessionImageProvider;
 import 'package:dsh_app/state/chat_state.dart';
 import 'package:dsh_app/state/sessions_state.dart';
 import 'package:dsh_app/ui/chat/chat_screen.dart';
+import 'package:dsh_app/ui/chat/widgets/message_actions.dart';
 import 'package:dsh_app/ui/chat/widgets/assistant_message.dart';
 import 'package:dsh_app/ui/chat/widgets/quote_chip.dart';
 import 'package:dsh_app/ui/chat/widgets/user_bubble.dart';
@@ -69,6 +70,9 @@ List<String> _composerTexts(WidgetTester tester) => [
 ];
 
 Finder _lastReply() => find.byType(AssistantMessage).last;
+
+// 顶栏 B1 起也有一枚「更多」：消息行里的那枚要指名道姓地找。
+Finder _rowMore() => find.descendant(of: find.byType(ReplyActionRow), matching: find.byTooltip('更多'));
 
 void main() {
   setUpAll(loadTestFonts);
@@ -174,7 +178,7 @@ void main() {
 
   testWidgets('⋯ opens the same menu as a long-press', (tester) async {
     await _pump(tester);
-    await tester.tap(find.byTooltip('更多'));
+    await tester.tap(_rowMore());
     await pumpFrames(tester);
     for (final label in ['复制', '选择文字', '引用', '分享', '重新回答', '从这里分叉']) {
       expect(find.widgetWithText(SettingsTile, label), findsOneWidget);
@@ -185,7 +189,7 @@ void main() {
   group('引用', () {
     testWidgets('quote a reply, ask, and it goes as a blockquote', (tester) async {
       final harness = await _pump(tester);
-      await tester.tap(find.byTooltip('更多'));
+      await tester.tap(_rowMore());
       await pumpFrames(tester);
       await tester.tap(find.widgetWithText(SettingsTile, '引用'));
       await pumpFrames(tester);
@@ -216,7 +220,7 @@ void main() {
     testWidgets('a failed send gives the quote back as the chip', (tester) async {
       final harness = await _pump(tester);
       harness.controllers['s1']!.sendResult = Future.value(false);
-      await tester.tap(find.byTooltip('更多'));
+      await tester.tap(_rowMore());
       await pumpFrames(tester);
       await tester.tap(find.widgetWithText(SettingsTile, '引用'));
       await pumpFrames(tester);
@@ -275,7 +279,7 @@ void main() {
   testWidgets('the row: ↻ and ⋯ are the same 36 keys, in one line', (tester) async {
     await _pump(tester);
     Rect key(String tooltip) =>
-        tester.getRect(find.ancestor(of: find.byTooltip(tooltip), matching: find.byType(IconButton)).first);
+        tester.getRect(find.ancestor(of: find.descendant(of: find.byType(ReplyActionRow), matching: find.byTooltip(tooltip)), matching: find.byType(IconButton)).first);
     final copy = key('复制');
     final branch = key('从这里分叉');
     final regenerate = key('重新回答');

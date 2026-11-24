@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dsh_app/ui/chat/model_sheet.dart' show ModelChip;
 import 'package:dsh_app/state/attachments.dart';
 import 'package:dsh_app/state/chat_state.dart';
 import 'package:dsh_app/state/hosts_state.dart';
@@ -293,7 +294,7 @@ void main() {
       await tester.tap(find.byType(TextField));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
-      await tester.tap(find.byKey(const ValueKey('composer-model')));
+      await tester.tap(find.byType(ModelChip));
       await pumpFrames(tester, 4);
       expect(find.text('选择模型'), findsOneWidget);
 

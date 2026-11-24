@@ -14,6 +14,7 @@ import 'package:dsh_app/state/settings_state.dart';
 import 'package:dsh_app/state/usage_state.dart';
 import 'package:dsh_app/ui/chat/chat_screen.dart';
 import 'package:dsh_app/ui/chat/diff_page.dart';
+import 'package:dsh_app/ui/chat/empty_actions.dart';
 import 'package:dsh_app/ui/chat/empty_state.dart';
 import 'package:dsh_app/ui/chat/slash_palette.dart';
 import 'package:dsh_app/ui/chat/turn_summary.dart';
@@ -171,6 +172,9 @@ void main() {
     await loadTestFonts();
     await WhaleSprites.load();
     chatClock = () => DateTime(2026, 10, 23, 15, 20);
+    // 空状态那行提示是从一组里抽的：金标要的是同一句。
+    emptyTipsRoll = () => true;
+    tipStart = (_) => 0;
   });
 
   group('behaviour', () {
@@ -419,7 +423,7 @@ void main() {
       await tester.tap(find.byType(TextField));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
-      await tester.tap(find.byKey(const ValueKey('composer-model')));
+      await tester.tap(find.byType(ModelChip));
       await pumpFrames(tester, 8);
       expect(find.text('需要 API Key'), findsOneWidget);
       expect(find.text('填写 API Key'), findsOneWidget);
@@ -484,7 +488,7 @@ void main() {
         await tester.tap(find.byType(TextField));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
-        await tester.tap(find.byKey(const ValueKey('composer-model')));
+        await tester.tap(find.byType(ModelChip));
         await pumpFrames(tester, 10);
         await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/model_sheet_$suffix.png'));
       });
@@ -501,7 +505,7 @@ void main() {
         await tester.tap(find.byType(TextField));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
-        await tester.tap(find.byKey(const ValueKey('composer-model')));
+        await tester.tap(find.byType(ModelChip));
         await pumpFrames(tester, 10);
         await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/model_empty_$suffix.png'));
       });

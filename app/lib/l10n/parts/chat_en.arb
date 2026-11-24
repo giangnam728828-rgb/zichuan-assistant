@@ -61,6 +61,7 @@
   "chatConnectToSend": "Connect to the engine to send",
   "chatGeneratingSteerHint": "Generating · Type to steer",
   "chatComposerHint": "Message DSH…",
+  "chatComposerMode": "Mode",
   "chatStopGenerating": "Stop generating",
   "chatVoiceInput": "Voice input",
   "chatStopVoiceInput": "Stop voice input",
