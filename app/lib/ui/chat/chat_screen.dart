@@ -96,6 +96,7 @@ import 'balance_widgets.dart';
 import 'chat_header.dart';
 import 'chat_list.dart';
 import 'composer.dart';
+import '../council/council_page.dart';
 import 'composer_toast.dart';
 import 'dock/chat_dock.dart';
 import 'dock/dock_stack.dart';
@@ -2282,6 +2283,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                     // B2：控制行左边的模式胶囊（新对话管预设与权限，
                                     // 已有会话管权限）。
                                     modePill: ComposerModePill(sessionId: sessionId),
+                                    // C 线入口：议会（多模型一起答，主席综合）。
+                                    councilKey: isChild
+                                        ? null
+                                        : IconButton(
+                                            key: const ValueKey('composer-council'),
+                                            tooltip: '议会',
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                                            style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                                            icon: const Icon(Icons.groups_outlined, size: 20),
+                                            onPressed: () => Navigator.of(context).push(
+                                              MaterialPageRoute<void>(builder: (_) => const CouncilPage()),
+                                            ),
+                                          ),
                                     // B5：模型键跟着输入栏，显示当前模型是哪一家。
                                     modelKey: isChild
                                         ? null

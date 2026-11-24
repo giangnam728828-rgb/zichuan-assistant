@@ -119,6 +119,9 @@ final class CollabOrchestrator {
   /// 状态流转流：每次落盘成功后发一份新快照，界面只订阅它。
   Stream<CollabRun> get events => _events.stream;
 
+  /// 落盘仓库（界面用它捡回未完成的运行）。
+  CollabStore get store => _store;
+
   /// 提交议题：校验 → 落盘 → 后台驱动。返回初始快照。
   Future<CollabRun> submit(CouncilSpec spec) async {
     _validate(spec);

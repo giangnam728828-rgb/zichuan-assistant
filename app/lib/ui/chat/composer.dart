@@ -58,6 +58,7 @@ class Composer extends StatefulWidget {
     this.leading,
     this.modePill,
     this.modelKey,
+    this.councilKey,
     this.tray,
     this.hasAttachments = false,
     this.onSendOptions,
@@ -163,6 +164,9 @@ class Composer extends StatefulWidget {
   /// 控制行右侧的模型键：当前模型所属厂商的图标，点开模型选择。
   /// 顶栏不再放模型名（B5），选择入口跟着输入栏走。
   final Widget? modelKey;
+
+  /// 控制行的议会键（C 线入口）：多个模型一起答，主席综合。
+  final Widget? councilKey;
 
   /// 连一张完整的卡片都放不下时（横屏叠着键盘、分屏），把上留白与行距
   /// 各收紧一点：文字才落得到状态栏之下，对话也还露得出来。
@@ -525,6 +529,7 @@ class _ComposerState extends State<Composer> {
                   ),
                 ),
                 if (accessory != null) ...[accessory, const SizedBox(width: 2)],
+                if (widget.councilKey case final key?) ...[key, const SizedBox(width: _keyGap)],
                 if (widget.modelKey case final key?) ...[key, const SizedBox(width: _keyGap)],
                 if (!dictating && widget.onCall != null) ...[
                   _CallKey(onTap: widget.onCall!),
