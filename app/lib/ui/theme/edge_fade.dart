@@ -48,12 +48,15 @@ class EdgeFade extends ConsumerWidget {
   /// 高对比度时渐隐缩短到这个长度。
   static const highContrastFade = 12.0;
 
-  /// 底部渐隐在输入栏高度之外再留的长度(32dp)。
-  static const _bottomTail = 32.0;
+  /// 底部渐隐在输入栏高度之外再留的长度(48dp)。短尾(32)时透明度在
+  /// 中间段骤降，看起来仍像一条带子；拉长后是连续的「慢慢没了」。
+  static const _bottomTail = 48.0;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final lightweight = ref.watch(performanceDefaultsProvider.select((p) => p.lightweight));
+    // 玻璃关掉（低端机 / 用户选了轻量）才走盖色降级；发热不再单方面关玻璃，
+    // 否则这里会跟着变成一整块色带。
+    final lightweight = ref.watch(performanceDefaultsProvider.select((p) => !p.blur));
     final highContrast = MediaQuery.maybeHighContrastOf(context) ?? false;
     return ValueListenableBuilder<double>(
       valueListenable: bottom,
@@ -80,7 +83,7 @@ class EdgeFade extends ConsumerWidget {
 }
 
 /// 每段渐隐的采样点数(3 个以上,两端缓动)。
-const _samples = 8;
+const _samples = 12;
 
 /// 顶 / 底两段缓动渐隐合成的一条线性渐变。中间保持不透明,两端沿
 /// easeInOutCubic 淡出,不出现线性硬切的折痕。顶部前 [topHold] 一段保持全透明。
@@ -108,7 +111,9 @@ Shader _fadeShader(Size size, double topFade, double bottomFade, double topHold)
     }
     for (var i = hold > 0 ? 1 : 0; i <= _samples; i++) {
       final t = i / _samples;
-      colors.add(Colors.white.withValues(alpha: Curves.easeInOutCubic.transform(t)));
+      // 正弦缓动比 cubic 平缓：透明度均匀铺满整段，不会在中间出现一条
+      // 「突然变淡」的带子。
+      colors.add(Colors.white.withValues(alpha: Curves.easeInOutSine.transform(t)));
       stops.add(hold + (end - hold) * t);
     }
     if (mid != null) {
@@ -129,7 +134,7 @@ Shader _fadeShader(Size size, double topFade, double bottomFade, double topHold)
     }
     for (var i = 0; i <= _samples; i++) {
       final t = i / _samples;
-      colors.add(Colors.white.withValues(alpha: 1.0 - Curves.easeInOutCubic.transform(t)));
+      colors.add(Colors.white.withValues(alpha: 1.0 - Curves.easeInOutSine.transform(t)));
       stops.add(start + (1.0 - start) * t);
     }
   } else {

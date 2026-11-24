@@ -222,7 +222,9 @@ class _AppPageState extends State<AppPage> {
                   // Only once content is under the bar: at rest it would just
                   // tint the glow.
                   builder: (context, offset, child) => Opacity(opacity: (offset / 24).clamp(0.0, 1.0), child: child),
-                  child: widget.solidBar ? BackdropVeil.top(height: top, feather: 12) : TopFade(height: top + 12),
+                  child: widget.solidBar
+                      ? BackdropVeil.top(height: top, feather: 32)
+                      : TopFade(height: top + 40, feather: 40),
                 ),
               ),
               Positioned(

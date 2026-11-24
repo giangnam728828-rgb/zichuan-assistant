@@ -112,7 +112,7 @@ Future<ChatHarness> _openSheet(
   await tester.tap(find.byType(TextField));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 500));
-  await tester.tap(find.byType(ModelChip));
+  await tester.tap(find.byKey(const ValueKey('composer-model')));
   await pumpFrames(tester, 8);
   return harness;
 }
@@ -293,8 +293,10 @@ void main() {
       expect(find.text('思考深度'), findsOneWidget, reason: 'thumb first');
       await pumpFrames(tester, 8);
       expect(find.text('思考深度'), findsNothing);
-      // B1 起模型在顶栏胶囊里：「V4 Pro」旁边跟「· 最高」。
-      expect(find.descendant(of: find.byType(ModelChip), matching: find.textContaining('最高')), findsOneWidget);
+      // B5 起模型键只画厂商标记：深度读在语义里（「模型：V4 Pro，思考深度最高」）。
+      final semantics = tester.ensureSemantics();
+      expect(find.bySemanticsLabel('模型：V4 Pro，思考深度最高'), findsOneWidget);
+      semantics.dispose();
     });
 
     testWidgets('cards read as selectable buttons to a screen reader', (tester) async {

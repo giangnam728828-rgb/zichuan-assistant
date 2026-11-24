@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See THIRD_PARTY_NOTICES.md.
 // Local changes: chrome-tier glass with a 28 radius; a solid primary send
-// key; model picking lives in the header chip; one send action, since DSH
-// queues prompts sent mid-turn.
+// key; model picking is the brand mark in the control row; one send action,
+// since DSH queues prompts sent mid-turn.
 
 import 'dart:math' as math;
 
@@ -30,13 +30,13 @@ const _lineHeight = 1.45;
 /// ```
 /// ╭──────────────────────────────────────╮
 /// │  给 DSH 发消息…                       │
-/// │  (+) ( ⚒ 标准模式 ⌄ )      (◔) (☎) (🎙)│
+/// │  (+) ( ⚒ 标准模式 ⌄ )   (品牌图标) (☎) (🎙)│
 /// ╰──────────────────────────────────────╯
 /// ```
 ///
-/// 卡片是半透明的实心底（不做真模糊）+ 1px 边线 + float 圆角 + 外投影，
-/// 生成中沿边一层强调色流光（[_ThinkingEdge]）。键盘弹起不再改形状，只是
-/// 增高，所以没有要跟着动的展开动画。
+/// 卡片是同一色调的「磨砂纸」实心底（不做真模糊、不透字）+ 1px 边线 +
+/// float 圆角 + 外投影，生成中沿边一层强调色流光（[_ThinkingEdge]）。
+/// 键盘弹起不再改形状，只是增高，所以没有要跟着动的展开动画。
 ///
 /// 语音([voice]):草稿为空时最右是麦克风(和 ＋ 键同样的淡底圆)，有字时与
 /// 发送键 120ms 交叉淡入;听写时 ＋ 换成 ✕(取消)、发送键换成主色的停止键,
@@ -57,6 +57,7 @@ class Composer extends StatefulWidget {
     this.accessory,
     this.leading,
     this.modePill,
+    this.modelKey,
     this.tray,
     this.hasAttachments = false,
     this.onSendOptions,
@@ -158,6 +159,10 @@ class Composer extends StatefulWidget {
   /// 控制行左边的「模式」胶囊（B2）：新对话管预设与权限，已有会话管权限。
   /// 由页面接线（composer_mode_pill.dart），这里只负责摆。
   final Widget? modePill;
+
+  /// 控制行右侧的模型键：当前模型所属厂商的图标，点开模型选择。
+  /// 顶栏不再放模型名（B5），选择入口跟着输入栏走。
+  final Widget? modelKey;
 
   /// 连一张完整的卡片都放不下时（横屏叠着键盘、分屏），把上留白与行距
   /// 各收紧一点：文字才落得到状态栏之下，对话也还露得出来。
@@ -520,6 +525,7 @@ class _ComposerState extends State<Composer> {
                   ),
                 ),
                 if (accessory != null) ...[accessory, const SizedBox(width: 2)],
+                if (widget.modelKey case final key?) ...[key, const SizedBox(width: _keyGap)],
                 if (!dictating && widget.onCall != null) ...[
                   _CallKey(onTap: widget.onCall!),
                   const SizedBox(width: _keyGap),
@@ -595,7 +601,7 @@ class _ComposerState extends State<Composer> {
   }
 }
 
-/// 输入条的底（B2）：半透明的实心填充 + 1px 边线 + float 圆角 + 外投影，
+/// 输入条的底（B2）：不透明的磨砂纸填充 + 1px 边线 + float 圆角 + 外投影，
 /// 不做真模糊——它天天在眼前，省掉一层 BackdropFilter，滚动更稳。
 class _ComposerCard extends StatelessWidget {
   const _ComposerCard({required this.thinking, required this.child});
@@ -612,8 +618,10 @@ class _ComposerCard extends StatelessWidget {
       tier: GlassTier.chrome,
       borderRadius: AppShape.radiusFloat,
       style: GlassStyle(
-        // 玻璃的填充色，但不模糊：透出来的是实色，不是毛玻璃。
-        fill: chrome.fill,
+        // 不模糊：用与 chrome 同一个不透明「磨砂纸」色。之前用 70% 的填充，
+        // 底下的正文会直接透上来（用户看到的「透一点点字」）；换成不透明的
+        // 同一色调，既不白成一块，也不透字。
+        fill: chrome.fallbackFill,
         fallbackFill: chrome.fallbackFill,
         hairline: chrome.hairline,
         rim: const Color(0x00000000),

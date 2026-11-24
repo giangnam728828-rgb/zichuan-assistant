@@ -9,7 +9,6 @@ import 'package:dsh_app/state/new_chat_modes.dart';
 import 'package:dsh_app/state/features_state.dart' show PermissionOption, PermissionState, agentPresetsProvider;
 import 'package:dsh_app/ui/chat/chat_screen.dart';
 import 'package:dsh_app/ui/chat/empty_actions.dart';
-import 'package:dsh_app/ui/chat/model_sheet.dart' show ModelChip;
 import 'package:dsh_app/ui/chat/new_chat_options.dart';
 import 'package:dsh_app/ui/theme/app_icons.dart';
 import 'package:dsh_client/dsh_client.dart';
@@ -256,15 +255,17 @@ void main() {
     expect(harness.controllers['fresh']!.sent, ['你好']);
   });
 
-  testWidgets('the model is picked from the header before typing and goes with the first message', (tester) async {
+  testWidgets('the model is picked from the composer before typing and goes with the first message', (tester) async {
     final host = _Host();
     final harness = ChatHarness(created: 'fresh', newChatCatalogs: true);
     await _pump(tester, harness, host);
-    // On a phone too: the new chat's header has room for the model chip.
-    expect(find.byType(ModelChip), findsOneWidget);
+    // The model entry is the brand mark in the composer's control row (B5):
+    // the header keeps out of it on every form factor.
+    final mark = find.byKey(const ValueKey('composer-model'));
+    expect(mark, findsOneWidget);
     expect(find.byKey(const ValueKey('new-chat-model')), findsNothing);
 
-    await tester.tap(find.byType(ModelChip));
+    await tester.tap(mark);
     await pumpFrames(tester, 6);
     expect(find.text('选择模型'), findsOneWidget);
     await tester.tap(find.text('V41 Flash'));
@@ -272,7 +273,9 @@ void main() {
     expect(_container(tester).read(pendingModelProvider)?.model, 'deepseek-flash');
     await tester.tapAt(const Offset(20, 120)); // dismiss the sheet
     await pumpFrames(tester, 4);
-    expect(find.descendant(of: find.byType(ModelChip), matching: find.textContaining('V41 Flash')), findsOneWidget);
+    // The mark is an icon, the pick reads out: the label carries the model.
+    expect(find.descendant(of: mark, matching: find.textContaining('V41 Flash')), findsNothing);
+    expect(tester.getSemantics(mark).label, contains('V41 Flash'));
 
     await _send(tester, '你好');
     expect(harness.controllers['fresh']!.models.single.model, 'deepseek-flash');

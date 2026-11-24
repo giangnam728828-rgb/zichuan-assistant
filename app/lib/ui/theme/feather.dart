@@ -18,7 +18,7 @@ LinearGradient featherFade({
   final stops = <double>[0, solid];
   for (var i = 1; i <= samples; i++) {
     final t = i / samples;
-    final keep = 1 - Curves.easeInOutCubic.transform(t);
+    final keep = 1 - Curves.easeInOutSine.transform(t);
     colors.add(color.withValues(alpha: color.a * keep));
     stops.add(solid + (1 - solid) * t);
   }
@@ -33,14 +33,18 @@ LinearGradient featherFade({
 /// Callers fade it in only once content has scrolled under the bar, so at rest
 /// the page is one uninterrupted surface.
 class TopFade extends StatelessWidget {
-  const TopFade({super.key, required this.height});
+  const TopFade({super.key, required this.height, this.feather = 16});
 
   final double height;
+
+  /// 羽化长度：末端从实色收到全透明的距离。默认 16；二级页顶栏传更长的
+  /// 尾巴（32–40），内容滚到下面时是「慢慢没了」，不是被一条带子截断。
+  final double feather;
 
   @override
   Widget build(BuildContext context) => SizedBox(
     height: height,
     width: double.infinity,
-    child: BackdropVeil.top(height: height - 16, feather: 16),
+    child: BackdropVeil.top(height: height - feather, feather: feather),
   );
 }

@@ -58,14 +58,13 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
     }
 
-    testWidgets('on a phone the title and the model share the line', (tester) async {
+    testWidgets('on a phone the model lives in the composer, the title owns the line', (tester) async {
       await screen(tester, const Size(390, 844));
-      // B1：模型名是一枚无底色的文字按钮，手机上也有它的位置；标题在它左边。
-      expect(find.byType(ModelChip), findsOneWidget);
-      expect(find.descendant(of: find.byType(ChatHeader), matching: find.textContaining('V4 Pro')), findsOneWidget);
+      // B5：模型名不再进顶栏；输入栏控制行放品牌标记，顶栏只有标题与键。
+      expect(find.byType(ModelChip), findsNothing);
+      expect(find.byKey(const ValueKey('composer-model')), findsOneWidget);
       final title = tester.getRect(find.byKey(const ValueKey('chat-title-pill')));
-      final chip = tester.getRect(find.byType(ModelChip));
-      expect(chip.left, greaterThanOrEqualTo(title.right), reason: '标题与模型名不重叠');
+      expect(title.right, lessThanOrEqualTo(tester.getRect(find.byType(ChatHeader)).right), reason: '标题仍在栏内');
       // 「伙伴」收进了 ⋯（B1），顶栏不再有常驻的 chat-companion。
       expect(find.byKey(const ValueKey('chat-companion')), findsNothing);
       expect(find.byKey(const ValueKey('chat-more')), findsOneWidget);
@@ -102,13 +101,13 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('a wide window keeps its chip', (tester) async {
+    testWidgets('a wide window keeps the model in the composer too', (tester) async {
       await screen(tester, const Size(900, 800));
-      expect(find.byType(ModelChip), findsOneWidget);
+      expect(find.byType(ModelChip), findsNothing);
       await tester.tap(find.byType(TextField));
       await tester.pumpAndSettle();
-      // B1 起模型只在顶栏；输入栏里没有第二枚模型键。
-      expect(find.byKey(const ValueKey('composer-model')), findsNothing);
+      // B5 起模型只在输入栏；顶栏里没有第二枚模型键。
+      expect(find.byKey(const ValueKey('composer-model')), findsOneWidget);
       expect(find.byKey(const ValueKey('composer-mode')), findsOneWidget);
     });
   });

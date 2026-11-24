@@ -118,17 +118,19 @@ class PerformanceDefaults {
   });
 
   factory PerformanceDefaults.resolve(PerformanceSnapshot snapshot, PerformancePrefs prefs) {
-    final light =
-        snapshot.thermalLightweight ||
-        switch (prefs.mode) {
-          PerformanceMode.auto => snapshot.tier == DeviceTier.low,
-          PerformanceMode.full => false,
-          PerformanceMode.light => true,
-        };
+    // 设备档位（用户选的档 / 自动判定的低端机）——决定玻璃。
+    final low = switch (prefs.mode) {
+      PerformanceMode.auto => snapshot.tier == DeviceTier.low,
+      PerformanceMode.full => false,
+      PerformanceMode.light => true,
+    };
+    // 发热降级只降动效与后台驻留：模糊是一次静态采样，关掉它只会让输入栏、
+    // 底栏忽然变成不透明白块（观感像 bug），省不下多少电。
+    final light = snapshot.thermalLightweight || low;
     final reduceMotion = !(prefs.animations ?? !light);
     return PerformanceDefaults(
       lightweight: light,
-      blur: prefs.blur ?? !light,
+      blur: prefs.blur ?? !low,
       reduceMotion: reduceMotion,
       fluidMotion: !reduceMotion && (prefs.fluid ?? !light),
       // 陀螺仪光斑：低端机与减动效默认关（方案要求），用户可以单独打开。

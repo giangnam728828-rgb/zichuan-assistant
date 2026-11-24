@@ -160,6 +160,11 @@ class DshSurfaces extends ThemeExtension<DshSurfaces> {
     final n = NeutralTones.forAccent(accent);
     final ink = n.shadowInk;
     const white = Color(0xFFFFFFFF);
+    // 玻璃填充：一层淡紫白。模糊关掉时不再退回近乎纯白（用户看到的是
+    // 「一会儿白块一会儿彩色」），而是把这层填充压在不透明底色上——颜色
+    // 与真模糊时一致，字也不会从底下透上来。
+    final chromeFill = Color.lerp(white, accent.seed, 0.10)!.withValues(alpha: 0.70);
+    final chromeSolid = Color.alphaBlend(chromeFill, n.mistLowest);
     return DshSurfaces(
       backdropTop: n.mistTop,
       backdropBottom: n.mistBottom,
@@ -174,8 +179,8 @@ class DshSurfaces extends ThemeExtension<DshSurfaces> {
       // 川水:仅 chrome / sheet 两档真模糊,模糊 σ=20;填充按主色紫染
       // (浅 14% / 深 18%),让玻璃透出一点知川紫而不是纯白块。
       chrome: GlassStyle(
-        fill: Color.lerp(white, accent.seed, 0.10)!.withValues(alpha: 0.70),
-        fallbackFill: n.mistLowest.withValues(alpha: 0.96),
+        fill: chromeFill,
+        fallbackFill: chromeSolid,
         hairline: ink.withValues(alpha: 0.08),
         rim: white.withValues(alpha: 0.85),
         blurSigma: 20,
@@ -218,6 +223,8 @@ class DshSurfaces extends ThemeExtension<DshSurfaces> {
     const black = Color(0xFF000000);
     // 雾蓝里是 OKLCH(0.30, 0.022, 266):比页面高一档的石板灰。
     final smoke = n.smoke;
+    final chromeFill = Color.lerp(smoke, accent.seedDark, 0.14)!.withValues(alpha: 0.72);
+    final chromeSolid = Color.alphaBlend(chromeFill, smoke);
     return DshSurfaces(
       backdropTop: n.nightTop,
       backdropBottom: n.nightBottom,
@@ -229,8 +236,8 @@ class DshSurfaces extends ThemeExtension<DshSurfaces> {
       accent: accent,
       blurEnabled: blurEnabled,
       chrome: GlassStyle(
-        fill: Color.lerp(smoke, accent.seedDark, 0.14)!.withValues(alpha: 0.72),
-        fallbackFill: smoke.withValues(alpha: 0.97),
+        fill: chromeFill,
+        fallbackFill: chromeSolid,
         hairline: white.withValues(alpha: 0.09),
         rim: white.withValues(alpha: 0.12),
         blurSigma: 20,

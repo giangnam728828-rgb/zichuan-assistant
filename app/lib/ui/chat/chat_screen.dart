@@ -108,6 +108,7 @@ import 'media/media_format.dart' show chatTitleShown;
 import 'mention/mention_controller.dart';
 import 'mention/mention_picker.dart';
 import 'mention/mention_text_controller.dart';
+import 'model_brand_mark.dart';
 import 'model_sheet.dart';
 import 'slash_palette.dart';
 import 'trajectory_sheet.dart';
@@ -1691,6 +1692,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
             sessionsProvider.select((async) => async.value?.where((s) => s.sessionId == sessionId).firstOrNull?.title),
           );
     final pendingModel = ref.watch(pendingModelProvider);
+    // 模型选择搬进输入栏后，这里只在页面里取一次「当前生效的模型」：
+    // 顶栏不再显示模型名，输入栏的模型键用它选厂商标记与读屏文案。
+    final modelCatalog = ref.watch(currentModelCatalogProvider);
+    final modelSelection = sessionId == null ? pendingModel : chat?.model;
+    final effectiveModel = modelSelection ?? modelCatalog?.defaultSelection;
+    final modelName = modelShortName(effectiveModel, modelCatalog);
     final newFolder = sessionId == null
         ? ref.watch(drawerViewProvider).byId(ref.watch(pendingSessionFolderProvider))
         : null;
@@ -1913,10 +1920,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                               child: FluidFadeIn(
                                 key: ValueKey(sessionId),
                                 child: EdgeFade(
-                                  // 顶部渐隐长度 = 状态栏 + 顶栏 + 24dp(headerHeight 已含 8dp)。
-                                  top: headerHeight + 16,
+                                  // 顶部渐隐长度 = 状态栏 + 顶栏 + 48dp(headerHeight 已含 8dp)。
+                                  // 原来只留 16dp 的尾巴，透明度在这么短的距离里走完，
+                                  // 看着仍像一条带子；拉长到 48dp 才是「字慢慢没了」。
+                                  top: headerHeight + 48,
                                   // B1 的顶栏没有胶囊了:顶栏那一段压到全透明,
-                                  // 消息只在顶栏底边以下的 16dp 里淡入。
+                                  // 消息只在顶栏底边以下 48dp 里淡入。
                                   topHold: headerHeight,
                                   bottom: _veilHeight,
                                   child: ChatList(
@@ -1981,17 +1990,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                         onTitleTap: sessionId == null
                             ? null
                             : () => SessionDetailPage.open(context, sessionId, toggle: true),
-                        // B1：模型名是一枚无底色的文字按钮，手机上也有位置放
-                        // 了（原来窄屏靠输入栏脚下的模型键，顶栏留给标题）。
-                        // 子代理对话没有模型 chip：它的模型由上级路由。
-                        trailing: isChild
-                            ? null
-                            : ModelChip(
-                                selection: sessionId == null ? pendingModel : chat?.model,
-                                onSelected: _modelTarget(),
-                                grouped: true,
-                                bare: true,
-                              ),
+                        // B5：模型选择搬进输入栏（控制行的厂商图标），顶栏
+                        // 不再占一格写模型名，标题拿回整行宽度。子代理对话
+                        // 本来就没有模型 chip：它的模型由上级路由。
+                        trailing: null,
                       ),
                     ),
                   ),
@@ -2280,6 +2282,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                     // B2：控制行左边的模式胶囊（新对话管预设与权限，
                                     // 已有会话管权限）。
                                     modePill: ComposerModePill(sessionId: sessionId),
+                                    // B5：模型键跟着输入栏，显示当前模型是哪一家。
+                                    modelKey: isChild
+                                        ? null
+                                        : ModelBrandMark(
+                                            key: const ValueKey('composer-model'),
+                                            brand: brandOf(effectiveModel?.provider, modelName),
+                                            semanticLabel: [
+                                              l10n.viewModelLabel(modelName),
+                                              if (effectiveModel?.reasoningEffort case final effort?)
+                                                l10n.viewModelEffortLabel(effortLabel(effort)),
+                                            ].join(l10n.viewListSeparator),
+                                            onTap: () => unawaited(_showModelSheet()),
+                                          ),
                                     tray: ComposerTrayStack.maybe(
                                       quote: switch (quote) {
                                         final quote? => QuoteChip(

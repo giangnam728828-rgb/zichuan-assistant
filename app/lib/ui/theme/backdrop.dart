@@ -184,8 +184,10 @@ class BackdropVeil extends StatelessWidget {
           backdrop: _BackdropPainter(
             top: s.backdropTop,
             bottom: s.backdropBottom,
-            glowPrimary: glow ? s.glowPrimary : null,
-            glowSecondary: glow ? s.glowSecondary : null,
+            // 与 AppBackdrop 的静态光晕保持一致（那边同样减半）。不减的话
+            // 遮罩带比真背景亮一档，边缘一眼就看得出「一块」。
+            glowPrimary: glow ? s.glowPrimary.withValues(alpha: s.glowPrimary.a * 0.5) : null,
+            glowSecondary: glow ? s.glowSecondary.withValues(alpha: s.glowSecondary.a * 0.5) : null,
             area: frame?.area ?? MediaQuery.sizeOf(context),
             origin: frame?.origin ?? Offset.zero,
             picture: _BackdropScope.of(context),
@@ -245,7 +247,7 @@ class _VeilPainter extends CustomPainter {
     for (var i = 0; i <= samples; i++) {
       final t = i / samples;
       stops.add(fromTop ? 1 - fade + fade * t : fade * t);
-      final alpha = Curves.easeInOutCubic.transform(t);
+      final alpha = Curves.easeInOutSine.transform(t);
       colors.add(Colors.black.withValues(alpha: fromTop ? 1 - alpha : alpha));
     }
     if (!fromTop) {

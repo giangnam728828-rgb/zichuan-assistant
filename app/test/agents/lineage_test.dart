@@ -183,6 +183,8 @@ void main() {
       expect(find.text('修复登录重复提交'), findsOneWidget);
       expect(find.descendant(of: find.byType(ChatHeader), matching: find.text('审查改动')), findsOneWidget);
       expect(find.byType(ModelChip), findsNothing);
+      // B5：模型选择在输入栏，子代理同样没有这枚键。
+      expect(find.byKey(const ValueKey('composer-model')), findsNothing);
       // 「‹ 上级对话」 replaces ≡, so there is no 新对话 key to mirror it.
       expect(find.byKey(const ValueKey('chat-new-chat')), findsNothing);
       // Its own child is one ⋯ away.
@@ -220,16 +222,14 @@ void main() {
       final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
       final more = tester.getRect(find.byKey(const ValueKey('chat-more')));
       final newChat = tester.getRect(find.byKey(const ValueKey('chat-new-chat')));
-      final chip = tester.getRect(find.byType(ModelChip));
       final title = tester.getRect(find.ancestor(of: find.text('修复登录重复提交'), matching: find.byType(GlassSurface)).first);
-      // ⋯ ends 12 in from the edge; 新对话 and the model name stand a gap
-      // apart, all on the title's line.
+      // ⋯ ends 12 in from the edge; 新对话 stands a gap apart, on the title's line.
+      // B5 把模型名搬进输入栏后，顶栏不再为它让位。
       expect(more.size, const Size.square(44));
       expect(width - more.right, closeTo(12, 0.01));
       expect(newChat.right, closeTo(more.left - 8, 0.01));
-      expect(chip.right, closeTo(newChat.left - 8, 0.01));
-      expect(title.right, lessThanOrEqualTo(chip.left - 8 + 0.01));
-      for (final piece in [more, newChat, chip]) {
+      expect(title.right, lessThanOrEqualTo(newChat.left - 8 + 0.01));
+      for (final piece in [more, newChat]) {
         expect(piece.center.dy, closeTo(title.center.dy, 0.5));
       }
     });

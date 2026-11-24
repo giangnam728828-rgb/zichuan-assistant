@@ -119,7 +119,7 @@ void main() {
     await tester.tap(find.byType(TextField));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.byType(ModelChip));
+    await tester.tap(find.byKey(const ValueKey('composer-model')));
     await pumpFrames(tester, 8);
     expect(find.text('思考深度'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -143,7 +143,7 @@ void main() {
       await tester.tap(find.byType(TextField));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
-      await tester.tap(find.byType(ModelChip));
+      await tester.tap(find.byKey(const ValueKey('composer-model')));
       await pumpFrames(tester, 6);
       expect(tester.takeException(), isNull);
       await tester.tap(find.text('V41 Flash'));
@@ -153,11 +153,10 @@ void main() {
       await pumpFrames(tester, 6);
       expect(tester.takeException(), isNull);
       expect(find.text('思考深度'), findsNothing, reason: 'closed at once');
-      // B1 起模型与深度都在顶栏胶囊里，深度跟一个「· 」。
-      expect(
-        find.descendant(of: find.byType(ModelChip), matching: find.textContaining('不思考')),
-        findsOneWidget,
-      );
+      // B5 起模型键只画厂商标记，深度读在语义里。
+      final semantics = tester.ensureSemantics();
+      expect(find.bySemanticsLabel(RegExp('不思考')), findsOneWidget);
+      semantics.dispose();
 
       await tester.enterText(find.byType(TextField), '/');
       await pumpFrames(tester, 2);

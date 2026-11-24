@@ -461,7 +461,7 @@ void main() {
       await tester.tap(find.byType(TextField));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
-      await tester.tap(find.byType(ModelChip));
+      await tester.tap(find.byKey(const ValueKey('composer-model')));
       await pumpFrames(tester, 4);
       expect(find.text('选择模型'), findsOneWidget);
       await tester.tap(find.text('V41 Flash'));
