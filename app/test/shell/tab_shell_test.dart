@@ -172,4 +172,34 @@ void main() {
     await pumpFrames(tester, 8);
     expect(navOpacity(), greaterThan(0.8), reason: '往上翻就回来');
   });
+
+  testWidgets('⑥ 导航收起再展开后还点得动', (tester) async {
+    useWindow(tester, const Size(390, 844));
+    mockClipboard(tester);
+    await tester.pumpWidget(homeApp());
+    await pumpFrames(tester, 8);
+    expect(_tab(tester), RootTab.chat);
+
+    // 键盘弹起：导航收起。等动画彻底走完（真机上键盘弹完还会再推一帧
+    // MediaQuery，外壳就在那一刻重建）。
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300 * 2);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pump(const Duration(milliseconds: 320));
+
+    // 收起期间键盘还在推：viewInsets 变化让外壳和导航一起重建。
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320 * 2);
+    await tester.pump(const Duration(milliseconds: 40));
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300 * 2);
+    await tester.pump(const Duration(milliseconds: 40));
+
+    // 键盘收起：导航回到 1。
+    tester.view.resetViewInsets();
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump(const Duration(milliseconds: 220));
+    await pumpFrames(tester, 8);
+
+    // 看得见就必须点得着：切到设置。
+    await _tapTab(tester, RootTab.settings);
+    expect(_tab(tester), RootTab.settings, reason: '收起再展开后导航不能失联');
+  });
 }

@@ -73,71 +73,77 @@ class BottomNav extends ConsumerWidget {
     final current = ref.watch(rootTabProvider);
     final badges = ref.watch(navBadgesProvider);
     final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    return IgnorePointer(
-      ignoring: reveal.value == 0,
-      child: AnimatedBuilder(
-        animation: reveal,
-        builder: (context, child) {
-          final t = reveal.value.clamp(0.0, 1.0);
-          return Opacity(
-            opacity: t,
-            child: Transform.translate(offset: Offset(0, (1 - t) * 24), child: child),
-          );
-        },
-        child: Padding(
-          // 与输入栏、顶栏同一条边线（12dp），整组「底部浮岛」才对得齐。
-          padding: EdgeInsets.only(
-            left: 12,
-            right: 12,
-            bottom: (MediaQuery.paddingOf(context).bottom + ShellMetrics.navGap),
+    // 点按开关必须跟着动画值走。放在 AnimatedBuilder 外面的话，只有外壳重建
+    // 那一刻会读一次 reveal：收起期间一旦重建（键盘稳定、角标刷新），
+    // ignoring 就永远定格在 true，展开后导航看得见却点不动。
+    return AnimatedBuilder(
+      animation: reveal,
+      builder: (context, child) {
+        final t = reveal.value.clamp(0.0, 1.0);
+        return IgnorePointer(
+          ignoring: t < 0.01,
+          child: ExcludeSemantics(
+            excluding: t < 0.01,
+            child: Opacity(
+              opacity: t,
+              child: Transform.translate(offset: Offset(0, (1 - t) * 24), child: child),
+            ),
           ),
-          child: MediaQuery.withClampedTextScaling(
-            // 导航是 chrome：大字号下钳到 1.3，标签不会撑破 48dp 的触控高度。
-            maxScaleFactor: 1.3,
-            child: Semantics(
-              container: true,
-              explicitChildNodes: true,
-              label: '主导航',
-              // 高度写死成常量：玻璃高度只由这里决定，与输入栏的间隙才稳定在 8dp。
-              child: SizedBox(
-                height: ShellMetrics.navHeight,
-                child: GlassSurface(
-                  tier: GlassTier.chrome,
-                  borderRadius: const BorderRadius.all(Radius.circular(AppShape.float)),
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (final tab in RootTab.values)
-                        Expanded(
-                          child: _TabKey(
-                            tab: tab,
-                            selected: tab == current,
-                            compact: compact,
-                            reduceAnimations: reduce,
-                            badge: switch (tab) {
-                              RootTab.chat => badges.chatRunning,
-                              RootTab.history => badges.pending > 0 || badges.running,
-                              _ => false,
+        );
+      },
+      child: Padding(
+        // 与输入栏、顶栏同一条边线（12dp），整组「底部浮岛」才对得齐。
+        padding: EdgeInsets.only(
+          left: 12,
+          right: 12,
+          bottom: (MediaQuery.paddingOf(context).bottom + ShellMetrics.navGap),
+        ),
+        child: MediaQuery.withClampedTextScaling(
+          // 导航是 chrome：大字号下钳到 1.3，标签不会撑破 48dp 的触控高度。
+          maxScaleFactor: 1.3,
+          child: Semantics(
+            container: true,
+            explicitChildNodes: true,
+            label: '主导航',
+            // 高度写死成常量：玻璃高度只由这里决定，与输入栏的间隙才稳定在 8dp。
+            child: SizedBox(
+              height: ShellMetrics.navHeight,
+              child: GlassSurface(
+                tier: GlassTier.chrome,
+                borderRadius: const BorderRadius.all(Radius.circular(AppShape.float)),
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final tab in RootTab.values)
+                      Expanded(
+                        child: _TabKey(
+                          tab: tab,
+                          selected: tab == current,
+                          compact: compact,
+                          reduceAnimations: reduce,
+                          badge: switch (tab) {
+                            RootTab.chat => badges.chatRunning,
+                            RootTab.history => badges.pending > 0 || badges.running,
+                            _ => false,
+                          },
+                          badgeCount: tab == RootTab.history ? badges.pending : 0,
+                          badgeBusy: tab == RootTab.chat ? badges.chatRunning : badges.pending == 0 && badges.running,
+                          onTap: () => _onTap(context, ref, tab),
+                          onLongPress: switch (tab) {
+                            RootTab.chat => () {
+                              HapticFeedback.mediumImpact();
+                              switchTab(context, RootTab.chat, intent: TabIntent.newChat);
                             },
-                            badgeCount: tab == RootTab.history ? badges.pending : 0,
-                            badgeBusy: tab == RootTab.chat ? badges.chatRunning : badges.pending == 0 && badges.running,
-                            onTap: () => _onTap(context, ref, tab),
-                            onLongPress: switch (tab) {
-                              RootTab.chat => () {
-                                HapticFeedback.mediumImpact();
-                                switchTab(context, RootTab.chat, intent: TabIntent.newChat);
-                              },
-                              RootTab.history => () {
-                                HapticFeedback.mediumImpact();
-                                switchTab(context, RootTab.history, intent: TabIntent.focusSearch);
-                              },
-                              _ => null,
+                            RootTab.history => () {
+                              HapticFeedback.mediumImpact();
+                              switchTab(context, RootTab.history, intent: TabIntent.focusSearch);
                             },
-                          ),
+                            _ => null,
+                          },
                         ),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
               ),
             ),
