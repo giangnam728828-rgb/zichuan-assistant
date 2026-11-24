@@ -111,8 +111,10 @@ jobs:
       if: github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: preview-${{ github.run_number }}
-        name: 预览包 #${{ github.run_number }}
+        # run_id 全局唯一：run_number 会撞已有 release（如重跑时 preview-40
+        # 已存在，同名资产上传被拒，新包就丢了）。
+        tag_name: preview-${{ github.run_id }}
+        name: 预览包 #${{ github.run_id }}
         prerelease: true
         files: dist/zichuan-assistant-*.apk
       env:
