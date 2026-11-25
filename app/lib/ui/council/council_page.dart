@@ -16,16 +16,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../collab/collab_export.dart';
+import '../../collab/collab_session_book.dart';
 import '../../council/collab_models.dart';
 import '../../council/collab_orchestrator.dart';
 import '../../council/collab_store.dart';
 import '../../council/verdict_parser.dart';
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
+import '../../state/sessions_state.dart';
 import '../chat/model_brand_mark.dart';
+import '../shell/root_tab.dart';
 
 class CouncilPage extends ConsumerStatefulWidget {
-  const CouncilPage({super.key});
+  const CouncilPage({super.key, this.orchestrator});
+
+  /// 测试注入用；生产为空，页面自己建实例。
+  final CollabOrchestrator? orchestrator;
 
   @override
   ConsumerState<CouncilPage> createState() => _CouncilPageState();
@@ -54,15 +61,34 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   void dispose() {
     _sub?.cancel();
     _question.dispose();
-    unawaited(_orchestrator?.dispose() ?? Future<void>.value());
+    // 注入的编排器归测试管；自建的才在离开页面时关掉。
+    if (widget.orchestrator == null) unawaited(_orchestrator?.dispose() ?? Future<void>.value());
     super.dispose();
   }
 
-  /// 回到页面时捡回还没跑完的那次议会。
+  /// 回到页面时捡回还没跑完的那次议会，并把历史运行的席位会话补登记
+  /// （C6 之前跑的议会没登记过，历史列表里会一条条冒出来）。
   Future<void> _restore() async {
     try {
       final orchestrator = await _ensureOrchestrator();
-      final unfinished = await orchestrator.store.latestUnfinished();
+      final runs = await orchestrator.store.list();
+      final owners = <CollabSessionOwner>[
+        for (final run in runs)
+          for (final seat in run.spec.seats)
+            if (run.seatOf(seat.id).sessionId case final sid? when sid.isNotEmpty)
+              CollabSessionOwner(
+                sessionId: sid,
+                kind: CollabSessionKind.council,
+                ownerId: run.id,
+                label: seat.displayName,
+                parentLabel: run.spec.question,
+              ),
+      ];
+      if (owners.isNotEmpty) {
+        unawaited(ref.read(collabSessionBookProvider.notifier).registerAll(owners));
+      }
+
+      final unfinished = runs.where((run) => !run.phase.isTerminal).firstOrNull;
       if (unfinished == null || !mounted) return;
       _listen();
       final resumed = await orchestrator.resume(unfinished.id);
@@ -73,14 +99,32 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   }
 
   Future<CollabOrchestrator> _ensureOrchestrator() async {
-    final existing = _orchestrator;
-    if (existing != null) return existing;
+    final existing = _orchestrator ?? widget.orchestrator;
+    if (existing != null) {
+      _orchestrator = existing;
+      return existing;
+    }
     final conn = ref.read(readListLiveConnectionProvider);
     if (conn == null) throw StateError('还没有连上引擎');
     final support = await getApplicationSupportDirectory();
     final orchestrator = CollabOrchestrator(
       driver: DshCollabDriver(conn.client),
       store: CollabStore(Directory('${support.path}/council')),
+      onSession: (info) {
+        unawaited(
+          ref
+              .read(collabSessionBookProvider.notifier)
+              .register(
+                CollabSessionOwner(
+                  sessionId: info.sessionId,
+                  kind: CollabSessionKind.council,
+                  ownerId: info.ownerId,
+                  label: info.label,
+                  parentLabel: info.parentLabel,
+                ),
+              ),
+        );
+      },
     );
     _orchestrator = orchestrator;
     return orchestrator;
@@ -144,6 +188,76 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     await _orchestrator?.cancel(run.id);
   }
 
+  /// 历史：最近开过的议会，点一条回看（终态的运行不会再变）。
+  Future<void> _openHistory() async {
+    final store = _orchestrator?.store;
+    if (store == null) return;
+    final runs = await store.list();
+    if (!mounted) return;
+    if (runs.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(content: Text('还没有跑过议会')));
+      return;
+    }
+    final picked = await showModalBottomSheet<CollabRun>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheet).height * 0.7),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text('最近的议会', style: Theme.of(sheet).textTheme.titleMedium),
+              ),
+              for (final run in runs)
+                ListTile(
+                  title: Text(run.spec.question, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  subtitle: Text(
+                    '${collabStamp(run.createdAt)} · ${_phaseLabel(run.phase)} · '
+                    '${run.answeredCount}/${run.spec.seats.length} 席',
+                  ),
+                  onTap: () => Navigator.pop(sheet, run),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked != null && mounted) setState(() => _run = picked);
+  }
+
+  Future<void> _export() async {
+    final run = _run;
+    if (run == null) return;
+    final stamp = collabStamp(run.createdAt).replaceAll(RegExp(r'[: ]'), '-');
+    try {
+      await shareMarkdownFile(fileName: '议会-$stamp.md', content: councilMarkdown(run));
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('导出失败：$e')));
+      }
+    }
+  }
+
+  /// 打开某个席位的完整对话（这些会话不在历史列表里，只从这里进）。
+  void _openSession(String sessionId) {
+    ref.read(currentSessionProvider.notifier).select(sessionId);
+    switchTab(context, RootTab.chat);
+  }
+
+  static String _phaseLabel(CollabPhase phase) => switch (phase) {
+    CollabPhase.queued => '排队中',
+    CollabPhase.round1 => '作答中',
+    CollabPhase.reviewing => '互评中',
+    CollabPhase.verifying => '校验中',
+    CollabPhase.synthesizing => '综合中',
+    CollabPhase.done => '已完成',
+    CollabPhase.cancelled => '已取消',
+    CollabPhase.failed => '失败',
+  };
+
   String _modelName(ModelCatalog? catalog, String provider, String model) {
     if (catalog != null) {
       for (final group in catalog.groups) {
@@ -162,16 +276,12 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       appBar: AppBar(
         title: const Text('议会'),
         actions: [
-          if (run != null && !run.phase.isTerminal)
-            TextButton(
-              onPressed: _cancel,
-              child: const Text('取消'),
-            ),
+          if (run?.verdict != null) IconButton(tooltip: '导出裁决', icon: const Icon(Icons.ios_share), onPressed: _export),
+          IconButton(tooltip: '历史议会', icon: const Icon(Icons.history), onPressed: _openHistory),
+          if (run != null && !run.phase.isTerminal) TextButton(onPressed: _cancel, child: const Text('取消')),
         ],
       ),
-      body: SafeArea(
-        child: run == null ? _buildEditor(context) : _buildRun(context, run),
-      ),
+      body: SafeArea(child: run == null ? _buildEditor(context) : _buildRun(context, run)),
     );
   }
 
@@ -197,10 +307,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
           maxLines: 8,
           textInputAction: TextInputAction.newline,
           onChanged: (_) => setState(() {}),
-          decoration: const InputDecoration(
-            hintText: '想让大家一起判断什么？',
-            border: OutlineInputBorder(),
-          ),
+          decoration: const InputDecoration(hintText: '想让大家一起判断什么？', border: OutlineInputBorder()),
         ),
         const SizedBox(height: 20),
         Row(
@@ -273,14 +380,11 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
           onSelectionChanged: (set) => setState(() => _mode = set.first),
         ),
         const SizedBox(height: 8),
-        Text(
-          switch (_mode) {
-            CollabMode.quick => '各席位并行作答，主席直接综合。',
-            CollabMode.deliberative => '第一轮后互看匿名答案修订一轮，成本约 2 倍。',
-            CollabMode.evidence => '权威席位先答，其余成员只做校验与补漏。',
-          },
-          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-        ),
+        Text(switch (_mode) {
+          CollabMode.quick => '各席位并行作答，主席直接综合。',
+          CollabMode.deliberative => '第一轮后互看匿名答案修订一轮，成本约 2 倍。',
+          CollabMode.evidence => '权威席位先答，其余成员只做校验与补漏。',
+        }, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         if (_error != null) ...[
           const SizedBox(height: 12),
           Text(_error!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
@@ -311,14 +415,9 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (parsed.conclusion case final conclusion?)
-          SelectableText(conclusion, style: theme.textTheme.bodyLarge),
-        if (parsed.confidence case final c?) ...[
-          const SizedBox(height: 8),
-          _confidenceRow(theme, c),
-        ],
-        if (parsed.consensus.isNotEmpty)
-          _verdictSection(theme, '共识', parsed.consensus, theme.colorScheme.primary),
+        if (parsed.conclusion case final conclusion?) SelectableText(conclusion, style: theme.textTheme.bodyLarge),
+        if (parsed.confidence case final c?) ...[const SizedBox(height: 8), _confidenceRow(theme, c)],
+        if (parsed.consensus.isNotEmpty) _verdictSection(theme, '共识', parsed.consensus, theme.colorScheme.primary),
         if (parsed.disagreement.isNotEmpty)
           _verdictSection(theme, '分歧', parsed.disagreement, theme.colorScheme.tertiary),
         if (parsed.toVerify.isNotEmpty)
@@ -410,9 +509,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
             value: _roles[key] ?? SeatRole.none,
             underline: const SizedBox.shrink(),
             style: theme.textTheme.labelMedium,
-            items: [
-              for (final role in SeatRole.values) DropdownMenuItem(value: role, child: Text(role.label)),
-            ],
+            items: [for (final role in SeatRole.values) DropdownMenuItem(value: role, child: Text(role.label))],
             onChanged: (role) => setState(() {
               if (role != null) _roles[key] = role;
             }),
@@ -425,8 +522,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
               style: theme.textTheme.labelMedium,
               items: [
                 const DropdownMenuItem(value: '', child: Text('默认思考')),
-                for (final effort in efforts)
-                  DropdownMenuItem(value: effort.id, child: Text(effort.name)),
+                for (final effort in efforts) DropdownMenuItem(value: effort.id, child: Text(effort.name)),
               ],
               onChanged: (value) => setState(() {
                 if (value == null) return;
@@ -507,10 +603,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
               ),
             ),
           if (run.failure != null && run.verdict == null)
-            Text(
-              run.failure!,
-              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error),
-            ),
+            Text(run.failure!, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error)),
           const SizedBox(height: 16),
           OutlinedButton.icon(
             onPressed: () => setState(() {
@@ -539,44 +632,55 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       SeatStatus.cancelled => ('已取消', theme.colorScheme.onSurfaceVariant),
     };
     final brand = brandOf(seat.provider, seat.model);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Icon(brandIconData(brand), size: 18, color: brandColor(brand, theme.colorScheme.primary)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Row(
-              children: [
-                Flexible(
-                  child: Text(
-                    seat.displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-                if (seat.role != SeatRole.none)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 6),
+    final sessionId = state.sessionId;
+    return InkWell(
+      // 席位会话不在历史列表里，点这一行去看它的完整对话。
+      onTap: sessionId == null || sessionId.isEmpty ? null : () => _openSession(sessionId),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Icon(brandIconData(brand), size: 18, color: brandColor(brand, theme.colorScheme.primary)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
                     child: Text(
-                      seat.role.label,
-                      style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      seat.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium,
                     ),
                   ),
-              ],
-            ),
-          ),
-          if (state.tokensOut > 0)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Text(
-                '${state.tokensIn}/${state.tokensOut}',
-                style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  if (seat.role != SeatRole.none)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: Text(
+                        seat.role.label,
+                        style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                    ),
+                ],
               ),
             ),
-          Text(label, style: theme.textTheme.labelMedium?.copyWith(color: color)),
-        ],
+            if (state.tokensOut > 0)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Text(
+                  '${state.tokensIn}/${state.tokensOut}',
+                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ),
+            Text(label, style: theme.textTheme.labelMedium?.copyWith(color: color)),
+            if (sessionId != null && sessionId.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Icon(Icons.chevron_right, size: 16, color: theme.colorScheme.onSurfaceVariant),
+              ),
+          ],
+        ),
       ),
     );
   }

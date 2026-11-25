@@ -12,6 +12,7 @@
 
 import 'dart:async';
 
+import '../collab/collab_session_book.dart';
 import '../council/collab_models.dart';
 import '../council/collab_orchestrator.dart';
 import 'team_models.dart';
@@ -32,6 +33,7 @@ final class TeamOrchestrator {
     Future<void> Function(Duration)? pause,
     Duration Function(String? error)? retryDelay,
     Duration Function(int minutes)? wakeInterval,
+    this.onSession,
   }) : _driver = driver,
        _store = store,
        _clock = clock ?? DateTime.now,
@@ -47,6 +49,9 @@ final class TeamOrchestrator {
   final Future<void> Function(Duration) _pause;
   final Duration Function(String? error) _retryDelay;
   final Duration Function(int minutes) _wakeInterval;
+
+  /// 开出一个队友会话时的回调：团队页据此登记，历史列表不再单列这些会话。
+  final void Function(CollabSessionInfo info)? onSession;
 
   /// 同时在飞的队友数（手机并发：3）。
   final int maxConcurrency;
@@ -444,6 +449,17 @@ final class TeamOrchestrator {
           final created = sessionId;
           // 先落盘会话 id 再发消息：进程中途被杀时下次还能接上同一会话。
           await _update(teamId, (current) => current.copyWith(sessions: {...current.sessions, mate.id: created}));
+          // 登记它属于这个团队的哪位队友（失败也不影响这一轮）。
+          try {
+            onSession?.call((
+              sessionId: created,
+              label: mate.name,
+              ownerId: teamId,
+              parentLabel: snapshot.messages.where((m) => m.role == TeamMsgRole.user).firstOrNull?.text,
+            ));
+          } on Object {
+            // 登记只是给历史列表用的，不能挡住群聊。
+          }
           if (_aborted.contains(teamId)) return null;
         }
         final sid = sessionId;

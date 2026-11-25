@@ -297,4 +297,38 @@ void main() {
     await _settleIo(tester, rounds: 6);
     expect(find.text('主管'), findsNothing);
   });
+
+  testWidgets('历史团队：列出建过的团队，点一条切回去', (tester) async {
+    // setUp 的时钟是固定的，两个团队的 updatedAt 会相同；这里换成走动的时钟
+    // 才能确定「最新的是哪个」。
+    var tick = 0;
+    final ticking = TeamOrchestrator(
+      driver: StubDriver(),
+      store: store,
+      clock: () => DateTime(2026, 3, 1).add(Duration(minutes: tick++)),
+    );
+    addTearDown(ticking.dispose);
+    await tester.runAsync(() async {
+      await ticking.create(teammates: [_mate('a1', '阿蓝'), _mate('a2', '阿橙')]);
+      await ticking.create(teammates: [_mate('b1', '阿绿'), _mate('b2', '阿紫')]);
+    });
+    await _pump(tester, orchestrator: ticking);
+    // 页面要多读一遍盘（最近团队 + 补登记的会话），再多推几轮。
+    await _settleIo(tester, rounds: 60);
+    // 默认打开最新那个。
+    expect(find.text('阿绿、阿紫 都在群里了。'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('历史团队'));
+    await _settleIo(tester);
+    await _settleAnim(tester);
+    expect(find.text('建过的团队'), findsOneWidget);
+    expect(find.text('阿蓝、阿橙'), findsOneWidget);
+    expect(find.text('阿绿、阿紫'), findsOneWidget);
+
+    await tester.tap(find.text('阿蓝、阿橙'));
+    await _settleIo(tester);
+    await _settleAnim(tester);
+    expect(find.text('阿蓝、阿橙 都在群里了。'), findsOneWidget);
+    expect(find.text('阿绿、阿紫 都在群里了。'), findsNothing);
+  });
 }

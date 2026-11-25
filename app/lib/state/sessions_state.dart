@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../collab/collab_session_book.dart';
 import '../companion/companion_state.dart';
 import '../runtime/runtime_state.dart';
 import 'connection_state.dart';
@@ -197,6 +198,11 @@ class SessionsController extends AsyncNotifier<List<SessionSummary>> {
     ref.listen(companionSessionFilterProvider, (_, _) {
       if (state.hasValue && !state.isLoading) state = AsyncData(_visible());
     });
+    // 协作会话（议会席位、团队队友）登记完就从列表里消失：它们的对话在
+    // 议会页 / 团队页里看，不在这里单列。
+    ref.listen(collabSessionFilterProvider, (_, _) {
+      if (state.hasValue && !state.isLoading) state = AsyncData(_visible());
+    });
     final seq = ++_loadSeq;
     final host = ref.watch(activeHostProvider);
     if (host != _host) {
@@ -335,6 +341,8 @@ class SessionsController extends AsyncNotifier<List<SessionSummary>> {
     final pendingIds = {for (final pending in _archives) ...pending.ids};
     // Her conversation lives in 伙伴小屋, not the drawer.
     final companion = ref.read(companionSessionFilterProvider);
+    // 议会 / 团队的内部会话也在这里折叠掉。
+    final collab = ref.read(collabSessionFilterProvider);
     final host = ref.read(activeHostProvider);
     return ref
         .read(readListCacheProvider)
@@ -346,7 +354,8 @@ class SessionsController extends AsyncNotifier<List<SessionSummary>> {
                     !s.isSubagent &&
                     !_archived.contains(s.sessionId) &&
                     !pendingIds.contains(s.sessionId) &&
-                    !companion(host, s.sessionId),
+                    !companion(host, s.sessionId) &&
+                    !collab(s.sessionId),
               )
               .toList()
             ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt)),

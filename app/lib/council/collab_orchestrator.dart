@@ -20,6 +20,7 @@ import 'dart:async';
 
 import 'package:dsh_client/dsh_client.dart';
 
+import '../collab/collab_session_book.dart';
 import 'collab_models.dart';
 import 'collab_store.dart';
 
@@ -73,6 +74,7 @@ final class CollabOrchestrator {
     String Function()? newId,
     DateTime Function()? clock,
     Duration Function(int attempt, TurnOutcome last)? retryDelay,
+    this.onSession,
   }) : _driver = driver,
        _store = store,
        _newId = newId ?? _defaultId,
@@ -83,6 +85,9 @@ final class CollabOrchestrator {
   final CollabStore _store;
   final String Function() _newId;
   final DateTime Function() _clock;
+
+  /// 开出一个席位会话时的回调：协作页据此登记，历史列表不再单列这些会话。
+  final void Function(CollabSessionInfo info)? onSession;
 
   /// 失败重试前的等待：限流给更长的时间，普通错误短等。
   final Duration Function(int attempt, TurnOutcome last) _retryDelay;
@@ -444,6 +449,19 @@ final class CollabOrchestrator {
         final s = r.seatOf(seat.id);
         return r.withSeat(seat.id, s.copyWith(sessionId: sessionId));
       });
+      if (state.sessionId == null) {
+        // 新开出来的会话：登记它属于这次议会的哪个席位（失败也不影响运行）。
+        try {
+          onSession?.call((
+            sessionId: sessionId,
+            label: seat.label ?? seat.model,
+            ownerId: runId,
+            parentLabel: before.spec.question,
+          ));
+        } on Object {
+          // 登记只是给历史列表用的，不能挡住议会。
+        }
+      }
       _activeSessions.add(sessionId);
       try {
         final outcome = await _driver.runTurn(sessionId, prompt, timeout: before.spec.seatTimeout);

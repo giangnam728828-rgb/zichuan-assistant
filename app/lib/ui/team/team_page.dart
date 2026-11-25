@@ -17,14 +17,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../collab/collab_export.dart';
+import '../../collab/collab_session_book.dart';
 import '../../council/collab_orchestrator.dart';
 import '../../notify/chat_alerts.dart' show approvalText;
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
+import '../../state/sessions_state.dart';
 import '../../team/team_models.dart';
 import '../../team/team_orchestrator.dart';
 import '../../team/team_store.dart';
 import '../chat/model_brand_mark.dart';
+import '../shell/root_tab.dart';
 
 /// 进程级共享的团队编排器：离开页面不打断在跑的队友。
 TeamOrchestrator? _shared;
@@ -107,6 +111,23 @@ class _TeamPageState extends ConsumerState<TeamPage> {
         setState(() => _team = state);
       });
       final latest = await orchestrator.latest();
+      // 把已经建过的团队会话补登记进协作登记表：老会话不再单列在历史里。
+      final past = await orchestrator.store.list();
+      final owners = <CollabSessionOwner>[
+        for (final state in past)
+          for (final entry in state.sessions.entries)
+            if (entry.value case final sid? when sid.isNotEmpty)
+              CollabSessionOwner(
+                sessionId: sid,
+                kind: CollabSessionKind.team,
+                ownerId: state.id,
+                label: state.mate(entry.key)?.name ?? '队友',
+                parentLabel: state.messages.where((m) => m.role == TeamMsgRole.user).firstOrNull?.text,
+              ),
+      ];
+      if (owners.isNotEmpty) {
+        unawaited(ref.read(collabSessionBookProvider.notifier).registerAll(owners));
+      }
       if (!mounted) return;
       setState(() {
         _team = latest;
@@ -135,6 +156,21 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     final created = TeamOrchestrator(
       driver: DshCollabDriver(conn.client),
       store: TeamStore(Directory('${support.path}/team')),
+      onSession: (info) {
+        unawaited(
+          ref
+              .read(collabSessionBookProvider.notifier)
+              .register(
+                CollabSessionOwner(
+                  sessionId: info.sessionId,
+                  kind: CollabSessionKind.team,
+                  ownerId: info.ownerId,
+                  label: info.label,
+                  parentLabel: info.parentLabel,
+                ),
+              ),
+        );
+      },
     );
     if (existing != null) unawaited(existing.dispose());
     _shared = created;
@@ -316,18 +352,70 @@ class _TeamPageState extends ConsumerState<TeamPage> {
 
   Future<void> _export() async {
     final team = _team;
-    if (team == null) return;
     final orchestrator = _orchestrator;
-    if (orchestrator == null) return;
+    if (team == null || orchestrator == null) return;
     try {
+      // 应用目录留一份（下次打开还能找到），同时交给系统分享面板。
       await orchestrator.store.writeMarkdown(team);
-      final root = orchestrator.store.root;
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已导出到 ${root.path}/${team.id}.md')));
-      }
+      await shareMarkdownFile(fileName: '团队-${team.id}.md', content: team.toMarkdown());
     } on Object catch (error) {
       if (mounted) setState(() => _error = '$error');
     }
+  }
+
+  /// 历史：建过的团队，点一条接着聊（会话都还在，队友也还记得上下文）。
+  Future<void> _openHistory() async {
+    final orchestrator = _orchestrator ?? widget.orchestrator;
+    if (orchestrator == null) return;
+    final teams = await orchestrator.store.list();
+    if (!mounted) return;
+    if (teams.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(content: Text('还没有建过团队')));
+      return;
+    }
+    final picked = await showModalBottomSheet<TeamState>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheet).height * 0.7),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text('建过的团队', style: Theme.of(sheet).textTheme.titleMedium),
+              ),
+              for (final state in teams)
+                ListTile(
+                  title: Text(
+                    [for (final mate in state.teammates) mate.name].join('、'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    [
+                      collabStamp(state.updatedAt),
+                      '${state.messages.where((m) => m.role == TeamMsgRole.teammate).length} 条发言',
+                      if (state.id == _team?.id) '当前',
+                    ].join(' · '),
+                  ),
+                  onTap: () => Navigator.pop(sheet, state),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked != null && mounted) setState(() => _team = picked);
+  }
+
+  /// 打开某位队友的完整对话（这些会话不在历史列表里，只从这里进）。
+  void _openMateSession(TeamState team, String mateId) {
+    final sessionId = team.sessions[mateId];
+    if (sessionId == null || sessionId.isEmpty) return;
+    ref.read(currentSessionProvider.notifier).select(sessionId);
+    switchTab(context, RootTab.chat);
   }
 
   void _newTeam() {
@@ -569,6 +657,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       appBar: AppBar(
         title: Text(team == null ? '组个队' : '团队'),
         actions: [
+          IconButton(tooltip: '历史团队', icon: const Icon(Icons.history), onPressed: _openHistory),
           if (team != null) ...[
             IconButton(tooltip: '队友', icon: const Icon(Icons.group_outlined), onPressed: _openMembers),
             PopupMenuButton<String>(
@@ -907,9 +996,13 @@ class _TeamPageState extends ConsumerState<TeamPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  mate?.name ?? '队友',
-                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                InkWell(
+                  onTap: mate == null ? null : () => _openMateSession(team, mate.id),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Text(
+                    mate?.name ?? '队友',
+                    style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  ),
                 ),
                 const SizedBox(height: 2),
                 content,
