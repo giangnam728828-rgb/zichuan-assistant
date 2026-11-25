@@ -31,12 +31,14 @@ final class TeamOrchestrator {
     this.workspaceId,
     Future<void> Function(Duration)? pause,
     Duration Function(String? error)? retryDelay,
+    Duration Function(int minutes)? wakeInterval,
   }) : _driver = driver,
        _store = store,
        _clock = clock ?? DateTime.now,
        _newId = newId ?? _defaultId,
        _pause = pause ?? ((d) => Future<void>.delayed(d)),
-       _retryDelay = retryDelay ?? _defaultRetryDelay;
+       _retryDelay = retryDelay ?? _defaultRetryDelay,
+       _wakeInterval = wakeInterval ?? ((minutes) => Duration(minutes: minutes));
 
   final CollabSessionDriver _driver;
   final TeamStore _store;
@@ -44,6 +46,7 @@ final class TeamOrchestrator {
   final String Function() _newId;
   final Future<void> Function(Duration) _pause;
   final Duration Function(String? error) _retryDelay;
+  final Duration Function(int minutes) _wakeInterval;
 
   /// 同时在飞的队友数（手机并发：3）。
   final int maxConcurrency;
@@ -90,6 +93,15 @@ final class TeamOrchestrator {
   /// 已被取消的团队：在飞的队友看到它就收手，不再落结果。
   final _aborted = <String>{};
 
+  /// 正在跑一轮的团队（定时唤醒看到它在跑就跳过这次）。
+  final _active = <String>{};
+
+  /// 每个团队的定时唤醒。
+  final _wakeTimers = <String, Timer>{};
+
+  /// 每个团队一把写锁：可写的队友排队跑，避免两个 agent 同时改同一份文件。
+  final _writeGates = <String, Future<void>>{};
+
   var _msgSeq = 0;
 
   static String _defaultId() => 't${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
@@ -107,15 +119,21 @@ final class TeamOrchestrator {
   // 建队与成员维护
 
   /// 建一个团队。队友 2 到 6 个，名字会自动去重（空名补「队友 N」）。
-  Future<TeamState> create({String? id, required List<Teammate> teammates}) async {
+  ///
+  /// [leadId] 指定主管（可选）：没点名时先由他接活，他可以 @ 队友分派。
+  Future<TeamState> create({String? id, required List<Teammate> teammates, String? leadId}) async {
     final mates = normalizeTeammates(teammates);
     if (mates.length < 2 || mates.length > 6) {
       throw ArgumentError('队友数量必须在 2 到 6 之间');
+    }
+    if (leadId != null && !mates.any((mate) => mate.id == leadId)) {
+      throw ArgumentError('指定的主管不在这个团队里');
     }
     final now = _clock();
     final state = TeamState(
       id: id ?? _newId(),
       teammates: mates,
+      leadId: leadId,
       createdAt: now,
       updatedAt: now,
       rev: 1,
@@ -125,6 +143,13 @@ final class TeamOrchestrator {
     _emit(state);
     return state;
   }
+
+  /// 设/撤主管。[mateId] 为空就是撤销。
+  Future<TeamState> setLead(String teamId, String? mateId) => _update(teamId, (current) {
+    if (mateId == null) return current.copyWith(clearLead: true);
+    if (current.mate(mateId) == null) throw ArgumentError('这个队友不在团队里');
+    return current.copyWith(leadId: mateId);
+  });
 
   /// 加一个队友（建会话推迟到第一次发言）。
   Future<TeamState> addMate(String teamId, Teammate mate) => _update(teamId, (current) {
@@ -156,6 +181,7 @@ final class TeamOrchestrator {
   Future<TeamState> removeMate(String teamId, String mateId) => _update(teamId, (current) {
     final mate = current.mate(mateId);
     if (mate == null) return current;
+    final wasLead = current.leadId == mateId;
     return current.copyWith(
       teammates: [
         for (final other in current.teammates)
@@ -163,12 +189,13 @@ final class TeamOrchestrator {
       ],
       sessions: {...current.sessions}..remove(mateId),
       cursors: {...current.cursors}..remove(mateId),
+      clearLead: wasLead,
       messages: [
         ...current.messages,
         TeamMsg(
           id: _msgId(),
           role: TeamMsgRole.system,
-          text: '「${mate.name}」离开了团队。',
+          text: wasLead ? '「${mate.name}」离开了团队（主管一职空了出来）。' : '「${mate.name}」离开了团队。',
           at: _clock(),
         ),
       ],
@@ -178,7 +205,11 @@ final class TeamOrchestrator {
   // ---------------------------------------------------------------------------
   // 发言
 
-  /// 我在群里说一句：解析 @ 点名 → 落盘 → 转发给被点名的队友（没点名则全体）。
+  /// 我在群里说一句：解析 @ 点名 → 落盘 → 转发给被点名的队友。
+  ///
+  /// 没点名时有主管就先交给主管（他会 @ 人分派），没主管才全员作答。
+  /// 一位队友答完把活移交（或主管分派）给别人时，会接着把那一轮跑完，
+  /// 最多再转两手，防互相推诿的死循环。
   ///
   /// 返回这一轮全部答完之后的快照；过程中每一次变化都会从 [events] 发出。
   Future<TeamState> send(String teamId, String text) {
@@ -189,7 +220,12 @@ final class TeamOrchestrator {
       final targets = <String>[];
       final after = await _update(teamId, (current) {
         final parsed = parseMentions(current.teammates, body);
-        final picked = parsed.targets.isEmpty ? current.teammates : parsed.targets;
+        final picked = parsed.targets.isNotEmpty
+            ? parsed.targets
+            : switch (current.lead) {
+                final lead? => [lead],
+                null => current.teammates,
+              };
         targets
           ..clear()
           ..addAll([for (final mate in picked) mate.id]);
@@ -201,9 +237,105 @@ final class TeamOrchestrator {
         );
       });
       if (targets.isEmpty) return after;
-      await _each(targets, (mateId) => _runMate(teamId, mateId));
+      _active.add(teamId);
+      try {
+        await _drive(teamId, targets);
+      } finally {
+        _active.remove(teamId);
+      }
       return _latest[teamId] ?? after;
     });
+  }
+
+  /// 设定时唤醒（[minutes] 为空就是关掉）。
+  ///
+  /// 到点时如果这一轮还没跑完就跳过，不叠着跑；[wakePrompt] 是到点要在群里
+  /// 说的那句话。配置落盘，下次打开页面（或换设备）还会接着催。
+  Future<TeamState> setWake(String teamId, int? minutes, {String? wakePrompt}) async {
+    if (minutes != null && (minutes < 1 || minutes > 24 * 60)) {
+      throw ArgumentError('间隔要在 1 分钟到 24 小时之间');
+    }
+    final state = await _update(teamId, (current) {
+      return current.copyWith(
+        wakeMinutes: minutes,
+        clearWake: minutes == null,
+        wakePrompt: (wakePrompt ?? '').trim().isEmpty ? null : wakePrompt!.trim(),
+      );
+    });
+    _scheduleWake(state);
+    return state;
+  }
+
+  /// 开关「可写队友排队」。
+  Future<TeamState> setExclusiveWrite(String teamId, bool on) =>
+      _update(teamId, (current) => current.copyWith(exclusiveWrite: on));
+
+  /// 到点：像用户发了一句那样驱动一轮。
+  Future<void> _wake(String teamId) async {
+    if (_disposed) return;
+    final state = await load(teamId);
+    if (state == null || state.wakeMinutes == null) return;
+    if (_active.contains(teamId) || _aborted.contains(teamId)) return;
+    try {
+      await send(teamId, state.wakePrompt);
+    } catch (_) {
+      // 唤醒失败不该把定时器打崩：下一轮继续试。
+    }
+  }
+
+  void _scheduleWake(TeamState state) {
+    _wakeTimers.remove(state.id)?.cancel();
+    final minutes = state.wakeMinutes;
+    if (minutes == null || minutes <= 0 || _disposed) return;
+    _wakeTimers[state.id] = Timer.periodic(_wakeInterval(minutes), (_) => _wake(state.id));
+  }
+
+  /// 跑一批人的回合；答完看谁把活交给了别人，接着跑下一批。
+  ///
+  /// 同一个人在一次 [send] 里只跑一轮（[seen] 记着），所以 A→B→A 的推诿
+  /// 会在第三跳停下；[depth] 再兜一层底。
+  Future<void> _drive(
+    String teamId,
+    List<String> mateIds, {
+    int depth = 0,
+    Set<String>? seen,
+  }) async {
+    final visited = seen ?? <String>{};
+    final pending = [
+      for (final id in mateIds)
+        if (id.isNotEmpty && !visited.contains(id)) id,
+    ];
+    if (pending.isEmpty || _aborted.contains(teamId)) return;
+    visited.addAll(pending);
+    final answers = <String, ({String text, String? toId})>{};
+    await _each(pending, (mateId) async {
+      final answer = await _runMate(teamId, mateId);
+      if (answer != null) answers[mateId] = answer;
+    });
+    if (depth >= 2 || _aborted.contains(teamId) || answers.isEmpty) return;
+
+    final state = await load(teamId);
+    if (state == null) return;
+    final next = <String>[];
+    void queue(String id) {
+      if (visited.contains(id) || next.contains(id)) return;
+      if (state.mate(id) == null) return;
+      next.add(id);
+    }
+
+    for (final entry in answers.entries) {
+      // 移交给谁：答复末尾写了「移交 @名字」。
+      final toId = entry.value.toId;
+      if (toId != null) queue(toId);
+      // 主管在正文里 @ 人分派。
+      if (state.leadId == entry.key) {
+        for (final target in parseAssignments(state.teammates, entry.value.text, exceptId: entry.key)) {
+          queue(target.id);
+        }
+      }
+    }
+    if (next.isEmpty) return;
+    await _drive(teamId, next, depth: depth + 1, seen: visited);
   }
 
   /// 停掉这一轮：置标志 + 尽力停掉在飞的子会话，群里留一句提示。
@@ -228,7 +360,10 @@ final class TeamOrchestrator {
 
   Future<TeamState?> load(String teamId) async {
     final state = _latest[teamId] ?? await _store.load(teamId);
-    if (state != null) _latest[teamId] = state;
+    if (state == null) return null;
+    _latest[teamId] = state;
+    // 盘上有唤醒配置但内存里没在跑（进程刚起来）：接上。
+    if (state.wakeMinutes != null && !_wakeTimers.containsKey(state.id)) _scheduleWake(state);
     return state;
   }
 
@@ -249,31 +384,58 @@ final class TeamOrchestrator {
 
   Future<void> dispose() async {
     _disposed = true;
+    for (final timer in _wakeTimers.values) {
+      timer.cancel();
+    }
+    _wakeTimers.clear();
     await _events.close();
   }
 
   // ---------------------------------------------------------------------------
   // 单个队友的一轮
 
-  Future<void> _runMate(String teamId, String mateId) async {
+  /// 跑一位队友的一轮；成功返回它说的正文和「移交给了谁」。
+  ///
+  /// 可写的队友排队跑（同一团队一把写锁），只读顾问可以并行——他们不动文件。
+  Future<({String text, String? toId})?> _runMate(String teamId, String mateId) async {
     try {
-      await _runMateOnce(teamId, mateId);
+      final state = await load(teamId);
+      final mate = state?.mate(mateId);
+      final gated = mate != null && !mate.readOnly && (state?.exclusiveWrite ?? true);
+      if (!gated) return await _runMateOnce(teamId, mateId);
+      return await _withWriteGate(teamId, () => _runMateOnce(teamId, mateId));
     } catch (_) {
       // 落盘失败等内部错误不该拖垮其他队友；这个队友这一轮没结果就是没结果。
+      return null;
     }
   }
 
-  Future<void> _runMateOnce(String teamId, String mateId) async {
+  /// 同一团队的可写回合串行：前一位收工，下一位才动文件。
+  Future<T> _withWriteGate<T>(String teamId, Future<T> Function() action) {
+    final previous = _writeGates[teamId] ?? Future<void>.value();
+    final done = Completer<void>();
+    _writeGates[teamId] = done.future;
+    return previous.then((_) async {
+      try {
+        return await action();
+      } finally {
+        done.complete();
+        if (identical(_writeGates[teamId], done.future)) _writeGates.remove(teamId);
+      }
+    });
+  }
+
+  Future<({String text, String? toId})?> _runMateOnce(String teamId, String mateId) async {
     final snapshot = await load(teamId);
-    if (snapshot == null || _aborted.contains(teamId)) return;
+    if (snapshot == null || _aborted.contains(teamId)) return null;
     final mate = snapshot.mate(mateId);
-    if (mate == null) return;
+    if (mate == null) return null;
 
     final prompt = _prompt(snapshot, mate);
     var sessionId = snapshot.sessions[mate.id];
     String? lastError;
     for (var attempt = 1; attempt <= 2; attempt++) {
-      if (_aborted.contains(teamId)) return;
+      if (_aborted.contains(teamId)) return null;
       String? registered;
       try {
         if (sessionId == null) {
@@ -282,21 +444,23 @@ final class TeamOrchestrator {
           final created = sessionId;
           // 先落盘会话 id 再发消息：进程中途被杀时下次还能接上同一会话。
           await _update(teamId, (current) => current.copyWith(sessions: {...current.sessions, mate.id: created}));
-          if (_aborted.contains(teamId)) return;
+          if (_aborted.contains(teamId)) return null;
         }
         final sid = sessionId;
         _inflight.putIfAbsent(teamId, () => <String>{}).add(sid);
         registered = sid;
         final outcome = await _driver.runTurn(sid, prompt, timeout: turnTimeout);
-        if (_aborted.contains(teamId)) return;
+        if (_aborted.contains(teamId)) return null;
         final text = outcome.text.trim();
         if (outcome.isCompleted && text.isNotEmpty) {
-          await _appendAnswer(teamId, mate, text);
-          return;
+          final parsed = parseHandoff(snapshot.teammates, text);
+          final body = parsed.text.isEmpty && parsed.toId != null ? '（这件事交给下一位）' : parsed.text;
+          await _appendAnswer(teamId, mate, body, handoffTo: parsed.toId);
+          return (text: body, toId: parsed.toId);
         }
         lastError = _reasonOf(outcome);
       } catch (error) {
-        if (_aborted.contains(teamId)) return;
+        if (_aborted.contains(teamId)) return null;
         lastError = '$error';
       } finally {
         if (registered != null) _inflight[teamId]?.remove(registered);
@@ -305,6 +469,7 @@ final class TeamOrchestrator {
       await _pause(_retryDelay(lastError));
     }
     await _appendFailure(teamId, mate, lastError ?? '调用失败');
+    return null;
   }
 
   static String _reasonOf(TurnOutcome outcome) {
@@ -317,7 +482,12 @@ final class TeamOrchestrator {
     };
   }
 
-  Future<void> _appendAnswer(String teamId, Teammate mate, String text) => _update(teamId, (current) {
+  Future<void> _appendAnswer(
+    String teamId,
+    Teammate mate,
+    String text, {
+    String? handoffTo,
+  }) => _update(teamId, (current) {
     final messages = [
       ...current.messages,
       TeamMsg(
@@ -326,6 +496,7 @@ final class TeamOrchestrator {
         teammateId: mate.id,
         text: text,
         at: _clock(),
+        handoffTo: handoffTo,
       ),
     ];
     return current.copyWith(
@@ -357,6 +528,7 @@ final class TeamOrchestrator {
   /// 拼一个队友这一轮看到的全部内容：自己是谁、别人是谁、群里新发生了什么、
   /// 现在要回应的那句话。
   String _prompt(TeamState state, Teammate mate) {
+    final isLead = state.leadId == mate.id;
     final buffer = StringBuffer()..writeln('你是团队里的「${mate.name}」。');
     if (mate.brief.trim().isNotEmpty) buffer.writeln('你的角色：${mate.brief.trim()}');
     final others = [
@@ -372,8 +544,18 @@ final class TeamOrchestrator {
       ];
       buffer.writeln('团队其他成员：${list.join('、')}。');
     }
+    if (mate.readOnly) {
+      buffer.writeln('你是团队的只读顾问：只给分析、方案和结论，不要修改文件，也不要执行会产生副作用的命令。');
+    }
+    if (isLead) {
+      buffer
+        ..writeln('你是这个团队的主管：能自己做的就自己做；需要别人动手时，在回复里用 @名字 说明要他做什么，')
+        ..writeln('系统会把你的话转给他们，他们答完你也能看到。');
+    } else {
+      buffer.writeln('如果这件事该由别的队友接手，在回复最后单独写一行「移交 @名字」；不要替别人作答。');
+    }
     buffer
-      ..writeln('你们在一个群聊里，各答各的那一份：不要替别人发言，也不要假装别人已经回答。')
+      ..writeln('你们在一个群聊里，各答各的那一份：不要假装别人已经回答。')
       ..writeln('直接说内容，不要复述这段说明。');
 
     final ask = _lastAsk(state.messages);
@@ -393,6 +575,17 @@ final class TeamOrchestrator {
       for (final msg in tail) {
         buffer.writeln('${_who(state, msg)}：${_clip(msg.text)}');
       }
+    }
+    // 有人明确把活交给这位队友：单独提一句，别让它埋在群聊流水里。
+    for (var i = state.messages.length - 1; i >= from; i--) {
+      final msg = state.messages[i];
+      if (msg.handoffTo != mate.id) continue;
+      buffer
+        ..writeln()
+        ..writeln('【这件事交给你了】')
+        ..writeln('${_who(state, msg)} 把下面的活交给了你：')
+        ..writeln(_clip(msg.text));
+      break;
     }
     if (ask != null) {
       buffer

@@ -105,6 +105,7 @@ void main() {
     Map<String, Script> scripts = const {},
     int maxConcurrency = 3,
     Duration turnTimeout = const Duration(milliseconds: 300),
+    Duration Function(int minutes)? wakeInterval,
   }) {
     driver = FakeDriver(scripts);
     orch = TeamOrchestrator(
@@ -115,6 +116,7 @@ void main() {
       newId: () => 'team${seq++}',
       clock: () => DateTime(2026, 3, 1).add(Duration(milliseconds: tick++)),
       pause: (duration) async {},
+      wakeInterval: wakeInterval,
     );
   }
 
@@ -444,6 +446,301 @@ void main() {
       final parsed = parseMentions(mates, '@阿蓝，你说');
       expect(parsed.targets.single.name, '阿蓝');
       expect(parsed.text, '你说');
+    });
+  });
+
+  group('主管', () {
+    test('设了主管：不点名时只有主管接活', () async {
+      final team = await orch.create(
+        teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')],
+        leadId: 'm1',
+      );
+      expect(team.lead?.name, '阿蓝');
+
+      final after = await orch.send(team.id, '这周做什么');
+      final replies = after.messages.where((m) => m.role == TeamMsgRole.teammate).toList();
+      expect(replies.length, 1);
+      expect(replies.single.teammateId, 'm1');
+      expect(driver.prompts.containsKey('m2'), isFalse);
+    });
+
+    test('主管在答复里 @ 人：被点名的人接着答一轮', () async {
+      boot(scripts: {
+        'm1': const Script(FakeKind.ok, text: '我先分一下：@阿橙 你去看接口'),
+        'm2': const Script(FakeKind.ok, text: '接口看过了，没问题'),
+      });
+      final team = await orch.create(
+        teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')],
+        leadId: 'm1',
+      );
+      final after = await orch.send(team.id, '这周做什么');
+
+      final replies = after.messages.where((m) => m.role == TeamMsgRole.teammate).toList();
+      expect(replies.map((m) => m.teammateId).toList(), ['m1', 'm2']);
+      // 被分派的人能在提示词里看到主管的原话。
+      expect(driver.prompts['m2']!.single, contains('@阿橙 你去看接口'));
+    });
+
+    test('主管自己 @ 自己不会把自己再跑一遍', () async {
+      boot(scripts: {
+        'm1': const Script(FakeKind.ok, text: '我来做。@阿蓝 记一下'),
+      });
+      final team = await orch.create(
+        teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')],
+        leadId: 'm1',
+      );
+      final after = await orch.send(team.id, '这周做什么');
+      expect(after.messages.where((m) => m.role == TeamMsgRole.teammate).length, 1);
+    });
+
+    test('移除主管：主管位空出来，下一条回到全员作答', () async {
+      final team = await orch.create(
+        teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')],
+        leadId: 'm1',
+      );
+      final left = await orch.removeMate(team.id, 'm1');
+      expect(left.lead, isNull);
+      expect(left.messages.last.text, contains('主管一职空了出来'));
+
+      final after = await orch.send(team.id, '还在吗');
+      expect(after.messages.where((m) => m.role == TeamMsgRole.teammate).length, 1);
+    });
+
+    test('setLead 可设可撤；指定不在队里的人报错', () async {
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      expect(team.lead, isNull);
+
+      final set = await orch.setLead(team.id, 'm2');
+      expect(set.lead?.id, 'm2');
+
+      final cleared = await orch.setLead(team.id, null);
+      expect(cleared.lead, isNull);
+
+      await expectLater(orch.setLead(team.id, 'nope'), throwsArgumentError);
+    });
+
+    test('建队时指定了不存在的主管：报错', () async {
+      await expectLater(
+        orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')], leadId: 'ghost'),
+        throwsArgumentError,
+      );
+    });
+  });
+
+  group('移交', () {
+    test('答复末尾「移交 @名字」：落一张移交卡，下一位接着答', () async {
+      boot(scripts: {
+        'm1': const Script(FakeKind.ok, text: '前端我改完了。\n移交 @阿橙'),
+        'm2': const Script(FakeKind.ok, text: '收到，我来跑测试'),
+      });
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      final after = await orch.send(team.id, '@阿蓝 改一下登录页');
+
+      final fromBlue = after.messages.firstWhere((m) => m.teammateId == 'm1');
+      expect(fromBlue.handoffTo, 'm2');
+      // 移交那一行从正文里去掉，界面上靠卡片表达。
+      expect(fromBlue.text, '前端我改完了。');
+
+      final fromOrange = after.messages.firstWhere((m) => m.teammateId == 'm2');
+      expect(fromOrange.text, '收到，我来跑测试');
+      // 接手的人在提示词里能看到「这件事交给你了」。
+      expect(driver.prompts['m2']!.single, contains('【这件事交给你了】'));
+    });
+
+    test('正文中间提到「交给阿橙」不算移交', () async {
+      boot(scripts: {
+        'm1': const Script(FakeKind.ok, text: '这块以前交给阿橙做过，你可以问他。\n还有别的问题吗'),
+      });
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      final after = await orch.send(team.id, '@阿蓝 登录页谁熟');
+
+      final fromBlue = after.messages.firstWhere((m) => m.teammateId == 'm1');
+      expect(fromBlue.handoffTo, isNull);
+      expect(driver.prompts.containsKey('m2'), isFalse);
+    });
+
+    test('移交给不认识的名字：当作普通答复', () async {
+      boot(scripts: {'m1': const Script(FakeKind.ok, text: '做完了。\n移交 @查无此人')});
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      final after = await orch.send(team.id, '@阿蓝 干点活');
+      expect(after.messages.firstWhere((m) => m.teammateId == 'm1').handoffTo, isNull);
+    });
+
+    test('互相推诿：同一个人一轮只跑一次，不会无限循环', () async {
+      boot(scripts: {
+        'm1': const Script(FakeKind.ok, text: '我不太会。\n移交 @阿橙'),
+        'm2': const Script(FakeKind.ok, text: '我也不会。\n移交 @阿蓝'),
+      });
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      final after = await orch.send(team.id, '@阿蓝 你来');
+
+      // m1 答 → 移交 m2 → m2 答 → 想交回 m1，但 m1 这一轮已答过，不再重复。
+      final replies = after.messages.where((m) => m.role == TeamMsgRole.teammate).toList();
+      expect(replies.map((m) => m.teammateId).toList(), ['m1', 'm2']);
+      expect(driver.prompts['m1']!.length, 1);
+    });
+
+    test('移交卡能落盘并读回来', () async {
+      boot(scripts: {'m1': const Script(FakeKind.ok, text: '做完了。\n移交 @阿橙')});
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      final after = await orch.send(team.id, '@阿蓝 干活');
+      final saved = await TeamStore(dir).load(after.id);
+      expect(saved!.messages.firstWhere((m) => m.teammateId == 'm1').handoffTo, 'm2');
+      expect(saved.leadId, isNull);
+    });
+  });
+
+  group('移交解析', () {
+    test('三种写法都认：移交 / 交给 / 转交，带不带 @ 都行', () {
+      final mates = [mate('m1', '阿蓝'), mate('m2', '阿橙')];
+      for (final line in ['移交 @阿橙', '交给：阿橙', '转交阿橙', '移交: @阿橙。']) {
+        final parsed = parseHandoff(mates, '前面的话\n$line');
+        expect(parsed.toId, 'm2', reason: line);
+        expect(parsed.text, '前面的话', reason: line);
+      }
+    });
+
+    test('只在最后两行找：更早的行不算', () {
+      final mates = [mate('m1', '阿蓝'), mate('m2', '阿橙')];
+      final parsed = parseHandoff(mates, '移交 @阿橙\n第一行正文\n第二行正文');
+      expect(parsed.toId, isNull);
+    });
+
+    test('parseAssignments 扫全文并排除自己；名字要有边界', () {
+      final mates = [mate('m1', '阿蓝'), mate('m2', '阿橙')];
+      final got = parseAssignments(mates, '@阿橙 看接口，@阿蓝 别忙了', exceptId: 'm1');
+      expect(got.map((m) => m.name).toList(), ['阿橙']);
+      expect(parseAssignments(mates, '@阿橙橙 你好'), isEmpty);
+    });
+  });
+
+  group('写权限', () {
+    test('只读顾问：提示词里明确不许动手，且不占写锁', () async {
+      final team = await orch.create(
+        teammates: [
+          mate('m1', '阿蓝'),
+          Teammate(
+            id: 'm2',
+            name: '阿橙',
+            provider: 'p',
+            model: 'm',
+            readOnly: true,
+          ),
+        ],
+      );
+      await orch.send(team.id, '一起看看这个方案');
+
+      expect(driver.prompts['m2']!.single, contains('只读顾问'));
+      expect(driver.prompts['m2']!.single, contains('不要修改文件'));
+      expect(driver.prompts['m1']!.single, isNot(contains('只读顾问')));
+    });
+
+    test('两位可写队友排队：同一时刻只有一个在飞', () async {
+      boot(scripts: {
+        'm1': const Script(FakeKind.ok),
+        'm2': const Script(FakeKind.ok),
+      });
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      await orch.send(team.id, '各改一个文件');
+
+      expect(driver.peak, 1);
+    });
+
+    test('关掉互斥：可写队友回到并发跑', () async {
+      boot(maxConcurrency: 3, scripts: {
+        'm1': const Script(FakeKind.ok),
+        'm2': const Script(FakeKind.ok),
+      });
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      await orch.setExclusiveWrite(team.id, false);
+      await orch.send(team.id, '各改一个文件');
+
+      expect(driver.peak, greaterThan(1));
+    });
+
+    test('只读 + 可写可以并行：只读的不抢写锁', () async {
+      boot(scripts: {
+        'm1': const Script(FakeKind.ok),
+        'm2': const Script(FakeKind.ok),
+        'm3': const Script(FakeKind.ok),
+      });
+      final team = await orch.create(
+        teammates: [
+          mate('m1', '阿蓝'),
+          Teammate(id: 'm2', name: '阿橙', provider: 'p', model: 'm', readOnly: true),
+          Teammate(id: 'm3', name: '阿绿', provider: 'p', model: 'm', readOnly: true),
+        ],
+      );
+      await orch.send(team.id, '先说思路');
+
+      // 两位只读顾问同时跑，可写那位不论排在哪边都不该把并发压到 1。
+      expect(driver.peak, greaterThan(1));
+    });
+
+    test('只读标记能落盘读回来', () async {
+      final team = await orch.create(
+        teammates: [
+          mate('m1', '阿蓝'),
+          Teammate(id: 'm2', name: '阿橙', provider: 'p', model: 'm', readOnly: true),
+        ],
+      );
+      final saved = await TeamStore(dir).load(team.id);
+      expect(saved!.mate('m2')!.readOnly, isTrue);
+      expect(saved.mate('m1')!.readOnly, isFalse);
+    });
+  });
+
+  group('定时唤醒', () {
+    test('到点自动在群里发一句，队友接着答', () async {
+      boot(wakeInterval: (_) => const Duration(milliseconds: 25));
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      final woke = await orch.setWake(team.id, 1);
+      expect(woke.wakeMinutes, 1);
+
+      // 等两拍，至少催过一次。
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      final after = (await orch.load(team.id))!;
+      final wakes = after.messages.where((m) => m.role == TeamMsgRole.user).toList();
+      expect(wakes, isNotEmpty);
+      expect(wakes.first.text, TeamState.defaultWakePrompt);
+    });
+
+    test('关掉唤醒之后不再发', () async {
+      boot(wakeInterval: (_) => const Duration(milliseconds: 25));
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      await orch.setWake(team.id, 1);
+      await orch.setWake(team.id, null);
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+
+      final after = (await orch.load(team.id))!;
+      expect(after.messages.where((m) => m.role == TeamMsgRole.user), isEmpty);
+      expect(after.wakeMinutes, isNull);
+    });
+
+    test('间隔越界直接拒绝', () async {
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      await expectLater(orch.setWake(team.id, 0), throwsArgumentError);
+      await expectLater(orch.setWake(team.id, 24 * 60 + 1), throwsArgumentError);
+    });
+
+    test('唤醒配置落盘，重开编排器后接着催', () async {
+      boot(wakeInterval: (_) => const Duration(milliseconds: 25));
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      await orch.setWake(team.id, 1, wakePrompt: '进度如何');
+      await orch.dispose();
+
+      // 新的编排器（模拟进程重启）从盘上读，定时器要自己接上。
+      boot(wakeInterval: (_) => const Duration(milliseconds: 25));
+      final restored = await orch.load(team.id);
+      expect(restored!.wakeMinutes, 1);
+      expect(restored.wakePrompt, '进度如何');
+
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      final after = (await orch.load(team.id))!;
+      expect(
+        after.messages.where((m) => m.role == TeamMsgRole.user).map((m) => m.text),
+        contains('进度如何'),
+      );
     });
   });
 }

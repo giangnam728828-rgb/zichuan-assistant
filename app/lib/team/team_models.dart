@@ -13,6 +13,7 @@ final class Teammate {
     required this.provider,
     required this.model,
     this.reasoningEffort,
+    this.readOnly = false,
   });
 
   factory Teammate.fromJson(Map<String, Object?> json) => Teammate(
@@ -22,6 +23,7 @@ final class Teammate {
     provider: json['provider'] as String? ?? '',
     model: json['model'] as String? ?? '',
     reasoningEffort: json['reasoningEffort'] as String?,
+    readOnly: json['readOnly'] as bool? ?? false,
   );
 
   /// 稳定 id（`mate-<时间戳>`），消息里的发言人指向它。
@@ -34,13 +36,25 @@ final class Teammate {
   final String model;
   final String? reasoningEffort;
 
-  Teammate copyWith({String? name, String? brief, String? provider, String? model}) => Teammate(
+  /// 只读顾问：只出主意、不动手（不改文件、不跑有副作用的命令）。
+  /// 团队里可以留一位可写的人，其余都设只读，避免同时改同一份代码。
+  final bool readOnly;
+
+  Teammate copyWith({
+    String? name,
+    String? brief,
+    String? provider,
+    String? model,
+    String? reasoningEffort,
+    bool? readOnly,
+  }) => Teammate(
     id: id,
     name: name ?? this.name,
     brief: brief ?? this.brief,
     provider: provider ?? this.provider,
     model: model ?? this.model,
-    reasoningEffort: reasoningEffort,
+    reasoningEffort: reasoningEffort ?? this.reasoningEffort,
+    readOnly: readOnly ?? this.readOnly,
   );
 
   Map<String, Object?> toJson() => {
@@ -50,6 +64,7 @@ final class Teammate {
     'provider': provider,
     'model': model,
     'reasoningEffort': ?reasoningEffort,
+    if (readOnly) 'readOnly': true,
   };
 }
 
@@ -64,6 +79,7 @@ final class TeamMsg {
     required this.text,
     required this.at,
     this.failed = false,
+    this.handoffTo,
   });
 
   factory TeamMsg.fromJson(Map<String, Object?> json) => TeamMsg(
@@ -76,6 +92,7 @@ final class TeamMsg {
     text: json['text'] as String? ?? '',
     at: DateTime.tryParse(json['at'] as String? ?? '') ?? DateTime.now(),
     failed: json['failed'] as bool? ?? false,
+    handoffTo: json['handoffTo'] as String?,
   );
 
   final String id;
@@ -85,6 +102,9 @@ final class TeamMsg {
   final DateTime at;
   final bool failed;
 
+  /// 这条答复把活交给了谁（队友 id）。非空时界面上是一张移交卡。
+  final String? handoffTo;
+
   Map<String, Object?> toJson() => {
     'id': id,
     'role': role.name,
@@ -92,6 +112,7 @@ final class TeamMsg {
     'text': text,
     'at': at.toIso8601String(),
     'failed': failed,
+    'handoffTo': ?handoffTo,
   };
 }
 
@@ -103,10 +124,17 @@ final class TeamState {
     this.sessions = const {},
     this.cursors = const {},
     this.messages = const [],
+    this.leadId,
+    this.wakeMinutes,
+    this.wakePrompt = defaultWakePrompt,
+    this.exclusiveWrite = true,
     required this.createdAt,
     required this.updatedAt,
     this.rev = 0,
   });
+
+  /// 定时唤醒默认说什么。
+  static const defaultWakePrompt = '继续推进，汇报一下现在的进展。';
 
   factory TeamState.fromJson(Map<String, Object?> json) => TeamState(
     id: json['id'] as String? ?? '',
@@ -125,6 +153,10 @@ final class TeamState {
       for (final m in (json['messages'] as List? ?? const []))
         if (m is Map) TeamMsg.fromJson(m.cast<String, Object?>()),
     ],
+    leadId: json['leadId'] as String?,
+    wakeMinutes: (json['wakeMinutes'] as num?)?.toInt(),
+    wakePrompt: json['wakePrompt'] as String? ?? defaultWakePrompt,
+    exclusiveWrite: json['exclusiveWrite'] as bool? ?? true,
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
     updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? DateTime.now(),
     rev: (json['rev'] as num?)?.toInt() ?? 0,
@@ -140,11 +172,30 @@ final class TeamState {
   /// 队友各有一个独立会话，别人的发言靠这个游标补进去，不重复复读。
   final Map<String, int> cursors;
   final List<TeamMsg> messages;
+
+  /// 主管（可选）：没点名时先由他接，他可以 @ 队友把活分下去。
+  final String? leadId;
+
+  /// 每隔几分钟自动催一次（null 表示不催）。落盘，重启后接着催。
+  final int? wakeMinutes;
+
+  /// 定时唤醒时发的那句话。
+  final String wakePrompt;
+
+  /// 可写的队友是否排队执行（默认开）：同一时刻只让一个人动文件，
+  /// 免得两位队友同时改同一份代码。只读顾问不受影响，照常并行。
+  final bool exclusiveWrite;
   final DateTime createdAt;
   final DateTime updatedAt;
 
   /// 每次落盘 +1。
   final int rev;
+
+  /// 主管队友；没设或已离开就是 null。
+  Teammate? get lead {
+    final id = leadId;
+    return id == null ? null : mate(id);
+  }
 
   Teammate? mate(String id) {
     for (final mate in teammates) {
@@ -174,6 +225,12 @@ final class TeamState {
     Map<String, String?>? sessions,
     Map<String, int>? cursors,
     List<TeamMsg>? messages,
+    String? leadId,
+    bool clearLead = false,
+    int? wakeMinutes,
+    bool clearWake = false,
+    String? wakePrompt,
+    bool? exclusiveWrite,
     DateTime? updatedAt,
     int? rev,
   }) => TeamState(
@@ -182,6 +239,10 @@ final class TeamState {
     sessions: sessions ?? this.sessions,
     cursors: cursors ?? this.cursors,
     messages: messages ?? this.messages,
+    leadId: clearLead ? null : (leadId ?? this.leadId),
+    wakeMinutes: clearWake ? null : (wakeMinutes ?? this.wakeMinutes),
+    wakePrompt: wakePrompt ?? this.wakePrompt,
+    exclusiveWrite: exclusiveWrite ?? this.exclusiveWrite,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     rev: rev ?? this.rev,
@@ -193,6 +254,10 @@ final class TeamState {
     'sessions': sessions,
     'cursors': cursors,
     'messages': [for (final m in messages) m.toJson()],
+    'leadId': ?leadId,
+    'wakeMinutes': ?wakeMinutes,
+    if (wakePrompt != defaultWakePrompt) 'wakePrompt': wakePrompt,
+    if (!exclusiveWrite) 'exclusiveWrite': false,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
     'rev': rev,
@@ -257,4 +322,51 @@ List<Teammate> normalizeTeammates(List<Teammate> mates) {
     }
   }
   return (targets: targets, text: text.isEmpty ? raw.trim() : text);
+}
+
+/// 移交指令所在的那一行：`移交 @名字` / `交给：名字` / `转交 @名字`。
+final _handoffLine = RegExp(r'^\s*(?:移交|交给|转交)\s*[:：]?\s*@?\s*(.+?)\s*[。.]?\s*$');
+
+/// 从队友的答复里认出「移交给谁」。
+///
+/// 只认**最后两行**里的移交指令——正文中间提到「交给阿蓝」通常是叙述，不是
+/// 真要把活交出去；放在末尾单独一行才是明确的交付。认不出（或名字对不上
+/// 队友）就原样返回，当作普通答复。
+({String text, String? toId}) parseHandoff(List<Teammate> mates, String raw) {
+  final trimmed = raw.trimRight();
+  if (trimmed.isEmpty) return (text: '', toId: null);
+  final lines = trimmed.split('\n');
+  for (var i = lines.length - 1; i >= 0 && i >= lines.length - 2; i--) {
+    final match = _handoffLine.firstMatch(lines[i]);
+    if (match == null) continue;
+    final name = match.group(1)!.trim();
+    Teammate? target;
+    for (final mate in mates) {
+      if (mate.name.toLowerCase() == name.toLowerCase()) {
+        target = mate;
+        break;
+      }
+    }
+    if (target == null) continue;
+    final rest = [...lines.sublist(0, i), ...lines.sublist(i + 1)].join('\n').trim();
+    return (text: rest, toId: target.id);
+  }
+  return (text: trimmed, toId: null);
+}
+
+/// 在正文里找所有 `@名字`（主管分派用）。排除 [exceptId]（一般不点名自己）。
+///
+/// 与 [parseMentions] 不同：那个只剥开头的前缀（用户在点名），这个扫全文
+/// （主管在正文里分派）。名字后必须是边界，避免「@阿蓝蓝」误命中「阿蓝」。
+List<Teammate> parseAssignments(List<Teammate> mates, String text, {String? exceptId}) {
+  final out = <Teammate>[];
+  for (final mate in mates) {
+    if (mate.id == exceptId) continue;
+    final pattern = RegExp(
+      '@${RegExp.escape(mate.name)}(?![\\w\\u4e00-\\u9fa5])',
+      caseSensitive: false,
+    );
+    if (pattern.hasMatch(text)) out.add(mate);
+  }
+  return out;
 }

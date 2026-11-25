@@ -33,17 +33,28 @@ ModelCatalog _catalog() => const ModelCatalog(
 );
 
 /// 立刻答一句的驱动：不经过网络，也不模拟失败。
+///
+/// [replies] 按「队友名字 → 答复正文」定制台词；没配的人回一句「收到」。
 final class StubDriver implements CollabSessionDriver {
+  StubDriver({this.replies = const {}});
+
+  final Map<String, String> replies;
   var _sessions = 0;
   final prompts = <String, List<String>>{};
+  final _labels = <String, String>{};
 
   @override
-  Future<String> openSession(SeatSpec seat, {String? workspaceId}) async => 's${_sessions++}';
+  Future<String> openSession(SeatSpec seat, {String? workspaceId}) async {
+    final id = 's${_sessions++}';
+    _labels[id] = seat.label ?? '';
+    return id;
+  }
 
   @override
   Future<TurnOutcome> runTurn(String sessionId, String text, {Duration? timeout}) async {
     prompts.putIfAbsent(sessionId, () => []).add(text);
-    return const TurnOutcome(kind: TurnKind.completed, text: '收到');
+    final reply = replies[_labels[sessionId]] ?? '收到';
+    return TurnOutcome(kind: TurnKind.completed, text: reply);
   }
 
   @override
@@ -204,5 +215,86 @@ void main() {
     );
     expect(remove.onPressed, isNull);
     expect(find.text('加一位队友'), findsOneWidget);
+  });
+
+  testWidgets('建队时勾主管：不点名时只有主管答，成员面板标着「主管」', (tester) async {
+    await _pump(tester, orchestrator: orch);
+    await tester.enterText(find.byType(TextField).at(0), '阿蓝');
+    await tester.enterText(find.byType(TextField).at(2), '阿橙');
+    await tester.pump();
+
+    // 给第一位勾上主管。
+    await tester.tap(find.widgetWithText(FilterChip, '主管').first);
+    await tester.pump();
+
+    await tester.scrollUntilVisible(
+      find.widgetWithText(FilledButton, '建队'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '建队'));
+    await tester.pump();
+    await _settleIo(tester);
+
+    // 群里发一句不点名的，只有主管回。
+    await tester.enterText(find.byType(TextField), '这周做什么');
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
+    await tester.pump();
+    await _settleIo(tester);
+
+    expect(find.text('收到'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.group_outlined));
+    await _settleAnim(tester);
+    expect(find.text('主管'), findsOneWidget);
+  });
+
+  testWidgets('移交卡：队友把活交给下一位，气泡上写着交给谁', (tester) async {
+    // 编排器必须在真实异步区里构造：widget 测试的 fake async 区里建出来的
+    // Future 链要靠 pump 才推进，在 runAsync 里等它会直接卡死。
+    late TeamOrchestrator orchestrator;
+    await tester.runAsync(() async {
+      final stub = StubDriver(
+        replies: {
+          '阿蓝': '前端改完了。\n移交 @阿橙',
+          '阿橙': '测试跑过了',
+        },
+      );
+      orchestrator = TeamOrchestrator(driver: stub, store: store);
+      final team = await orchestrator.create(
+        teammates: [_mate('m1', '阿蓝'), _mate('m2', '阿橙')],
+      );
+      await orchestrator.send(team.id, '@阿蓝 改一下登录页');
+    });
+    addTearDown(orchestrator.dispose);
+
+    await _pump(tester, orchestrator: orchestrator);
+    expect(find.text('前端改完了。'), findsOneWidget);
+    expect(find.text('交给 阿橙 接着做'), findsOneWidget);
+    expect(find.text('测试跑过了'), findsOneWidget);
+    // 移交那行本身不进气泡正文。
+    expect(find.textContaining('移交 @阿橙'), findsNothing);
+  });
+
+  testWidgets('成员面板点一位队友：设为主管，再点撤销', (tester) async {
+    await tester.runAsync(() async {
+      await orch.create(teammates: [_mate('m1', '阿蓝'), _mate('m2', '阿橙')]);
+    });
+    await _pump(tester, orchestrator: orch);
+
+    await tester.tap(find.byIcon(Icons.group_outlined));
+    await _settleAnim(tester);
+    expect(find.text('主管'), findsNothing);
+
+    await tester.tap(find.text('阿橙'));
+    await _settleAnim(tester);
+    await _settleIo(tester, rounds: 6);
+    expect(find.text('主管'), findsOneWidget);
+
+    await tester.tap(find.text('阿橙'));
+    await _settleAnim(tester);
+    await _settleIo(tester, rounds: 6);
+    expect(find.text('主管'), findsNothing);
   });
 }

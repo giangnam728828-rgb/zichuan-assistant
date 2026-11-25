@@ -43,6 +43,12 @@ class _MateDraft {
   final TextEditingController briefController;
   String? modelKey;
 
+  /// 建队时勾的主管（最多一个）。
+  bool isLead = false;
+
+  /// 只读顾问：只出主意，不动文件。
+  bool readOnly = false;
+
   void dispose() {
     nameController.dispose();
     briefController.dispose();
@@ -217,6 +223,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
           brief: draft.briefController.text.trim(),
           provider: model.provider,
           model: model.id,
+          readOnly: draft.readOnly,
         ),
       );
     }
@@ -229,12 +236,16 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       setState(() => _error = '还没有连上引擎：先去聊天里连上引擎');
       return;
     }
+    final leadIndex = _mates.indexWhere((draft) => draft.isLead);
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final team = await orchestrator.create(teammates: mates);
+      final team = await orchestrator.create(
+        teammates: mates,
+        leadId: leadIndex >= 0 && leadIndex < mates.length ? mates[leadIndex].id : null,
+      );
       if (!mounted) return;
       for (final draft in _mates) {
         draft.dispose();
@@ -312,9 +323,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       await orchestrator.store.writeMarkdown(team);
       final root = orchestrator.store.root;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已导出到 ${root.path}/${team.id}.md')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已导出到 ${root.path}/${team.id}.md')));
       }
     } on Object catch (error) {
       if (mounted) setState(() => _error = '$error');
@@ -347,68 +356,136 @@ class _TeamPageState extends ConsumerState<TeamPage> {
           final current = _team;
           if (current == null) return const SizedBox.shrink();
           return SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: Row(
-                    children: [
-                      Text('队友', style: Theme.of(context).textTheme.titleMedium),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${current.teammates.length}/6（至少 2 位）',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
+            // 成员 + 团队设置比一屏高：面板本身要能滚，否则会撑破底栏。
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Row(
+                      children: [
+                        Text('队友', style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(width: 8),
+                        Text('${current.teammates.length}/6（至少 2 位）', style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
                   ),
-                ),
-                for (final mate in current.teammates)
+                  for (final mate in current.teammates)
+                    ListTile(
+                      onTap: () async {
+                        final isLead = current.leadId == mate.id;
+                        await _orchestrator?.setLead(current.id, isLead ? null : mate.id);
+                        setSheetState(() {});
+                      },
+                      leading: Icon(
+                        brandIconData(brandOf(mate.provider, mate.model)),
+                        color: brandColor(brandOf(mate.provider, mate.model), Theme.of(context).colorScheme.primary),
+                      ),
+                      title: Row(
+                        children: [
+                          Flexible(child: Text(mate.name, overflow: TextOverflow.ellipsis)),
+                          if (current.leadId == mate.id) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.secondaryContainer,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '主管',
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(color: Theme.of(context).colorScheme.onSecondaryContainer),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      subtitle: Text(
+                        [if (mate.brief.trim().isNotEmpty) mate.brief.trim(), mate.model].join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: IconButton(
+                        tooltip: '移除',
+                        icon: const Icon(Icons.person_remove_outlined),
+                        onPressed: current.teammates.length <= 2
+                            ? null
+                            : () async {
+                                await _orchestrator?.removeMate(current.id, mate.id);
+                                setSheetState(() {});
+                              },
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '点一位队友可以设为主管（没点名时由他先接活）。',
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 20),
+                  SwitchListTile(
+                    dense: true,
+                    value: current.exclusiveWrite,
+                    title: const Text('可写的队友排队执行'),
+                    subtitle: const Text('同一时刻只让一个人动文件；只读顾问不受影响'),
+                    onChanged: (on) async {
+                      await _orchestrator?.setExclusiveWrite(current.id, on);
+                      setSheetState(() {});
+                    },
+                  ),
                   ListTile(
-                    leading: Icon(
-                      brandIconData(brandOf(mate.provider, mate.model)),
-                      color: brandColor(brandOf(mate.provider, mate.model), Theme.of(context).colorScheme.primary),
-                    ),
-                    title: Text(mate.name),
+                    dense: true,
+                    leading: const Icon(Icons.alarm),
+                    title: const Text('定时唤醒'),
                     subtitle: Text(
-                      [
-                        if (mate.brief.trim().isNotEmpty) mate.brief.trim(),
-                        mate.model,
-                      ].join(' · '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      current.wakeMinutes == null ? '到点自动在群里催一句，让队友接着干' : '每 ${_wakeLabel(current.wakeMinutes!)} 催一次',
                     ),
-                    trailing: IconButton(
-                      tooltip: '移除',
-                      icon: const Icon(Icons.person_remove_outlined),
-                      onPressed: current.teammates.length <= 2
+                    trailing: DropdownButton<int?>(
+                      value: current.wakeMinutes,
+                      underline: const SizedBox.shrink(),
+                      items: const [
+                        DropdownMenuItem(value: null, child: Text('关')),
+                        DropdownMenuItem(value: 5, child: Text('5 分钟')),
+                        DropdownMenuItem(value: 10, child: Text('10 分钟')),
+                        DropdownMenuItem(value: 30, child: Text('30 分钟')),
+                        DropdownMenuItem(value: 60, child: Text('1 小时')),
+                      ],
+                      onChanged: (value) async {
+                        await _orchestrator?.setWake(current.id, value);
+                        setSheetState(() {});
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    child: OutlinedButton.icon(
+                      onPressed: current.teammates.length >= 6
                           ? null
                           : () async {
-                              await _orchestrator?.removeMate(current.id, mate.id);
-                              setSheetState(() {});
+                              final added = await _addMateDialog();
+                              if (added) setSheetState(() {});
                             },
+                      icon: const Icon(Icons.person_add_alt_1),
+                      label: const Text('加一位队友'),
                     ),
                   ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: OutlinedButton.icon(
-                    onPressed: current.teammates.length >= 6
-                        ? null
-                        : () async {
-                            final added = await _addMateDialog();
-                            if (added) setSheetState(() {});
-                          },
-                    icon: const Icon(Icons.person_add_alt_1),
-                    label: const Text('加一位队友'),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           );
         },
       ),
     );
   }
+
+  static String _wakeLabel(int minutes) => minutes >= 60 && minutes % 60 == 0 ? '${minutes ~/ 60} 小时' : '$minutes 分钟';
 
   Future<bool> _addMateDialog() async {
     final models = _models();
@@ -432,45 +509,43 @@ class _TeamPageState extends ConsumerState<TeamPage> {
                 decoration: const InputDecoration(labelText: '负责什么（可选）'),
               ),
               const SizedBox(height: 12),
-              _modelPicker(
-                value: key,
-                models: models,
-                onChanged: (value) => setDialogState(() => key = value),
-              ),
+              _modelPicker(value: key, models: models, onChanged: (value) => setDialogState(() => key = value)),
             ],
           ),
           actions: [
             TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('取消')),
             FilledButton(
-              onPressed: key == null ? null : () async {
-                final model = models.firstWhere((m) => m.key == key);
-                final team = _team;
-                if (team == null) {
-                  Navigator.of(dialogContext).pop(false);
-                  return;
-                }
-                final orchestrator = _orchestrator;
-                if (orchestrator == null) {
-                  Navigator.of(dialogContext).pop(false);
-                  return;
-                }
-                try {
-                  await orchestrator.addMate(
-                    team.id,
-                    Teammate(
-                      id: 'mate-${DateTime.now().microsecondsSinceEpoch}',
-                      name: name.text.trim(),
-                      brief: brief.text.trim(),
-                      provider: model.provider,
-                      model: model.id,
-                    ),
-                  );
-                  if (dialogContext.mounted) Navigator.of(dialogContext).pop(true);
-                } on Object catch (error) {
-                  if (mounted) setState(() => _error = '$error');
-                  if (dialogContext.mounted) Navigator.of(dialogContext).pop(false);
-                }
-              },
+              onPressed: key == null
+                  ? null
+                  : () async {
+                      final model = models.firstWhere((m) => m.key == key);
+                      final team = _team;
+                      if (team == null) {
+                        Navigator.of(dialogContext).pop(false);
+                        return;
+                      }
+                      final orchestrator = _orchestrator;
+                      if (orchestrator == null) {
+                        Navigator.of(dialogContext).pop(false);
+                        return;
+                      }
+                      try {
+                        await orchestrator.addMate(
+                          team.id,
+                          Teammate(
+                            id: 'mate-${DateTime.now().microsecondsSinceEpoch}',
+                            name: name.text.trim(),
+                            brief: brief.text.trim(),
+                            provider: model.provider,
+                            model: model.id,
+                          ),
+                        );
+                        if (dialogContext.mounted) Navigator.of(dialogContext).pop(true);
+                      } on Object catch (error) {
+                        if (mounted) setState(() => _error = '$error');
+                        if (dialogContext.mounted) Navigator.of(dialogContext).pop(false);
+                      }
+                    },
               child: const Text('加入'),
             ),
           ],
@@ -495,11 +570,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
         title: Text(team == null ? '组个队' : '团队'),
         actions: [
           if (team != null) ...[
-            IconButton(
-              tooltip: '队友',
-              icon: const Icon(Icons.group_outlined),
-              onPressed: _openMembers,
-            ),
+            IconButton(tooltip: '队友', icon: const Icon(Icons.group_outlined), onPressed: _openMembers),
             PopupMenuButton<String>(
               onSelected: (value) {
                 if (value == 'export') _export();
@@ -533,7 +604,8 @@ class _TeamPageState extends ConsumerState<TeamPage> {
         Text('几位队友，一个群', style: theme.textTheme.titleMedium),
         const SizedBox(height: 4),
         Text(
-          '每位队友各用各的模型、各记各的上下文。发消息时 @ 谁，谁回答；不点名就大家一起答。',
+          '每位队友各用各的模型、各记各的上下文。发消息时 @ 谁，谁回答；\n'
+          '不点名就大家一起答；设了主管就由他先接，他可以把活分给队友。',
           style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
         const SizedBox(height: 16),
@@ -550,9 +622,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
         Row(
           children: [
             OutlinedButton.icon(
-              onPressed: _mates.length >= 6
-                  ? null
-                  : () => setState(() => _mates.add(_MateDraft())),
+              onPressed: _mates.length >= 6 ? null : () => setState(() => _mates.add(_MateDraft())),
               icon: const Icon(Icons.person_add_alt_1),
               label: const Text('加一位'),
             ),
@@ -589,6 +659,30 @@ class _TeamPageState extends ConsumerState<TeamPage> {
             Row(
               children: [
                 Text('队友 ${index + 1}', style: theme.textTheme.labelMedium),
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: const Text('主管'),
+                  selected: draft.isLead,
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  labelStyle: theme.textTheme.labelSmall,
+                  onSelected: (on) => setState(() {
+                    for (final other in _mates) {
+                      other.isLead = false;
+                    }
+                    draft.isLead = on;
+                  }),
+                ),
+                const SizedBox(width: 4),
+                FilterChip(
+                  label: const Text('只读'),
+                  selected: draft.readOnly,
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  labelStyle: theme.textTheme.labelSmall,
+                  tooltip: '只出主意，不改文件',
+                  onSelected: (on) => setState(() => draft.readOnly = on),
+                ),
                 const Spacer(),
                 IconButton(
                   tooltip: '移除',
@@ -606,20 +700,12 @@ class _TeamPageState extends ConsumerState<TeamPage> {
             ),
             TextField(
               controller: draft.nameController,
-              decoration: const InputDecoration(
-                labelText: '名字',
-                hintText: '留空就自动起名',
-                isDense: true,
-              ),
+              decoration: const InputDecoration(labelText: '名字', hintText: '留空就自动起名', isDense: true),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: draft.briefController,
-              decoration: const InputDecoration(
-                labelText: '负责什么',
-                hintText: '比如：前端实现、接口设计、挑毛病',
-                isDense: true,
-              ),
+              decoration: const InputDecoration(labelText: '负责什么', hintText: '比如：前端实现、接口设计、挑毛病', isDense: true),
             ),
             const SizedBox(height: 8),
             _modelPicker(
@@ -651,7 +737,10 @@ class _TeamPageState extends ConsumerState<TeamPage> {
           style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface),
           items: [
             for (final model in models)
-              DropdownMenuItem(value: model.key, child: Text(model.label, overflow: TextOverflow.ellipsis)),
+              DropdownMenuItem(
+                value: model.key,
+                child: Text(model.label, overflow: TextOverflow.ellipsis),
+              ),
           ],
           onChanged: onChanged,
         ),
@@ -732,10 +821,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
             child: CircularProgressIndicator(strokeWidth: 2, color: theme.colorScheme.primary),
           ),
           const SizedBox(width: 8),
-          Text(
-            '队友在想…',
-            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-          ),
+          Text('队友在想…', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         ],
       ),
     );
@@ -769,11 +855,33 @@ class _TeamPageState extends ConsumerState<TeamPage> {
         ? theme.colorScheme.onErrorContainer
         : theme.colorScheme.onSurface;
 
+    final handoff = msg.handoffTo == null ? null : team.mate(msg.handoffTo!);
     final content = Container(
       constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.76),
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
       decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(14)),
-      child: Text(msg.text, style: theme.textTheme.bodyMedium?.copyWith(color: foreground)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(msg.text, style: theme.textTheme.bodyMedium?.copyWith(color: foreground)),
+          if (handoff != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.subdirectory_arrow_right, size: 14, color: foreground.withValues(alpha: 0.75)),
+                  const SizedBox(width: 4),
+                  Text(
+                    '交给 ${handoff.name} 接着做',
+                    style: theme.textTheme.labelSmall?.copyWith(color: foreground.withValues(alpha: 0.85)),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
 
     if (mine) {
@@ -792,9 +900,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
             child: Icon(
               brandIconData(brand),
               size: 16,
-              color: msg.failed
-                  ? theme.colorScheme.error
-                  : brandColor(brand, theme.colorScheme.primary),
+              color: msg.failed ? theme.colorScheme.error : brandColor(brand, theme.colorScheme.primary),
             ),
           ),
           Flexible(
@@ -845,10 +951,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
                 ],
               ),
             ),
-            TextButton(
-              onPressed: () => _respond(eventId, ApprovalDecision.reject),
-              child: const Text('拒绝'),
-            ),
+            TextButton(onPressed: () => _respond(eventId, ApprovalDecision.reject), child: const Text('拒绝')),
             FilledButton.tonal(
               onPressed: () => _respond(eventId, ApprovalDecision.allowOnce),
               child: const Text('允许一次'),
@@ -871,10 +974,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
             tooltip: '点名',
             icon: const Icon(Icons.alternate_email),
             onSelected: _insertMention,
-            itemBuilder: (_) => [
-              for (final mate in team.teammates)
-                PopupMenuItem(value: mate, child: Text(mate.name)),
-            ],
+            itemBuilder: (_) => [for (final mate in team.teammates) PopupMenuItem(value: mate, child: Text(mate.name))],
           ),
           Expanded(
             child: TextField(
@@ -889,20 +989,13 @@ class _TeamPageState extends ConsumerState<TeamPage> {
                 filled: true,
                 fillColor: theme.colorScheme.surfaceContainerHighest,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  borderSide: BorderSide.none,
-                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
               ),
             ),
           ),
           const SizedBox(width: 6),
           if (_busy)
-            IconButton.filledTonal(
-              tooltip: '停止',
-              onPressed: _stop,
-              icon: const Icon(Icons.stop_rounded),
-            )
+            IconButton.filledTonal(tooltip: '停止', onPressed: _stop, icon: const Icon(Icons.stop_rounded))
           else
             IconButton.filled(
               tooltip: '发送',
