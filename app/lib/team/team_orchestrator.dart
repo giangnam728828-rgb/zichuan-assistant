@@ -448,25 +448,25 @@ final class TeamOrchestrator {
     if (mate == null) return null;
 
     // 开跑前记下「谁在跑」，跑完（含失败/取消）擦掉：页面据此显示进度。
-    await _markRunning(teamId, mateId, on: true);
+    // 只记在内存里：它描述的是这一刻这个进程里的事，落盘没有意义；而每多
+    // 排一次写盘，并发的两位队友就会被错开，看着像「关掉互斥也还是串行」。
+    _setRunning(teamId, mateId, on: true);
     try {
       return await _runMateTurn(teamId, snapshot, mate);
     } finally {
-      await _markRunning(teamId, mateId, on: false);
+      _setRunning(teamId, mateId, on: false);
     }
   }
 
-  /// 记下/擦掉「谁在跑」；落盘失败不挡这一轮。
-  Future<void> _markRunning(String teamId, String mateId, {required bool on}) async {
-    try {
-      await _update(teamId, (current) {
-        final running = [...current.running]..remove(mateId);
-        if (on) running.add(mateId);
-        return current.copyWith(running: running);
-      });
-    } on Object {
-      // 进度显示比一轮的结果次要，落盘失败就算了。
-    }
+  /// 「谁在跑」：内存 + 广播，不排队写盘。
+  void _setRunning(String teamId, String mateId, {required bool on}) {
+    final current = _latest[teamId];
+    if (current == null) return;
+    final running = [...current.running]..remove(mateId);
+    if (on) running.add(mateId);
+    final next = current.copyWith(running: running);
+    _latest[teamId] = next;
+    _emit(next);
   }
 
   /// 一位队友的一轮正文：开会话、问、落答案或失败，失败重试一次。
@@ -716,7 +716,9 @@ final class TeamOrchestrator {
       final current = _latest[teamId] ?? await _store.load(teamId);
       if (current == null) throw StateError('团队不存在：$teamId');
       final next = mutate(current).copyWith(updatedAt: _clock(), rev: current.rev + 1);
-      await _store.save(next);
+      // running 描述的是「这个进程此刻谁在跑」，不写进盘：进程被杀后
+      // 下次打开就不会以为还在跑。
+      await _store.save(next.copyWith(running: const []));
       _latest[teamId] = next;
       _emit(next);
       return next;

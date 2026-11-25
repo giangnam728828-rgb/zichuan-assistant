@@ -18,10 +18,14 @@ import 'package:flutter_test/flutter_test.dart';
 enum FakeKind { ok, fail, hang }
 
 final class Script {
-  const Script(this.kind, {this.text = '答案', this.failFirst = 0});
+  const Script(this.kind, {this.text = '答案', this.failFirst = 0, this.delay = const Duration(milliseconds: 3)});
   final FakeKind kind;
   final String text;
   final int failFirst;
+
+  /// 这一轮要跑多久。并发用例把它拉长：落盘要几毫秒，3ms 的窗口在慢机器上
+  /// 一挤就错开了，断言会跟着抖。
+  final Duration delay;
 }
 
 final class FakeDriver implements CollabSessionDriver {
@@ -61,7 +65,7 @@ final class FakeDriver implements CollabSessionDriver {
       prompts.putIfAbsent(mateId, () => []).add(text);
       switch (script.kind) {
         case FakeKind.ok:
-          await Future<void>.delayed(const Duration(milliseconds: 3));
+          await Future<void>.delayed(script.delay);
           if (count <= script.failFirst) {
             return const TurnOutcome(kind: TurnKind.failed, error: '第一次失败');
           }
@@ -656,8 +660,8 @@ void main() {
 
     test('关掉互斥：可写队友回到并发跑', () async {
       boot(maxConcurrency: 3, scripts: {
-        'm1': const Script(FakeKind.ok),
-        'm2': const Script(FakeKind.ok),
+        'm1': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
+        'm2': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
       });
       final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
       await orch.setExclusiveWrite(team.id, false);
@@ -668,9 +672,9 @@ void main() {
 
     test('只读 + 可写可以并行：只读的不抢写锁', () async {
       boot(scripts: {
-        'm1': const Script(FakeKind.ok),
-        'm2': const Script(FakeKind.ok),
-        'm3': const Script(FakeKind.ok),
+        'm1': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
+        'm2': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
+        'm3': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
       });
       final team = await orch.create(
         teammates: [
