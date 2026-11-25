@@ -372,6 +372,15 @@ final class CollabRun {
 
   SeatState seatOf(String id) => seats[id] ?? const SeatState();
 
+  /// 按子会话 id 反查席位：审批卡、通知横幅靠它标明「这是哪一席在请求」。
+  SeatSpec? seatBySession(String sessionId) {
+    if (sessionId.isEmpty) return null;
+    for (final seat in spec.seats) {
+      if (seatOf(seat.id).sessionId == sessionId) return seat;
+    }
+    return null;
+  }
+
   /// 已答出可用答案的席位数。
   int get answeredCount => spec.seats.where((s) => seatOf(s.id).isUsable).length;
 

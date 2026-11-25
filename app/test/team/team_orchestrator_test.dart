@@ -751,4 +751,45 @@ void main() {
       );
     });
   });
+
+  group('进度', () {
+    test('跑的时候记着谁在跑，跑完擦掉', () async {
+      boot(scripts: {'m1': const Script(FakeKind.hang)});
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+
+      final sending = orch.send(team.id, '@阿蓝 先想');
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      final during = (await orch.load(team.id))!;
+      expect(during.running, ['m1']);
+
+      await orch.cancel(team.id);
+      await sending;
+      final after = (await orch.load(team.id))!;
+      expect(after.running, isEmpty);
+    });
+
+    test('盘上的「正在跑」是上次进程的残影：load 时擦掉', () async {
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      // 模拟上次进程在跑时被杀：直接往盘上写 running。
+      await store.save(team.copyWith(running: ['m1']));
+
+      await orch.dispose();
+      boot(); // 新编排器：内存里没有一轮在跑
+      final restored = await orch.load(team.id);
+      expect(restored!.running, isEmpty);
+      // 擦除也要落盘，下次读盘不会又冒出来。
+      expect((await store.load(team.id))!.running, isEmpty);
+    });
+
+    test('running 随状态 JSON 往返', () {
+      final state = TeamState(
+        id: 't1',
+        teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')],
+        running: const ['m2', 'm1'],
+        createdAt: DateTime(2026, 3, 1),
+        updatedAt: DateTime(2026, 3, 1),
+      );
+      expect(TeamState.fromJson(state.toJson()).running, ['m2', 'm1']);
+    });
+  });
 }

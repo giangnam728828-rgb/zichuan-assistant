@@ -84,7 +84,7 @@ Future<void> _settleAnim(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 400));
 }
 
-Future<void> _pump(WidgetTester tester, {TeamOrchestrator? orchestrator}) async {
+Future<void> _pump(WidgetTester tester, {TeamOrchestrator? orchestrator, String? teamId}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -93,7 +93,7 @@ Future<void> _pump(WidgetTester tester, {TeamOrchestrator? orchestrator}) async 
         agentPresetsProvider.overrideWith((ref) async => const <AgentPresetInfo>[]),
         readListLiveConnectionProvider.overrideWith((ref) => null),
       ],
-      child: MaterialApp(home: TeamPage(orchestrator: orchestrator)),
+      child: MaterialApp(home: TeamPage(orchestrator: orchestrator, teamId: teamId)),
     ),
   );
   await tester.pump();
@@ -333,5 +333,27 @@ void main() {
     await _settleAnim(tester);
     expect(find.text('阿蓝、阿橙 都在群里了。'), findsOneWidget);
     expect(find.text('阿绿、阿紫 都在群里了。'), findsNothing);
+  });
+
+  testWidgets('指定 teamId：直接打开那一个团队（通知点进来用）', (tester) async {
+    var tick = 0;
+    final ticking = TeamOrchestrator(
+      driver: StubDriver(),
+      store: store,
+      clock: () => DateTime(2026, 3, 1).add(Duration(minutes: tick++)),
+    );
+    addTearDown(ticking.dispose);
+    late String olderId;
+    await tester.runAsync(() async {
+      olderId = (await ticking.create(teammates: [_mate('a1', '老蓝'), _mate('a2', '老橙')])).id;
+      // 后建的那个更新：默认会打开它，指定 id 时必须打开老的。
+      await ticking.create(teammates: [_mate('b1', '新蓝'), _mate('b2', '新橙')]);
+    });
+
+    await _pump(tester, orchestrator: ticking, teamId: olderId);
+    await _settleIo(tester, rounds: 60);
+
+    expect(find.text('老蓝、老橙 都在群里了。'), findsOneWidget);
+    expect(find.text('新蓝、新橙 都在群里了。'), findsNothing);
   });
 }

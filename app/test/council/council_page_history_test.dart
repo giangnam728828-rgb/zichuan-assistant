@@ -75,7 +75,7 @@ Future<void> _settleAnim(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 400));
 }
 
-Future<void> _pump(WidgetTester tester, CollabOrchestrator orchestrator, Directory dir) async {
+Future<void> _pump(WidgetTester tester, CollabOrchestrator orchestrator, Directory dir, {String? runId}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -84,7 +84,7 @@ Future<void> _pump(WidgetTester tester, CollabOrchestrator orchestrator, Directo
         readListLiveConnectionProvider.overrideWith((ref) => null),
         collabSessionRootProvider.overrideWithValue(() async => dir),
       ],
-      child: MaterialApp(home: CouncilPage(orchestrator: orchestrator)),
+      child: MaterialApp(home: CouncilPage(orchestrator: orchestrator, runId: runId)),
     ),
   );
   await tester.pump();
@@ -212,6 +212,23 @@ void main() {
     // 真的落盘了：新实例读得到。
     final saved = await tester.runAsync(() => CollabSessionBook(dir).load());
     expect(saved!.keys, containsAll(['sess-x', 'sess-x-b']));
+  });
+
+  testWidgets('指定 runId：直接打开那一次（通知点进来用），默认打开最近未完成', (tester) async {
+    final orchestrator = boot();
+    await tester.runAsync(() async {
+      await orchestrator.store.save(_run('r1', '要不要上线', verdict: '## 结论\n可以上线'));
+      await orchestrator.store.save(
+        _run('r2', '换不换框架', verdict: '## 结论\n先不换').copyWithDate(DateTime(2026, 11, 22, 9)),
+      );
+    });
+
+    await _pump(tester, orchestrator, dir, runId: 'r1');
+    await _settleIo(tester);
+
+    expect(find.text('要不要上线'), findsOneWidget);
+    expect(find.text('可以上线'), findsOneWidget);
+    expect(find.text('换不换框架'), findsNothing);
   });
 }
 

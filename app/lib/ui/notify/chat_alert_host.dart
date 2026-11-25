@@ -14,6 +14,7 @@ import '../../state/hosts_state.dart';
 import '../../state/notify_state.dart';
 import '../bots/bot_alerts.dart';
 import '../common/discard_guard.dart';
+import '../council/collab_entry.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
 
@@ -89,6 +90,8 @@ class _ChatAlertHostState extends ConsumerState<ChatAlertHost> {
     widget.onReveal?.call(false);
     // A Bot or group chat notification opens that chat.
     if (openDsBotTap(context, tap)) return;
+    // A council seat / team mate notification opens that run, not a lone session.
+    if (openCollabSession(context, host: tap.host, sessionId: tap.sessionId)) return;
     Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
     ref.read(chatAlertsProvider.notifier).open(tap.host, tap.sessionId);
   }
@@ -152,8 +155,9 @@ class _AlertBannerLayerState extends ConsumerState<AlertBannerLayer> {
     HapticFeedback.selectionClick();
     final alerts = ref.read(chatAlertsProvider.notifier);
     alerts.dismissBanner(alert);
-    Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
     widget.onOpened?.call();
+    if (openCollabSession(context, host: alert.host, sessionId: alert.sessionId)) return;
+    Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
     alerts.open(alert.host, alert.sessionId);
   }
 

@@ -16,6 +16,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../collab/collab_approval_banner.dart';
+import '../../collab/collab_approvals.dart';
 import '../../collab/collab_export.dart';
 import '../../collab/collab_session_book.dart';
 import '../../council/collab_models.dart';
@@ -31,10 +33,13 @@ import '../chat/new_chat_options.dart' show newChatPresets, presetIcon;
 import '../shell/root_tab.dart';
 
 class CouncilPage extends ConsumerStatefulWidget {
-  const CouncilPage({super.key, this.orchestrator});
+  const CouncilPage({super.key, this.orchestrator, this.runId});
 
   /// 测试注入用；生产为空，页面自己建实例。
   final CollabOrchestrator? orchestrator;
+
+  /// 从通知或登记表直接打开的那次运行；空表示挑最近未完成的一次。
+  final String? runId;
 
   @override
   ConsumerState<CouncilPage> createState() => _CouncilPageState();
@@ -49,6 +54,8 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   CollabMode _mode = CollabMode.quick;
 
   CollabOrchestrator? _orchestrator;
+  DshClient? _client;
+  CollabApprovalInbox? _inbox;
   StreamSubscription<CollabRun>? _sub;
   CollabRun? _run;
   bool _busy = false;
@@ -63,6 +70,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   @override
   void dispose() {
     _sub?.cancel();
+    _inbox?.dispose();
     _question.dispose();
     // 注入的编排器归测试管；自建的才在离开页面时关掉。
     if (widget.orchestrator == null) unawaited(_orchestrator?.dispose() ?? Future<void>.value());
@@ -91,6 +99,18 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
         unawaited(ref.read(collabSessionBookProvider.notifier).registerAll(owners));
       }
 
+      // 通知点进来：直接打开那一次（已完成的也能回看裁决）。
+      if (widget.runId case final runId?) {
+        final target = await orchestrator.store.load(runId);
+        if (target == null || !mounted) return;
+        setState(() => _run = target);
+        if (target.phase.isTerminal) return;
+        _listen();
+        final resumed = await orchestrator.resume(target.id);
+        if (mounted && resumed != null) setState(() => _run = resumed);
+        return;
+      }
+
       final unfinished = runs.where((run) => !run.phase.isTerminal).firstOrNull;
       if (unfinished == null || !mounted) return;
       _listen();
@@ -98,6 +118,9 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       if (mounted) setState(() => _run = resumed ?? unfinished);
     } on Object {
       // 恢复失败不挡新议题。
+    } finally {
+      // 等 _run 就绪后再接审批：挂着的请求要靠它认人。
+      _watchApprovals();
     }
   }
 
@@ -109,6 +132,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     }
     final conn = ref.read(readListLiveConnectionProvider);
     if (conn == null) throw StateError('还没有连上引擎');
+    _client = conn.client;
     final support = await getApplicationSupportDirectory();
     final orchestrator = CollabOrchestrator(
       driver: DshCollabDriver(conn.client),
@@ -139,6 +163,35 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     });
   }
 
+  /// 席位子会话的审批：按 sessionId 认人，标明是哪一席在申请。
+  void _watchApprovals() {
+    if (_inbox != null) return;
+    final client = _client;
+    if (client == null) return;
+    _inbox = CollabApprovalInbox(
+      events: client.hostEvents,
+      // 打开页面时已经挂着的请求（通知点进来、重连）也要接住。
+      pending: client.mux.pendingRequests,
+      labelOf: (sessionId) => _run?.seatBySession(sessionId)?.displayName,
+      respond: (request, decision) => client.respondApproval(request, decision),
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
+  }
+
+  Future<void> _respond(String eventId, ApprovalDecision decision) async {
+    final inbox = _inbox;
+    if (inbox == null) return;
+    try {
+      await inbox.decide(eventId, decision);
+    } on Object catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('审批没送出去：$error')));
+      }
+    }
+  }
+
   Future<void> _submit() async {
     final question = _question.text.trim();
     if (question.isEmpty || _selected.length < 2) return;
@@ -149,6 +202,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     try {
       final orchestrator = await _ensureOrchestrator();
       _listen();
+      _watchApprovals();
       final catalog = ref.read(modelCatalogProvider).value;
       final seats = <SeatSpec>[];
       var index = 0;
@@ -285,7 +339,19 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
           if (run != null && !run.phase.isTerminal) TextButton(onPressed: _cancel, child: const Text('取消')),
         ],
       ),
-      body: SafeArea(child: run == null ? _buildEditor(context) : _buildRun(context, run)),
+      body: SafeArea(
+        child: Column(
+          children: [
+            if (_inbox?.pending.isNotEmpty ?? false)
+              for (final approval in _inbox!.pending)
+                CollabApprovalBanner(
+                  approval: approval,
+                  onDecide: (decision) => _respond(approval.eventId, decision),
+                ),
+            Expanded(child: run == null ? _buildEditor(context) : _buildRun(context, run)),
+          ],
+        ),
+      ),
     );
   }
 
@@ -657,7 +723,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
         Row(
           children: [
             Text(
-              run.spec.mode == CollabMode.quick ? '快速 · 民主计票' : '审议 · 两轮',
+              '${run.spec.mode == CollabMode.quick ? '快速 · 民主计票' : '审议 · 两轮'} · ${_phaseLabel(run.phase)}',
               style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
             const Spacer(),

@@ -517,26 +517,34 @@ class _ComposerState extends State<Composer> {
               },
             );
             // 两行：上面输入，下面控制行。控制行左边是 ＋ 与模式胶囊，
-            // 右边是上下文环、通话、语音 / 发送；中间的空位留给长标题。
-            final row = Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                if (leadingKey != null) ...[leadingKey, const SizedBox(width: _keyGap)],
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: widget.modePill ?? const SizedBox.shrink(),
-                  ),
-                ),
-                if (accessory != null) ...[accessory, const SizedBox(width: 2)],
-                if (widget.councilKey case final key?) ...[key, const SizedBox(width: _keyGap)],
-                if (widget.modelKey case final key?) ...[key, const SizedBox(width: _keyGap)],
-                if (!dictating && widget.onCall != null) ...[
-                  _CallKey(onTap: widget.onCall!),
-                  const SizedBox(width: _keyGap),
-                ],
-                sendKey,
-              ],
+            // 右边是上下文环、协作、模型、通话、语音 / 发送；中间的空位留给长标题。
+            final row = LayoutBuilder(
+              builder: (context, constraints) {
+                // 320dp 叠 1.3 倍字号时这一行放不下全部键（协作键加入后就会
+                // 顶出去）。上下文环只是「用量」的快捷入口，先收它；协作、
+                // 模型、通话都是主入口，一个都不藏。
+                final roomy = constraints.maxWidth >= 320 || dictating;
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    if (leadingKey != null) ...[leadingKey, const SizedBox(width: _keyGap)],
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: widget.modePill ?? const SizedBox.shrink(),
+                      ),
+                    ),
+                    if (accessory != null && roomy) ...[accessory, const SizedBox(width: 2)],
+                    if (widget.councilKey case final key?) ...[key, const SizedBox(width: _keyGap)],
+                    if (widget.modelKey case final key?) ...[key, const SizedBox(width: _keyGap)],
+                    if (!dictating && widget.onCall != null) ...[
+                      _CallKey(onTap: widget.onCall!),
+                      const SizedBox(width: _keyGap),
+                    ],
+                    sendKey,
+                  ],
+                );
+              },
             );
             // The tray unfolds above the text and folds away again: the card
             // grows and shrinks, the text row never jumps.

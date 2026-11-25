@@ -17,10 +17,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../collab/collab_approval_banner.dart';
+import '../../collab/collab_approvals.dart';
 import '../../collab/collab_export.dart';
 import '../../collab/collab_session_book.dart';
 import '../../council/collab_orchestrator.dart';
-import '../../notify/chat_alerts.dart' show approvalText;
 import '../../state/features_state.dart';
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
@@ -65,10 +66,13 @@ class _MateDraft {
 }
 
 class TeamPage extends ConsumerStatefulWidget {
-  const TeamPage({super.key, this.orchestrator});
+  const TeamPage({super.key, this.orchestrator, this.teamId});
 
   /// 测试注入用；生产为空，页面自己建（进程级共享）实例。
   final TeamOrchestrator? orchestrator;
+
+  /// 从通知或登记表直接打开的那个团队；空表示最近更新的一个。
+  final String? teamId;
 
   @override
   ConsumerState<TeamPage> createState() => _TeamPageState();
@@ -77,11 +81,10 @@ class TeamPage extends ConsumerStatefulWidget {
 class _TeamPageState extends ConsumerState<TeamPage> {
   final _draft = TextEditingController();
   final _mates = <_MateDraft>[];
-  final _pending = <String, ({String mate, ApprovalRequest request})>{};
 
   TeamOrchestrator? _orchestrator;
   StreamSubscription<TeamState>? _sub;
-  StreamSubscription<HostEvent>? _hostSub;
+  CollabApprovalInbox? _inbox;
   TeamState? _team;
   bool _loading = true;
   bool _busy = false;
@@ -98,7 +101,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
   @override
   void dispose() {
     _sub?.cancel();
-    _hostSub?.cancel();
+    _inbox?.dispose();
     _draft.dispose();
     for (final draft in _mates) {
       draft.dispose();
@@ -115,7 +118,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
         if (!mounted || current == null || current.id != state.id) return;
         setState(() => _team = state);
       });
-      final latest = await orchestrator.latest();
+      final latest = widget.teamId == null ? await orchestrator.latest() : await orchestrator.load(widget.teamId!);
       // 把已经建过的团队会话补登记进协作登记表：老会话不再单列在历史里。
       final past = await orchestrator.store.list();
       final owners = <CollabSessionOwner>[
@@ -185,21 +188,19 @@ class _TeamPageState extends ConsumerState<TeamPage> {
 
   /// 队友子会话的审批：按 sessionId 认人，标明「谁在申请」。
   void _watchApprovals() {
+    if (_inbox != null) return;
     final client = _sharedClient;
     if (client == null) return;
-    _hostSub = client.hostEvents.listen((event) {
-      final team = _team;
-      if (team == null || !mounted) return;
-      if (event is ApprovalRequestedEvent) {
-        final mate = team.mateBySession(event.request.sessionId);
-        if (mate == null) return; // 不是这个团队的会话
-        setState(() {
-          _pending[event.request.eventId] = (mate: mate.name, request: event.request);
-        });
-      } else if (event is HostRequestCancelledEvent) {
-        if (_pending.remove(event.eventId) != null) setState(() {});
-      }
-    });
+    _inbox = CollabApprovalInbox(
+      events: client.hostEvents,
+      // 打开页面时已经挂着的请求（通知点进来、重连）也要接住。
+      pending: client.mux.pendingRequests,
+      labelOf: (sessionId) => _team?.mateBySession(sessionId)?.name,
+      respond: (request, decision) => client.respondApproval(request, decision),
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -337,12 +338,10 @@ class _TeamPageState extends ConsumerState<TeamPage> {
   }
 
   Future<void> _respond(String eventId, ApprovalDecision decision) async {
-    final entry = _pending[eventId];
-    final client = _sharedClient;
-    if (entry == null || client == null) return;
-    setState(() => _pending.remove(eventId));
+    final inbox = _inbox;
+    if (inbox == null) return;
     try {
-      await client.respondApproval(entry.request, decision);
+      await inbox.decide(eventId, decision);
     } on Object catch (error) {
       if (mounted) setState(() => _error = '$error');
     }
@@ -923,7 +922,14 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     final messages = team.messages;
     return Column(
       children: [
-        for (final eventId in _pending.keys.toList()) _approvalBanner(eventId),
+        if (_inbox?.pending.isNotEmpty ?? false)
+          for (final approval in _inbox!.pending)
+            CollabApprovalBanner(
+              key: ValueKey('team-approval-${approval.eventId}'),
+              approval: approval,
+              onDecide: (decision) => _respond(approval.eventId, decision),
+            ),
+        if (team.running.isNotEmpty) _runningBar(team),
         Expanded(
           child: messages.isEmpty && !_busy
               ? _emptyChat(team)
@@ -1096,43 +1102,27 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     );
   }
 
-  Widget _approvalBanner(String eventId) {
+  /// 「谁在跑」：状态每步落盘，切走再回来、乃至重开 App 都看得到。
+  Widget _runningBar(TeamState team) {
     final theme = Theme.of(context);
-    final entry = _pending[eventId];
-    if (entry == null) return const SizedBox.shrink();
-    return Material(
-      color: theme.colorScheme.tertiaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-        child: Row(
-          children: [
-            Icon(Icons.shield_outlined, size: 18, color: theme.colorScheme.onTertiaryContainer),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${entry.mate} 需要你的授权',
-                    style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onTertiaryContainer),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    approvalText(entry.request),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onTertiaryContainer),
-                  ),
-                ],
-              ),
+    final names = [for (final id in team.running) team.mate(id)?.name ?? '队友'];
+    return Container(
+      width: double.infinity,
+      color: theme.colorScheme.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          Icon(Icons.autorenew, size: 14, color: theme.colorScheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '${names.join('、')} 正在跑…',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
-            TextButton(onPressed: () => _respond(eventId, ApprovalDecision.reject), child: const Text('拒绝')),
-            FilledButton.tonal(
-              onPressed: () => _respond(eventId, ApprovalDecision.allowOnce),
-              child: const Text('允许一次'),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

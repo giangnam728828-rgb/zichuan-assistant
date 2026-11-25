@@ -136,6 +136,7 @@ final class TeamState {
     this.wakeMinutes,
     this.wakePrompt = defaultWakePrompt,
     this.exclusiveWrite = true,
+    this.running = const [],
     required this.createdAt,
     required this.updatedAt,
     this.rev = 0,
@@ -165,6 +166,10 @@ final class TeamState {
     wakeMinutes: (json['wakeMinutes'] as num?)?.toInt(),
     wakePrompt: json['wakePrompt'] as String? ?? defaultWakePrompt,
     exclusiveWrite: json['exclusiveWrite'] as bool? ?? true,
+    running: [
+      for (final id in (json['running'] as List? ?? const []))
+        if (id is String && id.isNotEmpty) id,
+    ],
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
     updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? DateTime.now(),
     rev: (json['rev'] as num?)?.toInt() ?? 0,
@@ -193,6 +198,10 @@ final class TeamState {
   /// 可写的队友是否排队执行（默认开）：同一时刻只让一个人动文件，
   /// 免得两位队友同时改同一份代码。只读顾问不受影响，照常并行。
   final bool exclusiveWrite;
+
+  /// 正在跑的队友 id（按开始顺序）。每次开始/结束都落盘，重开页面还能
+  /// 看到「谁在做」；进程重启后由编排器清掉（那已经不是在跑了）。
+  final List<String> running;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -239,6 +248,7 @@ final class TeamState {
     bool clearWake = false,
     String? wakePrompt,
     bool? exclusiveWrite,
+    List<String>? running,
     DateTime? updatedAt,
     int? rev,
   }) => TeamState(
@@ -251,6 +261,7 @@ final class TeamState {
     wakeMinutes: clearWake ? null : (wakeMinutes ?? this.wakeMinutes),
     wakePrompt: wakePrompt ?? this.wakePrompt,
     exclusiveWrite: exclusiveWrite ?? this.exclusiveWrite,
+    running: running ?? this.running,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     rev: rev ?? this.rev,
@@ -266,6 +277,7 @@ final class TeamState {
     'wakeMinutes': ?wakeMinutes,
     if (wakePrompt != defaultWakePrompt) 'wakePrompt': wakePrompt,
     if (!exclusiveWrite) 'exclusiveWrite': false,
+    if (running.isNotEmpty) 'running': running,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
     'rev': rev,

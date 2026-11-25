@@ -352,6 +352,7 @@ final class TeamOrchestrator {
     if (!first) return;
     await _update(teamId, (current) {
       return current.copyWith(
+        running: const [],
         messages: [
           ...current.messages,
           TeamMsg(id: _msgId(), role: TeamMsgRole.system, text: '已停止这一轮。', at: _clock()),
@@ -364,9 +365,19 @@ final class TeamOrchestrator {
   // 读取
 
   Future<TeamState?> load(String teamId) async {
-    final state = _latest[teamId] ?? await _store.load(teamId);
-    if (state == null) return null;
-    _latest[teamId] = state;
+    final loaded = _latest[teamId] ?? await _store.load(teamId);
+    if (loaded == null) return null;
+    _latest[teamId] = loaded;
+    var state = loaded;
+    // 盘上还记着「谁在跑」，但这个进程里没有一轮在跑：上次进程留下的残影，
+    // 擦掉再显示，免得页面永远挂着「正在跑」。
+    if (state.running.isNotEmpty && !_active.contains(state.id)) {
+      try {
+        state = await _update(state.id, (current) => current.copyWith(running: const []));
+      } on Object {
+        // 擦不掉就照原样显示，不挡打开团队。
+      }
+    }
     // 盘上有唤醒配置但内存里没在跑（进程刚起来）：接上。
     if (state.wakeMinutes != null && !_wakeTimers.containsKey(state.id)) _scheduleWake(state);
     return state;
@@ -436,6 +447,30 @@ final class TeamOrchestrator {
     final mate = snapshot.mate(mateId);
     if (mate == null) return null;
 
+    // 开跑前记下「谁在跑」，跑完（含失败/取消）擦掉：页面据此显示进度。
+    await _markRunning(teamId, mateId, on: true);
+    try {
+      return await _runMateTurn(teamId, snapshot, mate);
+    } finally {
+      await _markRunning(teamId, mateId, on: false);
+    }
+  }
+
+  /// 记下/擦掉「谁在跑」；落盘失败不挡这一轮。
+  Future<void> _markRunning(String teamId, String mateId, {required bool on}) async {
+    try {
+      await _update(teamId, (current) {
+        final running = [...current.running]..remove(mateId);
+        if (on) running.add(mateId);
+        return current.copyWith(running: running);
+      });
+    } on Object {
+      // 进度显示比一轮的结果次要，落盘失败就算了。
+    }
+  }
+
+  /// 一位队友的一轮正文：开会话、问、落答案或失败，失败重试一次。
+  Future<({String text, String? toId})?> _runMateTurn(String teamId, TeamState snapshot, Teammate mate) async {
     final prompt = _prompt(snapshot, mate);
     var sessionId = snapshot.sessions[mate.id];
     String? lastError;
