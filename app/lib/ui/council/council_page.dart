@@ -22,10 +22,12 @@ import '../../council/collab_models.dart';
 import '../../council/collab_orchestrator.dart';
 import '../../council/collab_store.dart';
 import '../../council/verdict_parser.dart';
+import '../../state/features_state.dart';
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
 import '../../state/sessions_state.dart';
 import '../chat/model_brand_mark.dart';
+import '../chat/new_chat_options.dart' show newChatPresets, presetIcon;
 import '../shell/root_tab.dart';
 
 class CouncilPage extends ConsumerStatefulWidget {
@@ -43,6 +45,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   final _selected = <String>{}; // 'provider|model'
   final _roles = <String, SeatRole>{}; // 'provider|model' → 角色
   final _efforts = <String, String>{}; // 'provider|model' → reasoningEffort
+  final _presets = <String, String>{}; // 'provider|model' → agentPreset（空表示 Host 默认）
   CollabMode _mode = CollabMode.quick;
 
   CollabOrchestrator? _orchestrator;
@@ -162,6 +165,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
             label: name,
             role: _roles[key] ?? SeatRole.none,
             reasoningEffort: _efforts[key],
+            agentPreset: _presets[key],
           ),
         );
       }
@@ -481,6 +485,90 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   // ---------------------------------------------------------------------------
   // 已选成员：角色与深度思考
 
+  /// 预设键：决定这个席位能用哪些工具（比如联网）。没选就是 Host 默认。
+  Widget _presetKey(String key) {
+    final theme = Theme.of(context);
+    final picked = _presets[key];
+    final all = ref.watch(agentPresetsProvider).value;
+    final name = picked == null ? null : _presetName(all, picked);
+    return IconButton(
+      tooltip: name == null ? '预设：Host 默认' : '预设：$name',
+      icon: Icon(name == null ? Icons.extension_outlined : Icons.extension, size: 17),
+      color: name == null ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.primary,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+      style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+      onPressed: () => _pickPreset(key),
+    );
+  }
+
+  String? _presetName(List<AgentPresetInfo>? all, String id) {
+    for (final preset in all ?? const <AgentPresetInfo>[]) {
+      if (preset.id == id) return preset.name ?? preset.id;
+    }
+    return id;
+  }
+
+  Future<void> _pickPreset(String key) async {
+    final presets = newChatPresets(ref.read(agentPresetsProvider).value);
+    if (presets.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(const SnackBar(content: Text('引擎还没有提供预设：先在「全部功能 › Agent 预设」里建一个')));
+      return;
+    }
+    final theme = Theme.of(context);
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheet).height * 0.7),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Text('这一席的预设', style: Theme.of(sheet).textTheme.titleMedium),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  '预设决定它能用哪些工具（例如联网、改文件）。不选就用 Host 的默认。',
+                  style: Theme.of(sheet).textTheme.bodySmall
+                      ?.copyWith(color: Theme.of(sheet).colorScheme.onSurfaceVariant),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.auto_awesome_outlined),
+                title: const Text('Host 默认'),
+                subtitle: const Text('跟随引擎当前的默认预设'),
+                trailing: _presets[key] == null ? Icon(Icons.check, color: theme.colorScheme.primary) : null,
+                onTap: () => Navigator.pop(sheet, ''),
+              ),
+              for (final preset in presets)
+                ListTile(
+                  leading: Icon(presetIcon(preset.id)),
+                  title: Text(preset.name ?? preset.id),
+                  subtitle: preset.description == null ? null : Text(preset.description!),
+                  trailing: _presets[key] == preset.id ? Icon(Icons.check, color: theme.colorScheme.primary) : null,
+                  enabled: preset.broken == null,
+                  onTap: preset.broken == null ? () => Navigator.pop(sheet, preset.id) : null,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (picked.isEmpty) {
+        _presets.remove(key);
+      } else {
+        _presets[key] = picked;
+      }
+    });
+  }
+
   Widget _seatEditRow(String key, ModelCatalog? catalog) {
     final theme = Theme.of(context);
     final parts = key.split('|');
@@ -534,6 +622,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
               }),
             ),
           ],
+          _presetKey(key),
           IconButton(
             tooltip: '移除',
             icon: const Icon(Icons.close, size: 16),

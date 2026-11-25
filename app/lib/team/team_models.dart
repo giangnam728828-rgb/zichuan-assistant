@@ -14,6 +14,7 @@ final class Teammate {
     required this.model,
     this.reasoningEffort,
     this.readOnly = false,
+    this.agentPreset,
   });
 
   factory Teammate.fromJson(Map<String, Object?> json) => Teammate(
@@ -24,6 +25,7 @@ final class Teammate {
     model: json['model'] as String? ?? '',
     reasoningEffort: json['reasoningEffort'] as String?,
     readOnly: json['readOnly'] as bool? ?? false,
+    agentPreset: json['agentPreset'] as String?,
   );
 
   /// 稳定 id（`mate-<时间戳>`），消息里的发言人指向它。
@@ -40,6 +42,9 @@ final class Teammate {
   /// 团队里可以留一位可写的人，其余都设只读，避免同时改同一份代码。
   final bool readOnly;
 
+  /// Agent 预设（决定这个队友能用哪些工具，例如联网）；空表示 Host 默认。
+  final String? agentPreset;
+
   Teammate copyWith({
     String? name,
     String? brief,
@@ -47,6 +52,7 @@ final class Teammate {
     String? model,
     String? reasoningEffort,
     bool? readOnly,
+    String? agentPreset,
   }) => Teammate(
     id: id,
     name: name ?? this.name,
@@ -55,6 +61,7 @@ final class Teammate {
     model: model ?? this.model,
     reasoningEffort: reasoningEffort ?? this.reasoningEffort,
     readOnly: readOnly ?? this.readOnly,
+    agentPreset: agentPreset ?? this.agentPreset,
   );
 
   Map<String, Object?> toJson() => {
@@ -65,6 +72,7 @@ final class Teammate {
     'model': model,
     'reasoningEffort': ?reasoningEffort,
     if (readOnly) 'readOnly': true,
+    'agentPreset': ?agentPreset,
   };
 }
 

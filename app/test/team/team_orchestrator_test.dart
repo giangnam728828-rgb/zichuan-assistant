@@ -395,6 +395,14 @@ void main() {
       expect(state.cursors['m1'], 3);
       expect(state.mateBySession('s1')?.name, '阿蓝');
       expect(jsonEncode(state.toJson()), isNot(contains('unknown')));
+      // 队友预设（决定工具，如联网）跟着队友一起落盘。
+      final withPreset = TeamState.fromJson({
+        ...json,
+        'teammates': [
+          {'id': 'm1', 'name': '阿蓝', 'provider': 'p', 'model': 'm', 'agentPreset': 'research'},
+        ],
+      });
+      expect(withPreset.mate('m1')!.agentPreset, 'research');
     });
 
     test('导出 Markdown：按发言人分节', () async {

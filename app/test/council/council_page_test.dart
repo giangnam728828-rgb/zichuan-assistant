@@ -2,6 +2,7 @@
 
 import 'package:dsh_client/dsh_client.dart';
 import 'package:dsh_app/council/collab_models.dart';
+import 'package:dsh_app/state/features_state.dart';
 import 'package:dsh_app/state/models_state.dart';
 import 'package:dsh_app/state/read_list_identity.dart';
 import 'package:dsh_app/ui/council/council_page.dart';
@@ -29,6 +30,7 @@ Future<void> _pump(WidgetTester tester) async {
     ProviderScope(
       overrides: [
         modelCatalogProvider.overrideWith((ref) async => _catalog()),
+        agentPresetsProvider.overrideWith((ref) async => const <AgentPresetInfo>[]),
         readListLiveConnectionProvider.overrideWith((ref) => null),
       ],
       child: const MaterialApp(home: CouncilPage()),

@@ -652,7 +652,8 @@ final class DshCollabDriver implements CollabSessionDriver {
 
   @override
   Future<String> openSession(SeatSpec seat, {String? workspaceId}) async {
-    final created = await client.createSession(workspaceId: workspaceId);
+    // 预设决定这个会话能用哪些工具（比如联网）；空则用 Host 的默认。
+    final created = await client.createSession(workspaceId: workspaceId, agentPreset: seat.agentPreset);
     if (created.sessionId.isEmpty) {
       throw StateError('session/create 没有返回 sessionId');
     }

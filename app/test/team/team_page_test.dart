@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:dsh_app/council/collab_models.dart';
 import 'package:dsh_app/council/collab_orchestrator.dart';
+import 'package:dsh_app/state/features_state.dart';
 import 'package:dsh_app/state/models_state.dart';
 import 'package:dsh_app/state/read_list_identity.dart';
 import 'package:dsh_app/team/team_models.dart';
@@ -88,6 +89,8 @@ Future<void> _pump(WidgetTester tester, {TeamOrchestrator? orchestrator}) async 
     ProviderScope(
       overrides: [
         modelCatalogProvider.overrideWith((ref) async => _catalog()),
+        // 预设列表走平台通道，测试里给个空表。
+        agentPresetsProvider.overrideWith((ref) async => const <AgentPresetInfo>[]),
         readListLiveConnectionProvider.overrideWith((ref) => null),
       ],
       child: MaterialApp(home: TeamPage(orchestrator: orchestrator)),

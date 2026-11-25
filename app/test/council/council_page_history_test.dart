@@ -1,4 +1,4 @@
-// 议会页的 C6 部分：历史列表、从历史回看裁决、席位会话补登记。
+// 议会页的 C6 部分：历史列表、从历史回看裁决、席位会话补登记、席位预设。
 
 import 'dart:io';
 
@@ -7,6 +7,7 @@ import 'package:dsh_app/collab/collab_session_book.dart';
 import 'package:dsh_app/council/collab_models.dart';
 import 'package:dsh_app/council/collab_orchestrator.dart';
 import 'package:dsh_app/council/collab_store.dart';
+import 'package:dsh_app/state/features_state.dart';
 import 'package:dsh_app/state/models_state.dart';
 import 'package:dsh_app/state/read_list_identity.dart';
 import 'package:dsh_app/ui/council/council_page.dart';
@@ -68,11 +69,18 @@ Future<void> _settleIo(WidgetTester tester, {int rounds = 20}) async {
   }
 }
 
+/// 面板 / 弹窗的转场：用固定步长推进（页面上可能有一直转的进度圈）。
+Future<void> _settleAnim(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+}
+
 Future<void> _pump(WidgetTester tester, CollabOrchestrator orchestrator, Directory dir) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         modelCatalogProvider.overrideWith((ref) async => _catalog()),
+        agentPresetsProvider.overrideWith((ref) async => const <AgentPresetInfo>[]),
         readListLiveConnectionProvider.overrideWith((ref) => null),
         collabSessionRootProvider.overrideWithValue(() async => dir),
       ],
@@ -137,6 +145,52 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('主席裁决'), findsOneWidget);
     expect(find.text('可以上线'), findsOneWidget);
+  });
+
+  testWidgets('席位预设：选过的席位提交时带着它（决定工具，如联网）', (tester) async {
+    final orchestrator = CollabOrchestrator(driver: _IdleDriver(), store: CollabStore(dir));
+    addTearDown(orchestrator.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          modelCatalogProvider.overrideWith((ref) async => _catalog()),
+          readListLiveConnectionProvider.overrideWith((ref) => null),
+          collabSessionRootProvider.overrideWithValue(() async => dir),
+          agentPresetsProvider.overrideWith(
+            (ref) async => const [
+              AgentPresetInfo(id: 'standard', name: '标准', isDefault: true),
+              AgentPresetInfo(id: 'research', name: '研究（联网）'),
+            ],
+          ),
+        ],
+        child: MaterialApp(home: CouncilPage(orchestrator: orchestrator)),
+      ),
+    );
+    await tester.pump();
+    await _settleIo(tester);
+
+    await tester.tap(find.widgetWithText(FilterChip, 'V41 Flash'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilterChip, 'V4 Pro'));
+    await tester.pump();
+
+    // 第一个席位选「研究（联网）」。
+    await tester.tap(find.byTooltip('预设：Host 默认').first);
+    await _settleAnim(tester);
+    expect(find.text('这一席的预设'), findsOneWidget);
+    await tester.tap(find.text('研究（联网）'));
+    await _settleAnim(tester);
+    expect(find.byTooltip('预设：研究（联网）'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, '要不要上线');
+    await tester.pump();
+    await tester.scrollUntilVisible(find.byType(FilledButton), 200, scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.byType(FilledButton));
+    await _settleIo(tester, rounds: 40);
+
+    final runs = await tester.runAsync(() => orchestrator.store.list());
+    expect(runs, isNotEmpty);
+    expect(runs!.first.spec.seats.map((seat) => seat.agentPreset).toList(), ['research', null]);
   });
 
   testWidgets('打开页面就把历史运行的席位会话补登记（不再冒进历史列表）', (tester) async {

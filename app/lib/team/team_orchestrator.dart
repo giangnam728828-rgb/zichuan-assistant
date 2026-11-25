@@ -638,6 +638,7 @@ final class TeamOrchestrator {
     model: mate.model,
     reasoningEffort: mate.reasoningEffort,
     label: mate.name,
+    agentPreset: mate.agentPreset,
   );
 
   // ---------------------------------------------------------------------------

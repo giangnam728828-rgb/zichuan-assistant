@@ -324,6 +324,10 @@ void main() {
     expect(back.seatOf('seat0').best, 'a');
     expect(back.callsUsed, 3);
     expect(back.rev, 7);
+    // 席位预设（决定工具，如联网）也随运行落盘。
+    expect(SeatSpec.fromJson(
+      const SeatSpec(id: 'x', provider: 'p', model: 'm', agentPreset: 'research').toJson(),
+    ).agentPreset, 'research');
     // 未知字段不炸（向后兼容）
     final withUnknown = {...run.toJson(), 'futureField': 42};
     expect(CollabRun.fromJson(withUnknown).id, 'r1');

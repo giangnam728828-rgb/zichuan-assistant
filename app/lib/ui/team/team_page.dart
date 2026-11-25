@@ -21,6 +21,7 @@ import '../../collab/collab_export.dart';
 import '../../collab/collab_session_book.dart';
 import '../../council/collab_orchestrator.dart';
 import '../../notify/chat_alerts.dart' show approvalText;
+import '../../state/features_state.dart';
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
 import '../../state/sessions_state.dart';
@@ -28,6 +29,7 @@ import '../../team/team_models.dart';
 import '../../team/team_orchestrator.dart';
 import '../../team/team_store.dart';
 import '../chat/model_brand_mark.dart';
+import '../chat/new_chat_options.dart' show newChatPresets, presetIcon;
 import '../shell/root_tab.dart';
 
 /// 进程级共享的团队编排器：离开页面不打断在跑的队友。
@@ -52,6 +54,9 @@ class _MateDraft {
 
   /// 只读顾问：只出主意，不动文件。
   bool readOnly = false;
+
+  /// Agent 预设（决定能用哪些工具，例如联网）；空表示 Host 默认。
+  String? agentPreset;
 
   void dispose() {
     nameController.dispose();
@@ -260,6 +265,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
           provider: model.provider,
           model: model.id,
           readOnly: draft.readOnly,
+          agentPreset: draft.agentPreset,
         ),
       );
     }
@@ -773,6 +779,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
                   onSelected: (on) => setState(() => draft.readOnly = on),
                 ),
                 const Spacer(),
+                _presetKey(draft),
                 IconButton(
                   tooltip: '移除',
                   icon: const Icon(Icons.close, size: 16),
@@ -806,6 +813,81 @@ class _TeamPageState extends ConsumerState<TeamPage> {
         ),
       ),
     );
+  }
+
+  /// 预设键：决定这个队友能用哪些工具（比如联网）。没选就是 Host 默认。
+  Widget _presetKey(_MateDraft draft) {
+    final theme = Theme.of(context);
+    final all = ref.watch(agentPresetsProvider).value;
+    String? name;
+    for (final preset in all ?? const <AgentPresetInfo>[]) {
+      if (preset.id == draft.agentPreset) name = preset.name ?? preset.id;
+    }
+    return IconButton(
+      tooltip: name == null ? '预设：Host 默认' : '预设：$name',
+      icon: Icon(name == null ? Icons.extension_outlined : Icons.extension, size: 17),
+      color: name == null ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.primary,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+      style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+      onPressed: () => _pickPreset(draft),
+    );
+  }
+
+  Future<void> _pickPreset(_MateDraft draft) async {
+    final presets = newChatPresets(ref.read(agentPresetsProvider).value);
+    if (presets.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(const SnackBar(content: Text('引擎还没有提供预设：先在「全部功能 › Agent 预设」里建一个')));
+      return;
+    }
+    final theme = Theme.of(context);
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheet).height * 0.7),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Text('这位队友的预设', style: Theme.of(sheet).textTheme.titleMedium),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  '预设决定它能用哪些工具（例如联网、改文件）。不选就用 Host 的默认。',
+                  style: Theme.of(sheet).textTheme.bodySmall
+                      ?.copyWith(color: Theme.of(sheet).colorScheme.onSurfaceVariant),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.auto_awesome_outlined),
+                title: const Text('Host 默认'),
+                subtitle: const Text('跟随引擎当前的默认预设'),
+                trailing: draft.agentPreset == null ? Icon(Icons.check, color: theme.colorScheme.primary) : null,
+                onTap: () => Navigator.pop(sheet, ''),
+              ),
+              for (final preset in presets)
+                ListTile(
+                  leading: Icon(presetIcon(preset.id)),
+                  title: Text(preset.name ?? preset.id),
+                  subtitle: preset.description == null ? null : Text(preset.description!),
+                  trailing: draft.agentPreset == preset.id ? Icon(Icons.check, color: theme.colorScheme.primary) : null,
+                  enabled: preset.broken == null,
+                  onTap: preset.broken == null ? () => Navigator.pop(sheet, preset.id) : null,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      draft.agentPreset = picked.isEmpty ? null : picked;
+    });
   }
 
   /// 受控的模型下拉：草稿被程序改动（补默认值）时显示也能跟上。

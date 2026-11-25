@@ -100,6 +100,7 @@ final class SeatSpec {
     this.role = SeatRole.none,
     this.reasoningEffort,
     this.label,
+    this.agentPreset,
   });
 
   factory SeatSpec.fromJson(Map<String, Object?> json) => SeatSpec(
@@ -112,6 +113,7 @@ final class SeatSpec {
     ),
     reasoningEffort: json['reasoningEffort'] as String?,
     label: json['label'] as String?,
+    agentPreset: json['agentPreset'] as String?,
   );
 
   /// 稳定标识（落盘、审批路由、界面 key 都用它）。
@@ -124,6 +126,9 @@ final class SeatSpec {
   /// 界面上的名字；空则显示模型名。
   final String? label;
 
+  /// Agent 预设（决定这个席位能用哪些工具，例如联网）；空表示 Host 默认。
+  final String? agentPreset;
+
   String get displayName => label?.trim().isNotEmpty == true ? label!.trim() : model;
 
   Map<String, Object?> toJson() => {
@@ -133,6 +138,7 @@ final class SeatSpec {
     'role': role.name,
     'reasoningEffort': ?reasoningEffort,
     'label': ?label,
+    'agentPreset': ?agentPreset,
   };
 }
 
