@@ -14,6 +14,11 @@
 - **协作不打扰日常聊天。** 议会席位和团队队友的会话不会混进历史列表，从议会页、团队页进去看；历史议会和房间都能回看，也能导出成 Markdown 分享出去。
 - **审批看得见是谁在申请。** 队友或席位要动手机、跑命令时，页面顶部会写明「阿蓝 需要你的授权」，可以直接允许一次或拒绝。
 - **窄屏适配。** 320dp 宽的手机上，输入栏会自动收起次要的上下文环，协作、模型、通话、发送都还在。
+- **Bot 聊天就是聊天。** 单个 Bot 的提问不再弹表单：问题卡留在对话里，选项点一下就答，想自己写就用下面同一个输入框；长按回复还能引用、复制或分享。
+- **讨论室真的在讨论。** 新建讨论室时选协作方式（全员依次答，或先交给主持人），顶栏一直写着当前用的是哪种；成员条逐位显示谁在分析、谁在发言、谁已完成、谁失败了，不是只挑一个人显示。
+- **每条消息都看得出是谁、用哪个模型说的。** 名字旁标出厂商和模型，讨论室空着时先列出成员与各自的模型。
+- **厂商标记统一。** 模型选择器、Bot 顶栏、讨论室成员与消息共用一套手绘标记，深浅色都可读；认不出的自建网关用通用标记，不硬套。
+- **长对话更省。** 运行状态更新只刷新顶栏和成员条，不重排历史消息；屏幕外的消息不构建；流式输出在重连后不会丢字；往上翻更早的消息时，正在读的那一行不会跳走；模型很多时一页一页铺开。
 
 ### English
 
@@ -25,6 +30,11 @@
 - **Collaboration stays out of your chat list.** Council seats and teammates don't show up among your chats; open them from the council or team page. Past councils and rooms can be revisited and exported as Markdown to share.
 - **Approvals say who is asking.** When a teammate or seat wants to use the phone or run a command, the top of the page says "Lan needs your approval", with allow-once and reject right there.
 - **Narrow screens.** On a 320dp phone the composer folds away the secondary context ring; collaboration, model, call and send all stay.
+- **A Bot chat is a chat.** A single Bot no longer answers through a form: its question card stays in the conversation, one tap picks an option, and your own wording goes through the same composer below. Long-press a reply to quote, copy or share it.
+- **A room actually discusses.** When you create one you pick how it works (every member in turn, or the host first), and the header keeps saying which; the member strip shows, one by one, who is analysing, who is speaking, who finished and who failed.
+- **Every message says who and which model.** The name carries the maker and the model, and an empty room lists its members with their models.
+- **One set of maker marks.** The model picker, the Bot header, and the room's members and messages share one set of hand-drawn marks that stay readable in light and dark; unknown gateways get the generic mark instead of a guess.
+- **Long chats cost less.** A working update refreshes the status line and the member strip without re-laying out the history; rows off screen are not built; a stream that reconnects no longer drops words; scrolling up for older messages keeps the line you were reading in place; and a large model list is laid out a page at a time.
 
 ## 1.2.0 · 2026-11-18
 

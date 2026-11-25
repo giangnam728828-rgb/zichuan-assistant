@@ -146,6 +146,23 @@ Future<void> _openSheetAlone(WidgetTester tester, ModelCatalog catalog, {double 
 
 Finder _card(String name) => find.ancestor(of: find.text(name), matching: find.byType(GlassSurface)).first;
 
+/// 空态左上角那张照片要真的解码出来再截图：否则同一张图会时而带上照片、
+/// 时而是一片空白，金标就成了看运气的。
+Future<void> _settleImages(WidgetTester tester) async {
+  // 弹层是磨砂玻璃，背后空态的头像照片会透上来：先让照片真的解码完，
+  // 否则同一份基准会时而透出照片、时而透出一片空白。
+  await tester.runAsync(
+    () => precacheImage(
+      const AssetImage('assets/brand/companion_avatar.jpg'),
+      tester.element(find.byType(MaterialApp)),
+    ),
+  );
+  // 焦点切换和弹层落位各有一段一次性动画，推到静止再截图。
+  for (var i = 0; i < 8; i++) {
+    await tester.pump(const Duration(milliseconds: 120));
+  }
+}
+
 ModelSelection? _picked(WidgetTester tester, ChatHarness harness) {
   final container = ProviderScope.containerOf(tester.element(find.byType(ChatScreen)));
   return harness.session == null ? container.read(pendingModelProvider) : harness.controllers['s1']!.models.lastOrNull;
@@ -450,6 +467,7 @@ void main() {
           ),
           brightness: brightness,
         );
+        await _settleImages(tester);
         await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/model_sheet_channels_$suffix.png'));
       });
 
@@ -462,11 +480,15 @@ void main() {
           ),
           brightness: brightness,
         );
+        await _settleImages(tester);
         await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/model_sheet_no_effort_$suffix.png'));
       });
 
       testWidgets('crowded channels', (tester) async {
-        await _openSheet(tester, _harness(crowdedCatalog), brightness: brightness);
+        // 这是渠道数量压力测试，量的是面板本身。从空页面打开，背后的聊天
+        // 空态（照片、提示行）就不会透过磨砂玻璃影响这一张图。
+        await _openSheetAlone(tester, crowdedCatalog);
+        await _settleImages(tester);
         await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/model_sheet_crowded_$suffix.png'));
       });
     });

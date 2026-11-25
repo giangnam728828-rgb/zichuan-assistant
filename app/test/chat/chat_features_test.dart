@@ -492,6 +492,15 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
         await tester.tap(find.byKey(const ValueKey('composer-model')));
         await pumpFrames(tester, 10);
+        // 空态左上角的照片要真的解码完再截图：等它落地，图才是同一张；
+        // 再补一段假时间让弹层停在静止位置。
+        await tester.runAsync(
+          () => precacheImage(
+            const AssetImage('assets/brand/companion_avatar.jpg'),
+            tester.element(find.byType(MaterialApp)),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 600));
         await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/model_sheet_$suffix.png'));
       });
 

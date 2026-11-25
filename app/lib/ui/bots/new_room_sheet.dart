@@ -25,20 +25,22 @@ Future<void> showNewRoomSheet(BuildContext context) async {
   final container = ProviderScope.containerOf(context, listen: false);
   final api = container.read(dsBotProvider.notifier).api;
   final origin = container.read(dsBotProvider);
-  final roomId = await showAppSheet<String>(
+  final created = await showAppSheet<({String roomId, String? warning, String wantMode})>(
     context,
     dismissal: SheetDismissal.button,
     isScrollControlled: true,
     builder: (sheet) => const NewRoomSheet(),
   );
-  if (!context.mounted || roomId == null) return;
+  if (!context.mounted || created == null) return;
   final current = container.read(dsBotProvider);
   if (!identical(api, container.read(dsBotProvider.notifier).api) ||
       current.host != origin.host ||
       (origin.hello?.boot != null && current.hello?.boot != origin.hello?.boot)) {
     return;
   }
-  await navigator.push(RoomChatPage.route(roomId));
+  await navigator.push(
+    RoomChatPage.route(created.roomId, modeWarning: created.warning, wantMode: created.wantMode),
+  );
 }
 
 class NewRoomSheet extends ConsumerStatefulWidget {
@@ -51,6 +53,8 @@ class NewRoomSheet extends ConsumerStatefulWidget {
 class _NewRoomSheetState extends ConsumerState<NewRoomSheet> {
   final _name = TextEditingController();
   final List<String> _picked = [];
+  // 「全员依次回答」是多模型讨论的常态，默认选它；主持人优先留给有人管的群。
+  String _mode = 'everyone';
   bool _saving = false;
   BotCreationScope? _scope;
   String? _error;
@@ -81,10 +85,30 @@ class _NewRoomSheetState extends ConsumerState<NewRoomSheet> {
     setState(() => _saving = true);
     try {
       final name = _name.text.trim();
-      final room = await api.createRoom(members: List.of(_picked), name: name.isEmpty ? null : name);
+      final mode = _mode;
+      // greet: false —— 不让管理员先发一轮「你们要讨论什么」，人进去就能说话。
+      final room = await api.createRoom(
+        members: List.of(_picked),
+        name: name.isEmpty ? null : name,
+        greet: false,
+      );
       if (!mounted || !scope.connected(ref)) return;
-      await hub.refresh();
-      if (mounted && scope.connected(ref)) Navigator.of(context).pop(room.id);
+      // createRoom 目前不收 mode：建好后补一条 updateRoom。设不上也不能把
+      // 已经建好的讨论室丢掉，把原因带回聊天页显示，并留一个重试入口。
+      String? warning;
+      try {
+        await api.updateRoom(room.id, mode: mode);
+      } catch (error) {
+        warning = describeDsBotError(error);
+      }
+      try {
+        await hub.refresh();
+      } catch (error) {
+        warning ??= describeDsBotError(error);
+      }
+      if (mounted && scope.connected(ref)) {
+        Navigator.of(context).pop((roomId: room.id, warning: warning, wantMode: mode));
+      }
     } catch (error) {
       if (!mounted || !scope.connected(ref)) return;
       setState(() {
@@ -133,12 +157,62 @@ class _NewRoomSheetState extends ConsumerState<NewRoomSheet> {
                   decoration: InputDecoration(hintText: l10n.botsGroupNameOptional),
                 ),
               ),
-              SheetSectionLabel(_picked.isEmpty ? l10n.botsMembers : l10n.botsMembersSelected(_picked.length)),
               Flexible(
                 child: ListView(
                   shrinkWrap: true,
                   padding: EdgeInsets.zero,
                   children: [
+                    SheetSectionLabel(l10n.botsRoomMode),
+                    SheetGroup(
+                      children: [
+                        for (final (mode, title, hint) in [
+                          ('everyone', l10n.botsModeEveryone, l10n.botsModeEveryoneHint),
+                          ('admin', l10n.botsModeAdmin, l10n.botsModeAdminHint),
+                        ])
+                          InkWell(
+                            key: ValueKey('mode-$mode'),
+                            onTap: saving || !writable
+                                ? null
+                                : () {
+                                    HapticFeedback.selectionClick();
+                                    setState(() => _mode = mode);
+                                  },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(title, style: theme.textTheme.bodyLarge?.copyWith(fontSize: 15)),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          hint,
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: dsh.textTertiary,
+                                            height: 1.35,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Icon(
+                                    _mode == mode ? AppIcons.radioOn : AppIcons.radioOff,
+                                    size: 22,
+                                    color: _mode == mode ? theme.colorScheme.primary : dsh.textTertiary,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    SheetSectionLabel(
+                      _picked.isEmpty ? l10n.botsMembers : l10n.botsMembersSelected(_picked.length),
+                    ),
                     SheetGroup(
                       children: [
                         for (final bot in bots)

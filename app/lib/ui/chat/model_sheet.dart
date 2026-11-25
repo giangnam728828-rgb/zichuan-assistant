@@ -24,6 +24,7 @@ import '../common/smooth_size.dart';
 import '../common/read_list_status.dart';
 import '../common/ui_trace.dart';
 import '../onboarding/api_key_page.dart';
+import '../providers/provider_brand_icon.dart';
 import '../providers/provider_form_page.dart';
 import '../providers/providers_page.dart';
 import '../theme/app_icons.dart';
@@ -88,6 +89,8 @@ class ModelChip extends ConsumerWidget {
   static const _padEnd = 8.0;
   static const _chevron = 16.0;
 
+  // 顶栏的模型胶囊只留文字与 ⌄：这里宽度最紧（360 上还要保住整个模型名），
+  // 厂商标记让给 Bot 顶栏、模型面板的卡片和讨论室里的消息身份。
   /// The narrowest the chip gets: the chevron, no words.
   static const compactWidth = _padStart + _chevron + _padEnd;
 
@@ -396,12 +399,42 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
   /// The channel being browsed; null follows the selected model's.
   String? _channel;
 
+  /// 上一次铺开的渠道：换了渠道就从第一页重新铺。
+  String? _browsed;
+
+  /// 一次建多少张卡。聚合网关动辄上百个模型，打开面板时不该全部建出来；
+  /// 滚到底再补一页——列表通常几十个，正常用户看不到这个边界。
+  static const _page = 24;
+  int _limit = _page;
+
+  /// 当前渠道里一共有多少个（由 [_picker] 在排版时记下）。
+  int _available = 0;
+
+  final _scroll = ScrollController();
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final position = _scroll.position;
+    // 内容还没占满一屏时不补页：没有滚动，也就没有“看到底”这回事。
+    if (position.maxScrollExtent <= 0 || position.pixels < position.maxScrollExtent - 600) return;
+    if (_limit >= _available) return;
+    final next = _limit + _page;
+    setState(() => _limit = next > _available ? _available : next);
+  }
+
   /// Closes the sheet once the effort thumb has landed.
   Timer? _close;
 
   @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_onScroll);
+  }
+
+  @override
   void dispose() {
     _close?.cancel();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -491,6 +524,7 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
     final sheet = SafeArea(
       top: false,
       child: SingleChildScrollView(
+        controller: _scroll,
         padding: const EdgeInsets.only(bottom: 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -534,6 +568,13 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
   Widget _picker(List<ProviderGroup> groups, ModelInfo? selected, {required bool readOnly}) {
     final shownId = _channel ?? selected?.provider;
     final shown = groups.firstWhere((g) => g.id == shownId, orElse: () => groups.first);
+    // 渠道一换，从第一页重新铺；否则会带着上一个渠道的页数进来。
+    if (shown.id != _browsed) {
+      _browsed = shown.id;
+      _limit = _page;
+    }
+    _available = shown.models.length;
+    final visible = shown.models.length > _limit ? shown.models.sublist(0, _limit) : shown.models;
     final efforts = selected?.efforts ?? const <ReasoningEffort>[];
     final quick = AppMotion.of(context, AppMotion.quick);
     const inset = SheetTitleBar.inset;
@@ -563,7 +604,7 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
                   Stack(alignment: Alignment.topCenter, children: [...previous, ?current]),
               child: _ModelGrid(
                 key: ValueKey(shown.id),
-                models: shown.models,
+                models: visible,
                 selected: selected,
                 onPick: readOnly ? null : _pickModel,
               ),
@@ -679,6 +720,7 @@ class _ChannelBar extends StatelessWidget {
             separatorBuilder: (_, _) => const SizedBox(width: 8),
             itemBuilder: (context, i) => _ChannelChip(
               label: groups[i].name,
+              brand: brandOf(groups[i].id),
               selected: groups[i].id == shown,
               style: style,
               onTap: () => onChanged(groups[i].id),
@@ -693,9 +735,16 @@ class _ChannelBar extends StatelessWidget {
 /// 一颗渠道胶囊:选中的和 [SegmentedPill] 的滑块同一种料(浅色白、深色亮灰,
 /// 带一点投影),没选中的是底槽色。
 class _ChannelChip extends StatelessWidget {
-  const _ChannelChip({required this.label, required this.selected, required this.style, required this.onTap});
+  const _ChannelChip({
+    required this.label,
+    required this.brand,
+    required this.selected,
+    required this.style,
+    required this.onTap,
+  });
 
   final String label;
+  final ModelBrand brand;
   final bool selected;
   final TextStyle style;
   final VoidCallback onTap;
@@ -735,7 +784,14 @@ class _ChannelChip extends StatelessWidget {
               fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
               color: selected ? colors.onSurface : colors.onSurfaceVariant,
             ),
-            child: Text(label, maxLines: 1, softWrap: false),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ProviderBrandIcon(brand: brand, size: 14),
+                const SizedBox(width: 6),
+                Text(label, maxLines: 1, softWrap: false),
+              ],
+            ),
           ),
         ),
       ),
@@ -843,6 +899,9 @@ class _ModelCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
+                    // 厂商标记先立住「这是哪一家」，再读名字。
+                    ProviderBrandIcon(brand: brandOf(model.provider), size: 20),
+                    const SizedBox(width: 8),
                     // 14 / two lines: the row leaves the name ~109 dp on a
                     // 390 dp phone, so "GPT 5.6 Terra" at titleMedium's 16 was
                     // cut after the first words.

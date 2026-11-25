@@ -190,9 +190,8 @@ void main() {
     fake.handlers['answer-question'] = (_) => true;
     await open(tester, const BotChatPage(botId: 'm1'), transport: fake);
     expect(find.text('等你回答'), findsOneWidget);
+    // 单选且不接受自由文本：点一下就是回答，不再多按一次发送。
     await tester.tap(find.text('交给 Coder'));
-    await tester.pump();
-    await tester.tap(find.text('发送'));
     await frames(tester, 3);
     final call = fake.calls.lastWhere((c) => c.$1 == 'answer-question');
     expect(call.$2, {
@@ -267,7 +266,8 @@ void main() {
     await frames(tester);
     final call = fake.calls.firstWhere((c) => c.$1 == 'create-room');
     expect(call.$2['members'], ['b2', 'b3']);
-    expect(call.$2['greet'], isTrue);
+    // 建好就直接进房间：不让管理员先发一轮「你们要讨论什么」。
+    expect(call.$2['greet'], isFalse);
     expect(find.byType(RoomChatPage), findsOneWidget);
   });
 

@@ -3986,6 +3986,60 @@ abstract class L10n {
   /// **'自己写'**
   String get botsWriteOwn;
 
+  /// No description provided for @botsAnswerInline.
+  ///
+  /// In zh, this message translates to:
+  /// **'可以直接在下方输入框回答'**
+  String get botsAnswerInline;
+
+  /// No description provided for @botsRoomMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'协作方式'**
+  String get botsRoomMode;
+
+  /// No description provided for @botsModeEveryone.
+  ///
+  /// In zh, this message translates to:
+  /// **'全员依次回答'**
+  String get botsModeEveryone;
+
+  /// No description provided for @botsModeEveryoneHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'所有成员按服务端规则依次参与回答。'**
+  String get botsModeEveryoneHint;
+
+  /// No description provided for @botsModeAdmin.
+  ///
+  /// In zh, this message translates to:
+  /// **'主持人优先'**
+  String get botsModeAdmin;
+
+  /// No description provided for @botsModeAdminHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'普通消息优先交给管理员 Bot，由管理员决定是否需要其他成员参与。'**
+  String get botsModeAdminHint;
+
+  /// No description provided for @botsModeNotSet.
+  ///
+  /// In zh, this message translates to:
+  /// **'讨论室已创建，但协作方式没设上'**
+  String get botsModeNotSet;
+
+  /// No description provided for @botsModeRetry.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试'**
+  String get botsModeRetry;
+
+  /// No description provided for @botsMembersRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'参与情况'**
+  String get botsMembersRunning;
+
   /// No description provided for @botsSubmit.
   ///
   /// In zh, this message translates to:

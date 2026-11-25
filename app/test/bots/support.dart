@@ -207,6 +207,10 @@ Map<String, Object?> sampleTeam({bool working = true, Map<String, Object?> quest
 Map<String, Object?> liveOf(Map<String, Object?> data, {List<Object?> approvals = const []}) {
   final working = data['working'] != false;
   final now = botClock().millisecondsSinceEpoch;
+  // A live-only answer still has to say the same thing as the full state:
+  // a test that puts members to work in a room expects them to stay working
+  // after the page refreshes.
+  final stateWork = data['work'] as Map<String, Object?>?;
   return {
     'revision': data['revision'] ?? 7,
     'activity': working ? {'m1': 'tool'} : <String, Object?>{},
@@ -216,8 +220,8 @@ Map<String, Object?> liveOf(Map<String, Object?> data, {List<Object?> approvals 
               'm1': {'since': now - 40000, 'tool': 'bash', 'note': '运行测试'},
             }
           : <String, Object?>{},
-      'rooms': <String, Object?>{},
-      'approvals': approvals,
+      'rooms': stateWork?['rooms'] ?? <String, Object?>{},
+      'approvals': approvals.isEmpty ? (stateWork?['approvals'] ?? const <Object?>[]) : approvals,
     },
   };
 }

@@ -643,6 +643,7 @@ class BotChatState {
     this.pending = const [],
     this.streaming,
     this.sessionId,
+    this.answering = false,
   });
 
   final List<DsBotItem> items;
@@ -656,6 +657,9 @@ class BotChatState {
   final String? streaming;
   final String? sessionId;
 
+  /// A question is being answered from the composer right now.
+  final bool answering;
+
   bool get hasEarlier => cursor != null;
 
   BotChatState copyWith({
@@ -667,6 +671,7 @@ class BotChatState {
     List<DsBotPending>? pending,
     String? Function()? streaming,
     String? sessionId,
+    bool? answering,
   }) => BotChatState(
     items: items ?? this.items,
     cursor: cursor == null ? this.cursor : cursor(),
@@ -676,6 +681,7 @@ class BotChatState {
     pending: pending ?? this.pending,
     streaming: streaming == null ? this.streaming : streaming(),
     sessionId: sessionId ?? this.sessionId,
+    answering: answering ?? this.answering,
   );
 }
 
@@ -820,8 +826,13 @@ class BotChatController extends Notifier<BotChatState> {
           state = state.copyWith(streaming: () => '');
         } else if (phase == 'end') {
           if (_attempt == attemptId) state = state.copyWith(streaming: () => null);
-        } else if (_attempt == attemptId && text != null) {
-          state = state.copyWith(streaming: () => '${state.streaming ?? ''}$text');
+        } else if (text != null) {
+          // 订阅晚了一步、或断线重连后只收到增量而没收到 start：认领这一段，
+          // 别把已经流出来的字丢掉。别的轮次的增量仍然挡在外面。
+          _attempt ??= attemptId;
+          if (_attempt == attemptId) {
+            state = state.copyWith(streaming: () => '${state.streaming ?? ''}$text');
+          }
         }
       default:
         break;
@@ -854,6 +865,38 @@ class BotChatController extends Notifier<BotChatState> {
   }
 
   void dismissError() => state = state.copyWith(error: () => null);
+
+  /// Answers the question on screen through the same door a card's options
+  /// use: free text goes as `custom`, so DS Bot counts it as the answer rather
+  /// than as a new message.
+  ///
+  /// Checked against what is pending right now: a question that was already
+  /// answered, or a different Bot part, refuses instead of answering the wrong
+  /// thing.
+  Future<bool> answer(String questionId, String text) async {
+    final api = _api;
+    final trimmed = text.trim();
+    if (api == null || trimmed.isEmpty) return false;
+    final status = ref.read(dsBotProvider);
+    final bot = status.team?.bot(botId);
+    final question = bot == null ? null : status.team?.questionOf(bot);
+    if (bot == null || question == null || question.id != questionId) return false;
+    final generation = _generation;
+    state = state.copyWith(answering: true, error: () => null);
+    try {
+      await api.answerQuestion(bot, question, custom: trimmed);
+      if (!_current(generation)) return true;
+      await ref.read(dsBotProvider.notifier).refresh();
+      return true;
+    } catch (error) {
+      if (_current(generation)) {
+        state = state.copyWith(answering: false, error: () => describeDsBotError(error));
+      }
+      return false;
+    } finally {
+      if (_current(generation)) state = state.copyWith(answering: false);
+    }
+  }
 }
 
 final botChatProvider = NotifierProvider.autoDispose.family<BotChatController, BotChatState, String>(

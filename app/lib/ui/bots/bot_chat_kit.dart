@@ -9,6 +9,7 @@ import 'dart:math' as math;
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../l10n/l10n.dart';
 import '../../state/bots_state.dart';
@@ -25,9 +26,31 @@ import '../common/status_dot.dart';
 import '../common/typing_indicator.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
+import '../providers/provider_brand_icon.dart';
 import 'bot_avatar.dart';
 import 'bot_format.dart';
 import 'bots_page.dart' show BotTag;
+
+/// A Bot's own model, as its messages and header name it.
+///
+/// `appliedModel` is what actually answered; `modelRef` is what was picked
+/// (and may still be pending). The name is shown without its provider part.
+String? botModelLabel(DsBot? bot) {
+  final raw = bot?.appliedModel ?? bot?.model ?? bot?.modelRef;
+  if (raw == null || raw.isEmpty) return null;
+  final slash = raw.indexOf('/');
+  return slash >= 0 && slash < raw.length - 1 ? raw.substring(slash + 1) : raw;
+}
+
+/// The maker of [bot]'s model, from its provider id.
+///
+/// Same precedence as [botModelLabel]: the model actually in use wins, so the
+/// mark and the name beside it never disagree.
+ModelBrand botModelBrand(DsBot? bot) {
+  final raw = bot?.appliedModel ?? bot?.model ?? bot?.modelRef;
+  final slash = raw?.indexOf('/') ?? -1;
+  return brandOf(slash > 0 ? raw!.substring(0, slash) : raw);
+}
 
 // ── Header ───────────────────────────────────────────────────────────────────
 
@@ -48,6 +71,7 @@ class BotChatHeader extends StatelessWidget {
     required this.onDetails,
     this.scrolledUnder,
     this.action,
+    this.identity,
   });
 
   final Widget face;
@@ -56,6 +80,9 @@ class BotChatHeader extends StatelessWidget {
   final StatusTone tone;
   final VoidCallback onDetails;
   final ValueNotifier<double>? scrolledUnder;
+
+  /// 用的是哪个模型：厂商标记 + 模型名，跟运行状态同一行。
+  final Widget? identity;
 
   /// The round key on the right, in place of ⓘ (which repeats the title's
   /// tap): its icon, label and what it does.
@@ -164,6 +191,16 @@ class BotChatHeader extends StatelessWidget {
                                                   ),
                                                 ),
                                               ),
+                                              if (identity case final identity?) ...[
+                                                Text(
+                                                  ' · ',
+                                                  style: theme.textTheme.labelSmall?.copyWith(
+                                                    color: dsh.textTertiary,
+                                                    height: 1.25,
+                                                  ),
+                                                ),
+                                                Flexible(child: identity),
+                                              ],
                                             ],
                                           ),
                                         ],
@@ -357,19 +394,49 @@ final class BotTypingRow extends BotRow {
   final String label;
 }
 
+/// 一个等着回答的问题，作为聊天里的一行——不再固定在输入框上方。
+final class BotQuestionRow extends BotRow {
+  const BotQuestionRow(this.question);
+  final DsBotQuestion question;
+}
+
+/// 一张等着处理的视图卡，同样在聊天时间里。
+final class BotViewRow extends BotRow {
+  const BotViewRow(this.view);
+  final DsBotViewCard view;
+}
+
 /// Rows for [items]: a time line before a message more than 15 minutes after
 /// the one before it, and [continued] runs of one speaker.
+///
+/// [question] and [view] join the timeline where their `askedAt` puts them.
+/// Without a time they go after the newest message: a card must never be
+/// inserted before older ones.
 List<BotRow> transcriptRows(
   List<DsBotItem> items, {
   List<DsBotPending> pending = const [],
   String? streaming,
   BotTypingRow? typing,
+  DsBotQuestion? question,
+  DsBotViewCard? view,
 }) {
   final rows = <BotRow>[];
+  final asks = <({DateTime? at, BotRow row})>[
+    if (question != null) (at: question.askedAt, row: BotQuestionRow(question)),
+    if (view != null) (at: view.askedAt, row: BotViewRow(view)),
+  ];
+  final timed = [for (final ask in asks) if (ask.at != null) ask]
+    ..sort((a, b) => a.at!.compareTo(b.at!));
+  final untimed = [for (final ask in asks) if (ask.at == null) ask.row];
+  var next = 0;
   DateTime? last;
   String? speaker;
   for (final item in items) {
     final time = item.time;
+    while (next < timed.length && time != null && timed[next].at!.isBefore(time)) {
+      rows.add(timed[next].row);
+      next++;
+    }
     if (time != null && (last == null || time.difference(last) > const Duration(minutes: 15))) {
       rows.add(BotTimeRow(time));
       speaker = null;
@@ -380,13 +447,29 @@ List<BotRow> transcriptRows(
     rows.add(BotItemRow(item, continued: continued));
     speaker = item.kind == DsBotItemKind.event || item.kind == DsBotItemKind.divider ? null : who;
   }
+  for (; next < timed.length; next++) {
+    rows.add(timed[next].row);
+  }
   for (final entry in pending) {
     rows.add(BotPendingRow(entry));
   }
+  rows.addAll(untimed);
   if (streaming != null) rows.add(BotStreamingRow(streaming));
   if (typing != null) rows.add(typing);
   return rows;
 }
+
+/// 一行在列表里的身份：刷新后位置变了也要复用同一个 element，
+/// 否则问题卡上已经点好的选项会跟着 State 一起没掉。
+Object botRowKey(BotRow row) => switch (row) {
+  BotItemRow(:final item) => 'item:${item.id ?? '${item.time?.microsecondsSinceEpoch}:${item.kind}'}',
+  BotTimeRow(:final time) => 'time:${time.microsecondsSinceEpoch}',
+  BotPendingRow(:final pending) => 'pending:${pending.text}',
+  BotStreamingRow() => 'streaming',
+  BotTypingRow(:final bot) => 'typing:${bot.id}',
+  BotQuestionRow(:final question) => 'question:${question.id}',
+  BotViewRow(:final view) => 'view:${view.id}',
+};
 
 /// The transcript, newest at the bottom; scrolling up to the oldest row asks
 /// for the page before.
@@ -444,6 +527,13 @@ class _BotTranscriptState extends State<BotTranscript> {
         reverse: true,
         padding: EdgeInsets.fromLTRB(0, widget.topInset, 0, 8),
         itemCount: rows.length + extra,
+        // 新消息插到末尾会让所有 index 平移；按行的身份找回原来的 element,
+        // 问题卡上已点的选项、输入焦点都跟着这一行留下来。
+        findChildIndexCallback: (key) {
+          if (key is! ValueKey<Object>) return null;
+          final at = rows.indexWhere((row) => botRowKey(row) == key.value);
+          return at < 0 ? null : rows.length - 1 - at;
+        },
         itemBuilder: (context, index) {
           if (index == rows.length) {
             return const Padding(
@@ -453,6 +543,7 @@ class _BotTranscriptState extends State<BotTranscript> {
           }
           final row = rows[rows.length - 1 - index];
           return Center(
+            key: ValueKey(botRowKey(row)),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: AppSpace.readingWidth),
               child: widget.rowBuilder(context, row),
@@ -525,22 +616,37 @@ class BotEventLine extends StatelessWidget {
 /// A Bot's words in its own chat: bare full-width Markdown, like the chat's
 /// replies; long-press copies or selects.
 class BotReplyText extends StatelessWidget {
-  const BotReplyText({super.key, required this.text, this.streaming = false});
+  const BotReplyText({super.key, required this.text, this.streaming = false, this.onQuote});
 
   final String text;
   final bool streaming;
+
+  /// 把这段话带回输入框接着问；只读团队里为 null。
+  final ValueChanged<String>? onQuote;
 
   Future<void> _menu(BuildContext context) async {
     final action = await showMessageMenu(
       context,
       text: text,
-      actions: const [MessageAction.copy, MessageAction.selectText],
+      actions: [
+        MessageAction.copy,
+        MessageAction.selectText,
+        if (onQuote != null) MessageAction.quote,
+        MessageAction.share,
+      ],
     );
     if (!context.mounted || action == null) return;
-    if (action == MessageAction.copy) {
-      await copyMessage(context, text);
-    } else if (action == MessageAction.selectText) {
-      await showSelectTextSheet(context, text, markdown: true);
+    switch (action) {
+      case MessageAction.copy:
+        await copyMessage(context, text);
+      case MessageAction.selectText:
+        await showSelectTextSheet(context, text, markdown: true, onQuote: onQuote);
+      case MessageAction.quote:
+        onQuote?.call(text);
+      case MessageAction.share:
+        await SharePlus.instance.share(ShareParams(text: text));
+      default:
+        break;
     }
   }
 
@@ -568,6 +674,7 @@ class GroupMessage extends StatelessWidget {
     this.admin = false,
     this.onOpenBot,
     this.onShowAll,
+    this.onQuote,
   });
 
   final DsBotItem item;
@@ -580,6 +687,9 @@ class GroupMessage extends StatelessWidget {
 
   /// A long post sent as a file: reads it whole.
   final VoidCallback? onShowAll;
+
+  /// 把这条发言带回群聊输入框。
+  final ValueChanged<String>? onQuote;
 
   static const face = 28.0;
   static const gap = 10.0;
@@ -601,6 +711,7 @@ class GroupMessage extends StatelessWidget {
             child: Row(
               children: [
                 Flexible(
+                  flex: 3,
                   child: Text(
                     name,
                     maxLines: 1,
@@ -612,6 +723,20 @@ class GroupMessage extends StatelessWidget {
                   ),
                 ),
                 if (admin) ...[const SizedBox(width: 6), BotTag(l10n.botsAdmin)],
+                if (botModelLabel(bot) case final model?) ...[
+                  const SizedBox(width: 6),
+                  ProviderBrandIcon(brand: botModelBrand(bot), size: 12),
+                  const SizedBox(width: 3),
+                  Flexible(
+                    flex: 2,
+                    child: Text(
+                      model,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(color: dsh.textTertiary),
+                    ),
+                  ),
+                ],
                 if (item.time != null) ...[
                   const SizedBox(width: 6),
                   Text(
@@ -622,7 +747,7 @@ class GroupMessage extends StatelessWidget {
               ],
             ),
           ),
-        BotReplyText(text: item.text),
+        BotReplyText(text: item.text, onQuote: onQuote),
         if (onShowAll != null)
           TextButton(
             onPressed: onShowAll,
@@ -714,20 +839,12 @@ class BotQuestionCard extends StatefulWidget {
 
 class _BotQuestionCardState extends State<BotQuestionCard> {
   final Set<String> _picked = {};
-  final _custom = TextEditingController();
   bool _sending = false;
-
-  @override
-  void dispose() {
-    _custom.dispose();
-    super.dispose();
-  }
 
   Future<void> _send() async {
     if (_sending) return;
-    final custom = _custom.text.trim();
     setState(() => _sending = true);
-    final ok = await widget.onAnswer(_picked.toList(), custom.isEmpty ? null : custom);
+    final ok = await widget.onAnswer(_picked.toList(), null);
     if (mounted && !ok) setState(() => _sending = false);
   }
 
@@ -742,6 +859,8 @@ class _BotQuestionCardState extends State<BotQuestionCard> {
           ..add(label);
       }
     });
+    // 单选且不接受自由文本：点一下就是回答，不再让人多按一次发送。
+    if (!widget.question.multiSelect && !widget.question.allowCustom) _send();
   }
 
   @override
@@ -750,7 +869,8 @@ class _BotQuestionCardState extends State<BotQuestionCard> {
     final theme = Theme.of(context);
     final dsh = DshColors.of(context);
     final q = widget.question;
-    final ready = _picked.isNotEmpty || _custom.text.trim().isNotEmpty;
+    final ready = _picked.isNotEmpty;
+    final needsSend = q.multiSelect || q.allowCustom;
     return ChatCard(
       icon: AppIcons.question,
       title: q.question,
@@ -786,24 +906,33 @@ class _BotQuestionCardState extends State<BotQuestionCard> {
         if (q.allowCustom)
           Padding(
             padding: const EdgeInsets.fromLTRB(ChatCard.inset, 8, ChatCard.inset, 0),
-            child: TextField(
-              controller: _custom,
-              enabled: !_sending,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(hintText: l10n.botsWriteOwn, isDense: true),
+            child: Row(
+              children: [
+                Icon(Icons.keyboard_alt_outlined, size: 14, color: dsh.textTertiary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    l10n.botsAnswerInline,
+                    style: theme.textTheme.bodySmall?.copyWith(color: dsh.textTertiary),
+                  ),
+                ),
+              ],
             ),
           ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(ChatCard.inset, 12, ChatCard.inset, ChatCard.inset),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton(
-              style: cardButton,
-              onPressed: ready && !_sending ? _send : null,
-              child: Text(l10n.commonSend),
+        if (needsSend)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(ChatCard.inset, 12, ChatCard.inset, ChatCard.inset),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton(
+                style: cardButton,
+                onPressed: ready && !_sending ? _send : null,
+                child: Text(l10n.commonSend),
+              ),
             ),
-          ),
-        ),
+          )
+        else
+          const SizedBox(height: ChatCard.inset - 4),
       ],
     );
   }

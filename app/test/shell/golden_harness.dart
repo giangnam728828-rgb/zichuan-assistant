@@ -9,6 +9,7 @@ import 'package:dsh_app/state/onboarding_state.dart';
 import 'package:dsh_app/state/sessions_state.dart';
 import 'package:dsh_app/state/settings_state.dart';
 import 'package:dsh_app/ui/common/side_insets.dart';
+import 'package:dsh_app/ui/fx/bot_avatar/bot_avatar_bakery.dart';
 import 'package:dsh_app/ui/theme/theme.dart';
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
@@ -227,14 +228,24 @@ Widget goldenApp({
   );
 }
 
+/// 等机器小人的毛绒烘焙落地再截图。
+///
+/// 头像是真的像素画：毛发在后台算好才贴上去。机器忙的时候（整套测试一起跑）
+/// 截图可能正好落在“还没穿上毛”的那一帧，同一张图就会时对时错。等到没有
+/// 待办为止，图才是稳的。
+Future<void> settleBotAvatars(WidgetTester tester) => tester.runAsync(() async {
+  for (var i = 0; i < 60 && BotAvatarBakery.instance.pending; i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
+});
+
 /// Renders [home] in light and dark and compares against `goldens/<name>_<mode>.png`.
 void goldenBoth(
   String name,
   Widget Function() home, {
   List<Override> Function()? overrides,
   Future<void> Function(WidgetTester tester)? before,
-}) {
-  for (final brightness in Brightness.values) {
+}) {  for (final brightness in Brightness.values) {
     final mode = brightness == Brightness.dark ? 'dark' : 'light';
     testWidgets('$name ($mode)', (tester) async {
       // Font loading is real async work; FakeAsync would never complete it.
@@ -245,6 +256,7 @@ void goldenBoth(
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
+      await settleBotAvatars(tester);
       if (before != null) await before(tester);
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/${name}_$mode.png'));
     });

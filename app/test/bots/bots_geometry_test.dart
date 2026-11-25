@@ -140,23 +140,18 @@ void main() {
     expect(picked, 'green');
   });
 
-  /// The composer's keys as end caps (the rule of `composer_geometry_test.dart`):
-  /// the left key mirrors send, same 36 circle, same gap to every edge.
+  /// The composer's two keys share one row: same 36 circle, centres level.
+  /// (The card's own edges are checked in `composer_geometry_test.dart`.)
   void expectEndCaps(WidgetTester tester, Rect left) {
-    final capsule = tester.getRect(find.byType(Composer));
     final send = tester.getRect(
       find.ancestor(of: find.byIcon(AppIcons.send), matching: find.byType(AnimatedContainer)).first,
     );
-    final side = left.left - capsule.left;
     expect(left.size, const Size(36, 36));
     expect(send.size, left.size);
-    near(capsule.right - send.right, side, 'right gap vs left gap');
-    for (final key in [left, send]) {
-      near(key.top - capsule.top, side, 'top gap');
-      near(capsule.bottom - key.bottom, side, 'bottom gap');
-    }
-    // The text starts where the chat's own composer starts it: after the key.
-    near(tester.getRect(find.byType(TextField)).left - left.right, 8, 'text after the left key');
+    near(left.center.dy, send.center.dy, 'same control row');
+    // The text sits above the row of keys, starting at the card's inset.
+    final field = tester.getRect(find.byType(TextField));
+    expect(field.bottom, lessThanOrEqualTo(left.top), reason: 'text above the keys');
   }
 
   testWidgets('in a group the @ key mirrors send, and opens the member list', (tester) async {
@@ -172,15 +167,16 @@ void main() {
     await pump(tester, const BotChatPage(botId: 'b2'));
     final capsule = tester.getRect(find.byType(Composer));
     final field = tester.getRect(find.byType(TextField));
-    near(field.left - capsule.left, 18, 'text starts without an empty key');
+    near(field.left - capsule.left, 14, 'text starts at the card inset');
     expect(tester.widget<TextField>(find.byType(TextField)).decoration!.hintText, '给 Writer 发消息…');
     final send = tester.getRect(
       find.ancestor(of: find.byIcon(AppIcons.send), matching: find.byType(AnimatedContainer)).first,
     );
     expect(send.size, const Size(36, 36));
     near(capsule.right - send.right, 6, 'send right');
-    near(send.top - capsule.top, 6, 'send top');
+    // 发送键在第二行：贴着卡片底边，右对齐。
     near(capsule.bottom - send.bottom, 6, 'send bottom');
+    expect(send.top, greaterThan(field.bottom), reason: 'send below the text');
   });
 
   testWidgets('new rows align with the avatar rows', (tester) async {

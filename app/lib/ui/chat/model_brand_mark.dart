@@ -30,6 +30,14 @@ ModelBrand brandOf(String? provider, [String? name]) {
   return ModelBrand.other;
 }
 
+/// 品牌色在给定配色下的实际颜色：近黑的几家（OpenAI、Kimi、Grok）在深色
+/// 主题里改用正文色，否则字压在深底上看不见。
+Color brandColorOn(ModelBrand brand, ColorScheme scheme) {
+  final color = brandColor(brand, scheme.primary);
+  if (scheme.brightness == Brightness.dark && color.computeLuminance() < 0.12) return scheme.onSurface;
+  return color;
+}
+
 Color brandColor(ModelBrand brand, Color fallback) => switch (brand) {
   ModelBrand.claude => const Color(0xFFC96442),
   ModelBrand.gemini => const Color(0xFF4285F4),
@@ -91,7 +99,7 @@ class ModelBrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = brandColor(brand, Theme.of(context).colorScheme.primary);
+    final color = brandColorOn(brand, Theme.of(context).colorScheme);
     return Semantics(
       button: true,
       label: semanticLabel,
@@ -121,27 +129,36 @@ class ModelBrandMark extends StatelessWidget {
     );
   }
 
-  Widget _glyph(Color color) {
-    final side = size * 0.5;
-    return switch (brand) {
-      ModelBrand.claude => CustomPaint(size: Size.square(side), painter: _ClaudeStar(color)),
-      ModelBrand.gemini => CustomPaint(size: Size.square(side), painter: _GeminiStar(color)),
-      ModelBrand.openai => CustomPaint(size: Size.square(side), painter: _OpenAIKnot(color)),
-      ModelBrand.deepseek => CustomPaint(size: Size.square(side), painter: _DeepseekWhale(color)),
-      ModelBrand.llama => CustomPaint(size: Size.square(side), painter: _LlamaLoop(color)),
-      ModelBrand.other => Icon(Icons.auto_awesome, size: side * 0.82, color: color),
-      _ => Text(
-        _letter(brand),
-        style: TextStyle(
-          fontSize: side * 0.72,
-          fontWeight: FontWeight.w700,
-          height: 1,
-          color: color,
-          letterSpacing: 0,
-        ),
+  Widget _glyph(Color color) => BrandGlyph(brand: brand, size: size * 0.5, color: color);
+}
+
+/// 一家的品牌形，无底色、无点击：有底色的圆钮和聊天里的身份标都用它。
+class BrandGlyph extends StatelessWidget {
+  const BrandGlyph({super.key, required this.brand, required this.size, required this.color});
+
+  final ModelBrand brand;
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => switch (brand) {
+    ModelBrand.claude => CustomPaint(size: Size.square(size), painter: _ClaudeStar(color)),
+    ModelBrand.gemini => CustomPaint(size: Size.square(size), painter: _GeminiStar(color)),
+    ModelBrand.openai => CustomPaint(size: Size.square(size), painter: _OpenAIKnot(color)),
+    ModelBrand.deepseek => CustomPaint(size: Size.square(size), painter: _DeepseekWhale(color)),
+    ModelBrand.llama => CustomPaint(size: Size.square(size), painter: _LlamaLoop(color)),
+    ModelBrand.other => Icon(Icons.auto_awesome, size: size * 0.82, color: color),
+    _ => Text(
+      _letter(brand),
+      style: TextStyle(
+        fontSize: size * 0.72,
+        fontWeight: FontWeight.w700,
+        height: 1,
+        color: color,
+        letterSpacing: 0,
       ),
-    };
-  }
+    ),
+  };
 }
 
 /// Claude 的放射星芒：从圆心散出的短线，端点圆头。
