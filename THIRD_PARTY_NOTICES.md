@@ -243,6 +243,18 @@ Libraries.dev metal-fx, translated to Flutter GLSL.
 
 均在 `app/android/app/src/main/res/drawable/` 下：`ic_shortcut_chat_glyph.xml`（`chat_bubble_outline_rounded`）、`ic_shortcut_new_chat_glyph.xml`（`add_comment_outlined`）、`ic_shortcut_voice_glyph.xml`（`mic_none_rounded`）、`ic_tile_new_chat.xml`（`add_comment_outlined`）、`ic_pet_mic.xml`（`mic_none_rounded`）、`ic_pet_send.xml`（`arrow_upward_rounded`）。鸿蒙的 `app/ohos/entry/src/main/resources/{base,dark}/media/shortcut_{new_chat,voice}_foreground.png` 由其中的 `ic_shortcut_new_chat_glyph.xml`、`ic_shortcut_voice_glyph.xml` 渲染（`tooling/ohos/make-launcher-icons.py`）。
 
+### 模型厂商品牌图标（Lobe Icons，MIT）
+
+| 项 | 内容 |
+|---|---|
+| 项目 | Lobe Icons（`@lobehub/icons-static-svg`），https://github.com/lobehub/lobe-icons |
+| 版权人 | Copyright (c) 2023 LobeHub |
+| 许可 | MIT |
+| 用途 | 聊天、议会、团队、模型选择器里各模型的厂商标识；仅改了文件名，路径数据未改 |
+| 文件 | `app/assets/brands/*.svg`：`claude`、`deepseek`、`doubao`、`gemini`、`grok`、`hunyuan`、`kimi`、`llama`、`minimax`、`mistral`、`moonshot`、`openai`、`qwen`、`spark`（讯飞星火，取其 iFlyTekCloud 标记）、`zhipu` |
+
+各厂商标标与名称是其各自所有人的商标，此处仅用于标明模型来源，不表示任何背牌或关联关系；厂商图标库收录的品牌商标按其各自权利人的条款使用。
+
 ### discourse-emojis（MIT）
 
 | 项 | 内容 |

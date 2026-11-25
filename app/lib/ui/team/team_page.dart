@@ -1,13 +1,12 @@
-// 团队（C4）：几位队友在一个群里，谁被 @ 谁回答。
+// 团队：几位队友在一个群里，谁被 @ 谁回答（方案第二部分）。
 //
-// 页面两个形态：
-// - 建队：给每位队友起名字、写一句角色说明、选一个模型（2 到 6 位）；
-// - 群聊：消息流（我 / 队友 / 系统）、@ 点名、停止、成员管理、导出。
+// 点「团队」= 新建一条团队会话并直接进群聊：顶部是模式标识、标题和成员入口，
+// 中间是群聊记录，底部是和普通聊天一样的输入栏。建队表单不再占满整页——
+// 第一次进来若还没有队友，聊天区里给一块紧凑的初始化面板，加完就地回到聊天。
 //
 // 编排在 [TeamOrchestrator]（lib/team/），这里只管界面。页面的编排器是
-// 进程级共享的：退出页面不打断正在答的队友，回来还能接着看。
-// 队友的审批请求在这里标出「是谁在申请」——子会话的审批卡原本只在
-// 单独打开那个子会话时才看得到。
+// 进程级共享的：退出页面不打断正在答的队友，回来还能接着看。队友的审批请求
+// 在这里标出「是谁在申请」。
 
 import 'dart:async';
 import 'dart:io';
@@ -15,64 +14,50 @@ import 'dart:io';
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../collab/collab_approval_banner.dart';
 import '../../collab/collab_approvals.dart';
 import '../../collab/collab_export.dart';
 import '../../collab/collab_session_book.dart';
 import '../../council/collab_orchestrator.dart';
-import '../../state/features_state.dart';
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
 import '../../state/sessions_state.dart';
 import '../../team/team_models.dart';
-import '../../team/team_orchestrator.dart';
 import '../../team/team_store.dart';
+import '../../team/team_orchestrator.dart';
 import '../chat/model_brand_mark.dart';
-import '../chat/new_chat_options.dart' show newChatPresets, presetIcon;
+import '../chat/model_sheet.dart' show shortModelName;
 import '../shell/root_tab.dart';
+import '../theme/app_icons.dart';
+import '../collab/collab_kit.dart';
+import '../collab/collab_members.dart';
+import '../../collab/collab_conversations.dart' show collabHistoryProvider, teamRootProvider;
 
 /// 进程级共享的团队编排器：离开页面不打断在跑的队友。
 TeamOrchestrator? _shared;
 DshClient? _sharedClient;
 
-/// 模型下拉里的一项。
-typedef _ModelChoice = ({String key, String label, String provider, String id});
-
-/// 建队时一位队友的草稿（输入框要活着，所以用 controller）。
-class _MateDraft {
-  _MateDraft({String name = '', String brief = '', this.modelKey})
-    : nameController = TextEditingController(text: name),
-      briefController = TextEditingController(text: brief);
-
-  final TextEditingController nameController;
-  final TextEditingController briefController;
-  String? modelKey;
-
-  /// 建队时勾的主管（最多一个）。
-  bool isLead = false;
-
-  /// 只读顾问：只出主意，不动文件。
-  bool readOnly = false;
-
-  /// Agent 预设（决定能用哪些工具，例如联网）；空表示 Host 默认。
-  String? agentPreset;
-
-  void dispose() {
-    nameController.dispose();
-    briefController.dispose();
-  }
-}
-
 class TeamPage extends ConsumerStatefulWidget {
-  const TeamPage({super.key, this.orchestrator, this.teamId});
+  const TeamPage({
+    super.key,
+    this.orchestrator,
+    this.teamId,
+    this.createNew = true,
+    this.teamStoreRoot,
+  });
 
   /// 测试注入用；生产为空，页面自己建（进程级共享）实例。
   final TeamOrchestrator? orchestrator;
 
-  /// 从通知或登记表直接打开的那个团队；空表示最近更新的一个。
+  /// 从历史记录或通知打开的那个团队；空表示新会话。
   final String? teamId;
+
+  /// 没给 [teamId] 时是否新建一条团队会话。
+  final bool createNew;
+
+  /// 测试注入的团队目录；生产为空，走 [teamRootProvider]。
+  final Future<Directory> Function()? teamStoreRoot;
 
   @override
   ConsumerState<TeamPage> createState() => _TeamPageState();
@@ -80,7 +65,6 @@ class TeamPage extends ConsumerStatefulWidget {
 
 class _TeamPageState extends ConsumerState<TeamPage> {
   final _draft = TextEditingController();
-  final _mates = <_MateDraft>[];
 
   TeamOrchestrator? _orchestrator;
   StreamSubscription<TeamState>? _sub;
@@ -93,8 +77,6 @@ class _TeamPageState extends ConsumerState<TeamPage> {
   @override
   void initState() {
     super.initState();
-    // 先摆好两位队友的空位：模型目录晚到也没关系，build 时补默认模型。
-    _seedDrafts();
     _boot();
   }
 
@@ -103,9 +85,6 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     _sub?.cancel();
     _inbox?.dispose();
     _draft.dispose();
-    for (final draft in _mates) {
-      draft.dispose();
-    }
     super.dispose();
   }
 
@@ -117,9 +96,79 @@ class _TeamPageState extends ConsumerState<TeamPage> {
         final current = _team;
         if (!mounted || current == null || current.id != state.id) return;
         setState(() => _team = state);
+        _invalidateHistory();
       });
-      final latest = widget.teamId == null ? await orchestrator.latest() : await orchestrator.load(widget.teamId!);
       // 把已经建过的团队会话补登记进协作登记表：老会话不再单列在历史里。
+      await _registerPastSessions(orchestrator);
+
+      TeamState? team;
+      if (widget.teamId case final id?) team = await orchestrator.load(id);
+      if (team == null && widget.createNew) team = await _createDefaultTeam(orchestrator);
+      team ??= await orchestrator.latest();
+      if (!mounted) return;
+      setState(() {
+        _team = team;
+        _loading = false;
+      });
+      _watchApprovals();
+    } on Object catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = '$error';
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  /// 新团队：默认沿用上一个团队的队友配置（复制成独立的一份），没有就按
+  /// 模型目录给两位；目录还没到就先建一条空会话，聊天里再补。
+  Future<TeamState> _createDefaultTeam(TeamOrchestrator orchestrator) async {
+    final mates = <Teammate>[];
+    final past = await orchestrator.store.list();
+    if (past.isNotEmpty) {
+      final source = past.first;
+      var index = 0;
+      for (final mate in source.teammates) {
+        mates.add(
+          Teammate(
+            id: 'mate-${DateTime.now().microsecondsSinceEpoch}-${index++}',
+            name: mate.name,
+            brief: mate.brief,
+            provider: mate.provider,
+            model: mate.model,
+            reasoningEffort: mate.reasoningEffort,
+            readOnly: mate.readOnly,
+            agentPreset: mate.agentPreset,
+          ),
+        );
+      }
+    }
+    if (mates.isEmpty) {
+      final ModelCatalog? catalog = await ref.read(modelCatalogProvider.future).catchError((_) => null);
+      if (catalog != null) {
+        for (final group in catalog.groups) {
+          for (final info in group.models) {
+            if (mates.length >= 2) break;
+            mates.add(
+              Teammate(
+                id: 'mate-${DateTime.now().microsecondsSinceEpoch}-${mates.length}',
+                name: '队友 ${mates.length + 1}',
+                provider: info.provider,
+                model: info.id,
+              ),
+            );
+          }
+          if (mates.length >= 2) break;
+        }
+      }
+    }
+    return orchestrator.create(teammates: mates, leadId: mates.isNotEmpty ? mates.first.id : null, allowEmpty: true);
+  }
+
+  /// 把队友子会话登记进协作登记表（历史列表据此折叠）。
+  Future<void> _registerPastSessions(TeamOrchestrator orchestrator) async {
+    try {
       final past = await orchestrator.store.list();
       final owners = <CollabSessionOwner>[
         for (final state in past)
@@ -136,21 +185,12 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       if (owners.isNotEmpty) {
         unawaited(ref.read(collabSessionBookProvider.notifier).registerAll(owners));
       }
-      if (!mounted) return;
-      setState(() {
-        _team = latest;
-        _loading = false;
-      });
-      _watchApprovals();
-    } on Object catch (error) {
-      if (mounted) {
-        setState(() {
-          _error = '$error';
-          _loading = false;
-        });
-      }
+    } on Object {
+      // 登记失败只影响历史列表的折叠。
     }
   }
+
+  void _invalidateHistory() => ref.invalidate(collabHistoryProvider);
 
   /// 共享实例：同一个引擎连接上复用，重连后重建。
   Future<TeamOrchestrator> _ensureOrchestrator() async {
@@ -160,10 +200,11 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     if (conn == null) throw StateError('还没有连上引擎');
     final existing = _shared;
     if (existing != null && identical(_sharedClient, conn.client)) return existing;
-    final support = await getApplicationSupportDirectory();
+    final override = widget.teamStoreRoot;
+    final root = override != null ? await override() : await ref.read(teamRootProvider)();
     final created = TeamOrchestrator(
       driver: DshCollabDriver(conn.client),
-      store: TeamStore(Directory('${support.path}/team')),
+      store: TeamStore(root),
       onSession: (info) {
         unawaited(
           ref
@@ -204,117 +245,16 @@ class _TeamPageState extends ConsumerState<TeamPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // 建队
-
-  List<_ModelChoice> _models() {
-    // 非 build 期间也要能用（加队友、建队），所以读；build 里另外 watch 一次。
-    final catalog = ref.read(modelCatalogProvider).value;
-    if (catalog == null) return const [];
-    return [
-      for (final group in catalog.groups)
-        for (final info in group.models)
-          (
-            key: '${info.provider}|${info.id}',
-            label: '${group.name} · ${info.name}',
-            provider: info.provider,
-            id: info.id,
-          ),
-    ];
-  }
-
-  void _seedDrafts() {
-    if (_mates.isNotEmpty) return;
-    final models = _models();
-    for (var i = 0; i < 2; i++) {
-      _mates.add(_MateDraft(modelKey: models.isEmpty ? null : models[i % models.length].key));
-    }
-  }
-
-  /// 模型目录晚到：给还没选模型的草稿补一个默认值。
-  void _fillDefaultModels(List<_ModelChoice> models) {
-    if (models.isEmpty) return;
-    var changed = false;
-    for (var i = 0; i < _mates.length; i++) {
-      if (_mates[i].modelKey == null) {
-        _mates[i].modelKey = models[i % models.length].key;
-        changed = true;
-      }
-    }
-    if (changed) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() {});
-      });
-    }
-  }
-
-  Future<void> _create(List<_ModelChoice> models) async {
-    final byKey = {for (final model in models) model.key: model};
-    final mates = <Teammate>[];
-    for (var i = 0; i < _mates.length; i++) {
-      final draft = _mates[i];
-      final key = draft.modelKey;
-      final model = key == null ? null : byKey[key];
-      if (model == null) {
-        setState(() => _error = '每位队友都要选一个模型');
-        return;
-      }
-      mates.add(
-        Teammate(
-          id: 'mate-${DateTime.now().microsecondsSinceEpoch}-$i',
-          name: draft.nameController.text.trim(),
-          brief: draft.briefController.text.trim(),
-          provider: model.provider,
-          model: model.id,
-          readOnly: draft.readOnly,
-          agentPreset: draft.agentPreset,
-        ),
-      );
-    }
-    if (mates.length < 2) {
-      setState(() => _error = '至少两位队友');
-      return;
-    }
-    final orchestrator = _orchestrator;
-    if (orchestrator == null) {
-      setState(() => _error = '还没有连上引擎：先去聊天里连上引擎');
-      return;
-    }
-    final leadIndex = _mates.indexWhere((draft) => draft.isLead);
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final team = await orchestrator.create(
-        teammates: mates,
-        leadId: leadIndex >= 0 && leadIndex < mates.length ? mates[leadIndex].id : null,
-      );
-      if (!mounted) return;
-      for (final draft in _mates) {
-        draft.dispose();
-      }
-      _mates.clear();
-      setState(() {
-        _team = team;
-        _busy = false;
-      });
-    } on Object catch (error) {
-      if (mounted) {
-        setState(() {
-          _error = '$error';
-          _busy = false;
-        });
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // 群聊
 
   Future<void> _send() async {
     final team = _team;
     final text = _draft.text.trim();
     if (team == null || text.isEmpty || _busy) return;
+    if (team.teammates.length < 2) {
+      setState(() => _error = '团队至少需要两位队友，先去成员管理里加两位。');
+      return;
+    }
     _draft.clear();
     setState(() {
       _busy = true;
@@ -328,6 +268,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       if (mounted) setState(() => _error = '$error');
     } finally {
       if (mounted) setState(() => _busy = false);
+      _invalidateHistory();
     }
   }
 
@@ -360,59 +301,11 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     final orchestrator = _orchestrator;
     if (team == null || orchestrator == null) return;
     try {
-      // 应用目录留一份（下次打开还能找到），同时交给系统分享面板。
       await orchestrator.store.writeMarkdown(team);
-      await shareMarkdownFile(fileName: '团队-${team.id}.md', content: team.toMarkdown());
+      await shareMarkdownFile(fileName: '团队-${team.displayTitle}.md', content: team.toMarkdown());
     } on Object catch (error) {
       if (mounted) setState(() => _error = '$error');
     }
-  }
-
-  /// 历史：建过的团队，点一条接着聊（会话都还在，队友也还记得上下文）。
-  Future<void> _openHistory() async {
-    final orchestrator = _orchestrator ?? widget.orchestrator;
-    if (orchestrator == null) return;
-    final teams = await orchestrator.store.list();
-    if (!mounted) return;
-    if (teams.isEmpty) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(content: Text('还没有建过团队')));
-      return;
-    }
-    final picked = await showModalBottomSheet<TeamState>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheet) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheet).height * 0.7),
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text('建过的团队', style: Theme.of(sheet).textTheme.titleMedium),
-              ),
-              for (final state in teams)
-                ListTile(
-                  title: Text(
-                    [for (final mate in state.teammates) mate.name].join('、'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    [
-                      collabStamp(state.updatedAt),
-                      '${state.messages.where((m) => m.role == TeamMsgRole.teammate).length} 条发言',
-                      if (state.id == _team?.id) '当前',
-                    ].join(' · '),
-                  ),
-                  onTap: () => Navigator.pop(sheet, state),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (picked != null && mounted) setState(() => _team = picked);
   }
 
   /// 打开某位队友的完整对话（这些会话不在历史列表里，只从这里进）。
@@ -423,22 +316,75 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     switchTab(context, RootTab.chat);
   }
 
-  void _newTeam() {
-    for (final draft in _mates) {
-      draft.dispose();
-    }
-    _mates.clear();
+  Future<void> _rename() async {
+    final team = _team;
+    if (team == null) return;
+    final controller = TextEditingController(text: team.title);
+    final next = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('会话名称'),
+        content: TextField(controller: controller, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text), child: const Text('保存')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (next == null || next.trim().isEmpty || !mounted) return;
+    await _orchestrator?.rename(team.id, next.trim());
+    _invalidateHistory();
+  }
+
+  Future<void> _newTeam() async {
+    final orchestrator = _orchestrator;
+    if (orchestrator == null) return;
+    final team = await _createDefaultTeam(orchestrator);
+    if (!mounted) return;
     setState(() {
-      _team = null;
+      _team = team;
       _error = null;
     });
-    _seedDrafts();
+    _invalidateHistory();
   }
 
   // ---------------------------------------------------------------------------
   // 成员管理
 
   Future<void> _openMembers() async {
+    final team = _team;
+    if (team == null) return;
+    await showTeamMembersSheet(
+      context,
+      team: team,
+      onSave: (mates, leadId) async {
+        final orchestrator = _orchestrator;
+        if (orchestrator == null) return;
+        // 逐个应用：改过的队友用 updateMate，新加的用 addMate，少掉的 removeMate。
+        final current = await orchestrator.load(team.id) ?? team;
+        final byId = {for (final mate in mates) mate.id: mate};
+        for (final mate in mates) {
+          final existing = current.mate(mate.id);
+          if (existing == null) {
+            await orchestrator.addMate(team.id, mate);
+          } else if (existing != mate) {
+            await orchestrator.updateMate(team.id, mate);
+          }
+        }
+        for (final existing in current.teammates) {
+          if (!byId.containsKey(existing.id)) await orchestrator.removeMate(team.id, existing.id);
+        }
+        final after = await orchestrator.load(team.id) ?? current;
+        if (after.leadId != leadId) await orchestrator.setLead(team.id, leadId);
+        final latest = await orchestrator.load(team.id) ?? after;
+        if (mounted) setState(() => _team = latest);
+        _invalidateHistory();
+      },
+    );
+  }
+
+  Future<void> _openSettings() async {
     final team = _team;
     if (team == null) return;
     await showModalBottomSheet<void>(
@@ -449,128 +395,46 @@ class _TeamPageState extends ConsumerState<TeamPage> {
           final current = _team;
           if (current == null) return const SizedBox.shrink();
           return SafeArea(
-            // 成员 + 团队设置比一屏高：面板本身要能滚，否则会撑破底栏。
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Row(
-                      children: [
-                        Text('队友', style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(width: 8),
-                        Text('${current.teammates.length}/6（至少 2 位）', style: Theme.of(context).textTheme.bodySmall),
-                      ],
-                    ),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text('团队设置', style: Theme.of(context).textTheme.titleMedium),
+                ),
+                SwitchListTile(
+                  value: current.exclusiveWrite,
+                  title: const Text('可写的队友排队执行'),
+                  subtitle: const Text('同一时刻只让一个人动文件；只读顾问不受影响'),
+                  onChanged: (on) async {
+                    await _orchestrator?.setExclusiveWrite(current.id, on);
+                    setSheetState(() {});
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(AppIcons.history),
+                  title: const Text('定时唤醒'),
+                  subtitle: Text(
+                    current.wakeMinutes == null ? '到点自动在群里催一句，让队友接着干' : '每 ${_wakeLabel(current.wakeMinutes!)} 催一次',
                   ),
-                  for (final mate in current.teammates)
-                    ListTile(
-                      onTap: () async {
-                        final isLead = current.leadId == mate.id;
-                        await _orchestrator?.setLead(current.id, isLead ? null : mate.id);
-                        setSheetState(() {});
-                      },
-                      leading: Icon(
-                        brandIconData(brandOf(mate.provider, mate.model)),
-                        color: brandColor(brandOf(mate.provider, mate.model), Theme.of(context).colorScheme.primary),
-                      ),
-                      title: Row(
-                        children: [
-                          Flexible(child: Text(mate.name, overflow: TextOverflow.ellipsis)),
-                          if (current.leadId == mate.id) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.secondaryContainer,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                '主管',
-                                style: Theme.of(context).textTheme.labelSmall
-                                    ?.copyWith(color: Theme.of(context).colorScheme.onSecondaryContainer),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      subtitle: Text(
-                        [if (mate.brief.trim().isNotEmpty) mate.brief.trim(), mate.model].join(' · '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: IconButton(
-                        tooltip: '移除',
-                        icon: const Icon(Icons.person_remove_outlined),
-                        onPressed: current.teammates.length <= 2
-                            ? null
-                            : () async {
-                                await _orchestrator?.removeMate(current.id, mate.id);
-                                setSheetState(() {});
-                              },
-                      ),
-                    ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '点一位队友可以设为主管（没点名时由他先接活）。',
-                        style: Theme.of(context).textTheme.bodySmall
-                            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 20),
-                  SwitchListTile(
-                    dense: true,
-                    value: current.exclusiveWrite,
-                    title: const Text('可写的队友排队执行'),
-                    subtitle: const Text('同一时刻只让一个人动文件；只读顾问不受影响'),
-                    onChanged: (on) async {
-                      await _orchestrator?.setExclusiveWrite(current.id, on);
+                  trailing: DropdownButton<int?>(
+                    value: current.wakeMinutes,
+                    underline: const SizedBox.shrink(),
+                    items: const [
+                      DropdownMenuItem(value: null, child: Text('关')),
+                      DropdownMenuItem(value: 5, child: Text('5 分钟')),
+                      DropdownMenuItem(value: 10, child: Text('10 分钟')),
+                      DropdownMenuItem(value: 30, child: Text('30 分钟')),
+                      DropdownMenuItem(value: 60, child: Text('1 小时')),
+                    ],
+                    onChanged: (value) async {
+                      await _orchestrator?.setWake(current.id, value);
                       setSheetState(() {});
                     },
                   ),
-                  ListTile(
-                    dense: true,
-                    leading: const Icon(Icons.alarm),
-                    title: const Text('定时唤醒'),
-                    subtitle: Text(
-                      current.wakeMinutes == null ? '到点自动在群里催一句，让队友接着干' : '每 ${_wakeLabel(current.wakeMinutes!)} 催一次',
-                    ),
-                    trailing: DropdownButton<int?>(
-                      value: current.wakeMinutes,
-                      underline: const SizedBox.shrink(),
-                      items: const [
-                        DropdownMenuItem(value: null, child: Text('关')),
-                        DropdownMenuItem(value: 5, child: Text('5 分钟')),
-                        DropdownMenuItem(value: 10, child: Text('10 分钟')),
-                        DropdownMenuItem(value: 30, child: Text('30 分钟')),
-                        DropdownMenuItem(value: 60, child: Text('1 小时')),
-                      ],
-                      onChanged: (value) async {
-                        await _orchestrator?.setWake(current.id, value);
-                        setSheetState(() {});
-                      },
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    child: OutlinedButton.icon(
-                      onPressed: current.teammates.length >= 6
-                          ? null
-                          : () async {
-                              final added = await _addMateDialog();
-                              if (added) setSheetState(() {});
-                            },
-                      icon: const Icon(Icons.person_add_alt_1),
-                      label: const Text('加一位队友'),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 8),
+              ],
             ),
           );
         },
@@ -580,339 +444,124 @@ class _TeamPageState extends ConsumerState<TeamPage> {
 
   static String _wakeLabel(int minutes) => minutes >= 60 && minutes % 60 == 0 ? '${minutes ~/ 60} 小时' : '$minutes 分钟';
 
-  Future<bool> _addMateDialog() async {
-    final models = _models();
-    final name = TextEditingController();
-    final brief = TextEditingController();
-    var key = models.isEmpty ? null : models.first.key;
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('加一位队友'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: name,
-                decoration: const InputDecoration(labelText: '名字'),
-              ),
-              TextField(
-                controller: brief,
-                decoration: const InputDecoration(labelText: '负责什么（可选）'),
-              ),
-              const SizedBox(height: 12),
-              _modelPicker(value: key, models: models, onChanged: (value) => setDialogState(() => key = value)),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('取消')),
-            FilledButton(
-              onPressed: key == null
-                  ? null
-                  : () async {
-                      final model = models.firstWhere((m) => m.key == key);
-                      final team = _team;
-                      if (team == null) {
-                        Navigator.of(dialogContext).pop(false);
-                        return;
-                      }
-                      final orchestrator = _orchestrator;
-                      if (orchestrator == null) {
-                        Navigator.of(dialogContext).pop(false);
-                        return;
-                      }
-                      try {
-                        await orchestrator.addMate(
-                          team.id,
-                          Teammate(
-                            id: 'mate-${DateTime.now().microsecondsSinceEpoch}',
-                            name: name.text.trim(),
-                            brief: brief.text.trim(),
-                            provider: model.provider,
-                            model: model.id,
-                          ),
-                        );
-                        if (dialogContext.mounted) Navigator.of(dialogContext).pop(true);
-                      } on Object catch (error) {
-                        if (mounted) setState(() => _error = '$error');
-                        if (dialogContext.mounted) Navigator.of(dialogContext).pop(false);
-                      }
-                    },
-              child: const Text('加入'),
-            ),
-          ],
-        ),
-      ),
-    );
-    name.dispose();
-    brief.dispose();
-    return result ?? false;
-  }
-
   // ---------------------------------------------------------------------------
   // 界面
 
   @override
   Widget build(BuildContext context) {
-    // 模型目录晚到时重建建队表单（默认模型/下拉选项都靠它）。
-    ref.watch(modelCatalogProvider);
+    final theme = Theme.of(context);
     final team = _team;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(team == null ? '组个队' : '团队'),
-        actions: [
-          IconButton(tooltip: '历史团队', icon: const Icon(Icons.history), onPressed: _openHistory),
-          if (team != null) ...[
-            IconButton(tooltip: '队友', icon: const Icon(Icons.group_outlined), onPressed: _openMembers),
-            PopupMenuButton<String>(
-              onSelected: (value) {
-                if (value == 'export') _export();
-                if (value == 'new') _newTeam();
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'export', child: Text('导出 Markdown')),
-                PopupMenuItem(value: 'new', child: Text('新建团队')),
-              ],
-            ),
-          ],
-        ],
-      ),
       body: SafeArea(
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : team == null
-            ? _buildSetup()
-            : _buildChat(team),
-      ),
-    );
-  }
-
-  Widget _buildSetup() {
-    final theme = Theme.of(context);
-    final models = _models();
-    _fillDefaultModels(models);
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      children: [
-        Text('几位队友，一个群', style: theme.textTheme.titleMedium),
-        const SizedBox(height: 4),
-        Text(
-          '每位队友各用各的模型、各记各的上下文。发消息时 @ 谁，谁回答；\n'
-          '不点名就大家一起答；设了主管就由他先接，他可以把活分给队友。',
-          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 16),
-        if (models.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text(
-              '还没有读到模型目录：先在聊天里连上引擎并配置模型。',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-          ),
-        for (var i = 0; i < _mates.length; i++) _mateEditor(i, models),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            OutlinedButton.icon(
-              onPressed: _mates.length >= 6 ? null : () => setState(() => _mates.add(_MateDraft())),
-              icon: const Icon(Icons.person_add_alt_1),
-              label: const Text('加一位'),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '${_mates.length}/6（至少 2 位）',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-          ],
-        ),
-        if (_error != null) ...[
-          const SizedBox(height: 12),
-          Text(_error!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
-        ],
-        const SizedBox(height: 20),
-        FilledButton.icon(
-          onPressed: _busy || models.isEmpty || _orchestrator == null ? null : () => _create(models),
-          icon: const Icon(Icons.groups_2_outlined),
-          label: const Text('建队'),
-        ),
-      ],
-    );
-  }
-
-  Widget _mateEditor(int index, List<_ModelChoice> models) {
-    final theme = Theme.of(context);
-    final draft = _mates[index];
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
+        bottom: false,
         child: Column(
           children: [
-            Row(
-              children: [
-                Text('队友 ${index + 1}', style: theme.textTheme.labelMedium),
-                const SizedBox(width: 8),
-                FilterChip(
-                  label: const Text('主管'),
-                  selected: draft.isLead,
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  labelStyle: theme.textTheme.labelSmall,
-                  onSelected: (on) => setState(() {
-                    for (final other in _mates) {
-                      other.isLead = false;
-                    }
-                    draft.isLead = on;
-                  }),
-                ),
-                const SizedBox(width: 4),
-                FilterChip(
-                  label: const Text('只读'),
-                  selected: draft.readOnly,
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  labelStyle: theme.textTheme.labelSmall,
-                  tooltip: '只出主意，不改文件',
-                  onSelected: (on) => setState(() => draft.readOnly = on),
-                ),
-                const Spacer(),
-                _presetKey(draft),
+            CollabHeader(
+              title: team?.displayTitle ?? '团队',
+              subtitle: [
+                '${team?.teammates.length ?? 0} 位队友',
+                if (team?.lead case final lead?) '主管 ${lead.name}',
+              ].join(' · '),
+              badge: CollabModeBadge(label: '团队', color: theme.colorScheme.tertiary),
+              onTitleTap: team == null ? null : _rename,
+              actions: [
                 IconButton(
-                  tooltip: '移除',
-                  icon: const Icon(Icons.close, size: 16),
-                  visualDensity: VisualDensity.compact,
-                  constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-                  style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                  onPressed: _mates.length <= 2
-                      ? null
-                      : () => setState(() {
-                          _mates.removeAt(index).dispose();
-                        }),
+                  key: const ValueKey('team-members'),
+                  tooltip: '成员',
+                  icon: const Icon(AppIcons.team, size: 21),
+                  onPressed: team == null ? null : _openMembers,
+                ),
+                PopupMenuButton<String>(
+                  tooltip: '更多',
+                  icon: const Icon(AppIcons.more, size: 20),
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'settings':
+                        unawaited(_openSettings());
+                      case 'export':
+                        unawaited(_export());
+                      case 'new':
+                        unawaited(_newTeam());
+                      case 'history':
+                        switchTab(context, RootTab.history);
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'settings', child: Text('团队设置')),
+                    PopupMenuItem(value: 'export', child: Text('导出 Markdown')),
+                    PopupMenuItem(value: 'new', child: Text('新团队')),
+                    PopupMenuItem(value: 'history', child: Text('历史团队')),
+                  ],
                 ),
               ],
             ),
-            TextField(
-              controller: draft.nameController,
-              decoration: const InputDecoration(labelText: '名字', hintText: '留空就自动起名', isDense: true),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : team == null
+                  ? const SizedBox.shrink()
+                  : team.teammates.isEmpty
+                  ? _onboarding(team)
+                  : _buildChat(team),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: draft.briefController,
-              decoration: const InputDecoration(labelText: '负责什么', hintText: '比如：前端实现、接口设计、挑毛病', isDense: true),
-            ),
-            const SizedBox(height: 8),
-            _modelPicker(
-              value: draft.modelKey,
-              models: models,
-              onChanged: (value) => setState(() => draft.modelKey = value),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 预设键：决定这个队友能用哪些工具（比如联网）。没选就是 Host 默认。
-  Widget _presetKey(_MateDraft draft) {
-    final theme = Theme.of(context);
-    final all = ref.watch(agentPresetsProvider).value;
-    String? name;
-    for (final preset in all ?? const <AgentPresetInfo>[]) {
-      if (preset.id == draft.agentPreset) name = preset.name ?? preset.id;
-    }
-    return IconButton(
-      tooltip: name == null ? '预设：Host 默认' : '预设：$name',
-      icon: Icon(name == null ? Icons.extension_outlined : Icons.extension, size: 17),
-      color: name == null ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.primary,
-      visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-      style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-      onPressed: () => _pickPreset(draft),
-    );
-  }
-
-  Future<void> _pickPreset(_MateDraft draft) async {
-    final presets = newChatPresets(ref.read(agentPresetsProvider).value);
-    if (presets.isEmpty) {
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(const SnackBar(content: Text('引擎还没有提供预设：先在「全部功能 › Agent 预设」里建一个')));
-      return;
-    }
-    final theme = Theme.of(context);
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheet) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheet).height * 0.7),
-          child: ListView(
-            shrinkWrap: true,
-            children: [
+            if (_error != null)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                child: Text('这位队友的预设', style: Theme.of(sheet).textTheme.titleMedium),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  '预设决定它能用哪些工具（例如联网、改文件）。不选就用 Host 的默认。',
-                  style: Theme.of(sheet).textTheme.bodySmall
-                      ?.copyWith(color: Theme.of(sheet).colorScheme.onSurfaceVariant),
+                  _error!,
+                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
                 ),
               ),
-              ListTile(
-                leading: const Icon(Icons.auto_awesome_outlined),
-                title: const Text('Host 默认'),
-                subtitle: const Text('跟随引擎当前的默认预设'),
-                trailing: draft.agentPreset == null ? Icon(Icons.check, color: theme.colorScheme.primary) : null,
-                onTap: () => Navigator.pop(sheet, ''),
-              ),
-              for (final preset in presets)
-                ListTile(
-                  leading: Icon(presetIcon(preset.id)),
-                  title: Text(preset.name ?? preset.id),
-                  subtitle: preset.description == null ? null : Text(preset.description!),
-                  trailing: draft.agentPreset == preset.id ? Icon(Icons.check, color: theme.colorScheme.primary) : null,
-                  enabled: preset.broken == null,
-                  onTap: preset.broken == null ? () => Navigator.pop(sheet, preset.id) : null,
-                ),
-            ],
-          ),
+            CollabComposer(
+              controller: _draft,
+              busy: _busy,
+              hint: '说点什么，@ 一位队友',
+              onSend: _send,
+              onStop: _stop,
+              enabled: team != null,
+              leading: team == null || team.teammates.isEmpty
+                  ? null
+                  : PopupMenuButton<Teammate>(
+                      tooltip: '点名',
+                      icon: const Icon(AppIcons.mention, size: 20),
+                      onSelected: _insertMention,
+                      itemBuilder: (_) => [
+                        for (final mate in team.teammates) PopupMenuItem(value: mate, child: Text(mate.name)),
+                      ],
+                    ),
+            ),
+          ],
         ),
       ),
     );
-    if (picked == null || !mounted) return;
-    setState(() {
-      draft.agentPreset = picked.isEmpty ? null : picked;
-    });
   }
 
-  /// 受控的模型下拉：草稿被程序改动（补默认值）时显示也能跟上。
-  Widget _modelPicker({
-    required String? value,
-    required List<_ModelChoice> models,
-    required ValueChanged<String?> onChanged,
-  }) {
+  /// 首次进来还没有队友：聊天区里一块紧凑的初始化面板，加完就地回到聊天。
+  Widget _onboarding(TeamState team) {
     final theme = Theme.of(context);
-    final valid = models.any((model) => model.key == value) ? value : null;
-    return InputDecorator(
-      decoration: const InputDecoration(labelText: '模型', isDense: true),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: valid,
-          isExpanded: true,
-          isDense: true,
-          style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface),
-          items: [
-            for (final model in models)
-              DropdownMenuItem(
-                value: model.key,
-                child: Text(model.label, overflow: TextOverflow.ellipsis),
-              ),
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(AppIcons.team, size: 38, color: theme.colorScheme.outline),
+            const SizedBox(height: 12),
+            Text('先加两位队友', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Text(
+              '每位队友各用各的模型、各记各的上下文。发消息时 @ 谁，谁回答；不点名就大家一起答。',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 14),
+            FilledButton.tonalIcon(
+              key: const ValueKey('team-onboarding-add'),
+              onPressed: _openMembers,
+              icon: const Icon(AppIcons.add, size: 18),
+              label: const Text('添加队友'),
+            ),
           ],
-          onChanged: onChanged,
         ),
       ),
     );
@@ -944,15 +593,6 @@ class _TeamPageState extends ConsumerState<TeamPage> {
                   },
                 ),
         ),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              _error!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
-            ),
-          ),
-        _composer(team),
       ],
     );
   }
@@ -966,7 +606,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.forum_outlined, size: 40, color: theme.colorScheme.outline),
+            Icon(AppIcons.team, size: 38, color: theme.colorScheme.outline),
             const SizedBox(height: 12),
             Text(
               '$names 都在群里了。',
@@ -1005,100 +645,22 @@ class _TeamPageState extends ConsumerState<TeamPage> {
   }
 
   Widget _bubble(TeamState team, TeamMsg msg) {
-    final theme = Theme.of(context);
-    if (msg.role == TeamMsgRole.system) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Center(
-          child: Text(
-            msg.text,
-            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.outline),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      );
-    }
-    final mine = msg.role == TeamMsgRole.user;
+    if (msg.role == TeamMsgRole.system) return CollabSystemNote(text: msg.text);
+    if (msg.role == TeamMsgRole.user) return CollabUserBubble(text: msg.text);
+
     final mate = msg.teammateId == null ? null : team.mate(msg.teammateId!);
-    final brand = mate == null ? ModelBrand.other : brandOf(mate.provider, mate.model);
-    final background = mine
-        ? theme.colorScheme.primaryContainer
-        : msg.failed
-        ? theme.colorScheme.errorContainer
-        : theme.colorScheme.surfaceContainerHighest;
-    final foreground = mine
-        ? theme.colorScheme.onPrimaryContainer
-        : msg.failed
-        ? theme.colorScheme.onErrorContainer
-        : theme.colorScheme.onSurface;
-
     final handoff = msg.handoffTo == null ? null : team.mate(msg.handoffTo!);
-    final content = Container(
-      constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.76),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-      decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(14)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(msg.text, style: theme.textTheme.bodyMedium?.copyWith(color: foreground)),
-          if (handoff != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.subdirectory_arrow_right, size: 14, color: foreground.withValues(alpha: 0.75)),
-                  const SizedBox(width: 4),
-                  Text(
-                    '交给 ${handoff.name} 接着做',
-                    style: theme.textTheme.labelSmall?.copyWith(color: foreground.withValues(alpha: 0.85)),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-
-    if (mine) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 6, left: 40),
-        child: Align(alignment: Alignment.centerRight, child: content),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.only(top: 6, right: 24),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 2, right: 6),
-            child: Icon(
-              brandIconData(brand),
-              size: 16,
-              color: msg.failed ? theme.colorScheme.error : brandColor(brand, theme.colorScheme.primary),
-            ),
-          ),
-          Flexible(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                InkWell(
-                  onTap: mate == null ? null : () => _openMateSession(team, mate.id),
-                  borderRadius: BorderRadius.circular(4),
-                  child: Text(
-                    mate?.name ?? '队友',
-                    style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                content,
-              ],
-            ),
-          ),
-        ],
-      ),
+    final text = handoff == null ? msg.text : '${msg.text}\n\n> 交给 ${handoff.name} 接着做';
+    return CollabMessage(
+      key: ValueKey('team-msg-${msg.id}'),
+      brand: mate == null ? ModelBrand.other : brandOf(mate.provider, mate.model),
+      name: mate?.name ?? '队友',
+      text: text,
+      failed: msg.failed,
+      onNameTap: mate == null ? null : () => _openMateSession(team, mate.id),
+      status: mate == null
+          ? null
+          : '${brandLabel(brandOf(mate.provider, mate.model))} · ${shortModelName(mate.model)}',
     );
   }
 
@@ -1112,7 +674,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(
         children: [
-          Icon(Icons.autorenew, size: 14, color: theme.colorScheme.primary),
+          Icon(AppIcons.queued, size: 14, color: theme.colorScheme.primary),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -1122,51 +684,6 @@ class _TeamPageState extends ConsumerState<TeamPage> {
               style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _composer(TeamState team) {
-    final theme = Theme.of(context);
-    final canSend = _draft.text.trim().isNotEmpty && !_busy;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          PopupMenuButton<Teammate>(
-            tooltip: '点名',
-            icon: const Icon(Icons.alternate_email),
-            onSelected: _insertMention,
-            itemBuilder: (_) => [for (final mate in team.teammates) PopupMenuItem(value: mate, child: Text(mate.name))],
-          ),
-          Expanded(
-            child: TextField(
-              controller: _draft,
-              minLines: 1,
-              maxLines: 4,
-              textInputAction: TextInputAction.newline,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: '说点什么，@ 一位队友',
-                hintStyle: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline),
-                filled: true,
-                fillColor: theme.colorScheme.surfaceContainerHighest,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          if (_busy)
-            IconButton.filledTonal(tooltip: '停止', onPressed: _stop, icon: const Icon(Icons.stop_rounded))
-          else
-            IconButton.filled(
-              tooltip: '发送',
-              onPressed: canSend ? _send : null,
-              icon: const Icon(Icons.arrow_upward_rounded),
-            ),
         ],
       ),
     );

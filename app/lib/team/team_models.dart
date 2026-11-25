@@ -129,6 +129,7 @@ final class TeamState {
   const TeamState({
     required this.id,
     required this.teammates,
+    this.title = '',
     this.sessions = const {},
     this.cursors = const {},
     this.messages = const [],
@@ -147,6 +148,7 @@ final class TeamState {
 
   factory TeamState.fromJson(Map<String, Object?> json) => TeamState(
     id: json['id'] as String? ?? '',
+    title: json['title'] as String? ?? '',
     teammates: [
       for (final t in (json['teammates'] as List? ?? const []))
         if (t is Map) Teammate.fromJson(t.cast<String, Object?>()),
@@ -176,6 +178,9 @@ final class TeamState {
   );
 
   final String id;
+
+  /// 会话标题：空则显示第一句话，再空就是「新团队」。
+  final String title;
   final List<Teammate> teammates;
 
   /// teammateId → 子会话 id；第一次发消息时创建，之后一直复用。
@@ -238,6 +243,7 @@ final class TeamState {
   }
 
   TeamState copyWith({
+    String? title,
     List<Teammate>? teammates,
     Map<String, String?>? sessions,
     Map<String, int>? cursors,
@@ -253,6 +259,7 @@ final class TeamState {
     int? rev,
   }) => TeamState(
     id: id,
+    title: title ?? this.title,
     teammates: teammates ?? this.teammates,
     sessions: sessions ?? this.sessions,
     cursors: cursors ?? this.cursors,
@@ -269,6 +276,7 @@ final class TeamState {
 
   Map<String, Object?> toJson() => {
     'id': id,
+    'title': title,
     'teammates': [for (final t in teammates) t.toJson()],
     'sessions': sessions,
     'cursors': cursors,
@@ -282,6 +290,32 @@ final class TeamState {
     'updatedAt': updatedAt.toIso8601String(),
     'rev': rev,
   };
+
+  /// 历史列表里的标题：显式标题 › 第一句话 › 新团队。
+  String get displayTitle {
+    final t = title.trim();
+    if (t.isNotEmpty) return t;
+    for (final message in messages) {
+      if (message.role == TeamMsgRole.user && message.text.trim().isNotEmpty) return message.text.trim();
+    }
+    return '新团队';
+  }
+
+  /// 历史列表的副标题：最后一条发言的开头。
+  String get previewText {
+    for (final message in messages.reversed) {
+      if (message.text.trim().isEmpty) continue;
+      final who = switch (message.role) {
+        TeamMsgRole.user => '我',
+        TeamMsgRole.teammate => mate(message.teammateId ?? '')?.name ?? '队友',
+        TeamMsgRole.system => '系统',
+      };
+      final text = message.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+      final clip = text.length <= 40 ? text : '${text.substring(0, 40)}…';
+      return '$who：$clip';
+    }
+    return '团队';
+  }
 
   /// 群聊导出的 Markdown（C6 的「导出」先给团队用）。
   String toMarkdown() {

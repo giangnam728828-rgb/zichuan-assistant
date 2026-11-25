@@ -13,7 +13,7 @@ import 'dart:io';
 
 import 'collab_models.dart';
 
-final class CollabStore {
+class CollabStore {
   CollabStore(this.root);
 
   /// 存放所有运行的目录。

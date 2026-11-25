@@ -126,9 +126,18 @@ final class TeamOrchestrator {
   /// 建一个团队。队友 2 到 6 个，名字会自动去重（空名补「队友 N」）。
   ///
   /// [leadId] 指定主管（可选）：没点名时先由他接活，他可以 @ 队友分派。
-  Future<TeamState> create({String? id, required List<Teammate> teammates, String? leadId}) async {
+  /// 建一个团队会话。[allowEmpty] 用于「点团队直接进聊天」：先建一条空会话，
+  /// 队友在聊天里的初始化面板补；发消息前至少要两位（见 [send]）。
+  Future<TeamState> create({
+    String? id,
+    required List<Teammate> teammates,
+    String? leadId,
+    String title = '',
+    bool allowEmpty = false,
+  }) async {
     final mates = normalizeTeammates(teammates);
-    if (mates.length < 2 || mates.length > 6) {
+    final max = 6;
+    if (mates.length > max || (!allowEmpty && mates.length < 2)) {
       throw ArgumentError('队友数量必须在 2 到 6 之间');
     }
     if (leadId != null && !mates.any((mate) => mate.id == leadId)) {
@@ -137,6 +146,7 @@ final class TeamOrchestrator {
     final now = _clock();
     final state = TeamState(
       id: id ?? _newId(),
+      title: title,
       teammates: mates,
       leadId: leadId,
       createdAt: now,
@@ -148,6 +158,10 @@ final class TeamOrchestrator {
     _emit(state);
     return state;
   }
+
+  /// 改会话标题（历史列表里显示）。
+  Future<TeamState> rename(String teamId, String title) =>
+      _update(teamId, (current) => current.copyWith(title: title.trim()));
 
   /// 设/撤主管。[mateId] 为空就是撤销。
   Future<TeamState> setLead(String teamId, String? mateId) => _update(teamId, (current) {

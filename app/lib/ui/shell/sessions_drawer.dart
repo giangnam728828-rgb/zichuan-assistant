@@ -20,6 +20,7 @@ import '../../state/connection_state.dart';
 import '../../state/engine_control.dart';
 import '../../state/hosts_state.dart';
 import '../../state/drawer_view_state.dart';
+import '../../state/history_kind_state.dart';
 import '../../state/session_attention_state.dart';
 import '../../state/session_deletion_state.dart';
 import '../../state/sessions_state.dart';
@@ -39,6 +40,8 @@ import '../remote/host_switcher.dart' show showHostSheet;
 import '../remote/network_details_sheet.dart' show showRemoteNetworkDetails;
 import '../safe_mode/engine_failure_card.dart';
 import '../safe_mode/safe_mode_banner.dart';
+import '../../collab/collab_conversations.dart' show CollabKind, CollabHistoryEntry, collabHistoryProvider;
+import '../collab/collab_history.dart';
 import '../share/share_entry.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
@@ -211,6 +214,8 @@ class SessionsDrawer extends ConsumerWidget {
         onDetails: () => onOpen(DrawerDestination.engine),
       ),
       SessionSearchBar(onClose: onClose),
+      // 分类：全部 / 普通 / 议会 / 团队（方案第三部分）。
+      const HistoryKindBar(),
       // The workspace switcher (once the host's workspace list has
       // arrived) and the list's options, then the status filters.
       SmoothSize(
@@ -492,6 +497,12 @@ class _SessionList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
+    // 分类：议会 / 团队走各自的列表，不依赖 Host 的会话列表。
+    final kind = ref.watch(historyKindProvider);
+    if (kind == HistoryKind.council || kind == HistoryKind.team) {
+      return CollabHistoryList(kind: kind == HistoryKind.council ? CollabKind.council : CollabKind.team, onClose: onClose);
+    }
+    final collab = ref.watch(collabHistoryProvider).value ?? const <CollabHistoryEntry>[];
     final sessions = ref.watch(sessionsProvider);
     final identity = ref.watch(readListIdentityProvider);
     final workspace = ref.watch(selectedWorkspaceProvider);
@@ -517,24 +528,43 @@ class _SessionList extends ConsumerWidget {
     // fold into one row that opens the Bot pages.
     final botReady = ref.watch(dsBotProvider.select((s) => s.ready));
     final showBots = scope.bots.isNotEmpty || (workspace == null && botReady);
-    if (scope.sessions.isEmpty && !showBots && ref.watch(drawerViewProvider).folders.isEmpty) {
+    if (scope.sessions.isEmpty &&
+        !showBots &&
+        ref.watch(drawerViewProvider).folders.isEmpty &&
+        collab.isEmpty) {
       if (scope.readOnly) return _Centered(child: Text(readListStatusText(scope.status)));
       return workspace == null ? const _EmptyState() : const _WorkspaceEmptyState();
     }
+    // 「全部」把议会与团队放在最上面；「普通」只有普通会话。
+    final Widget? leading = switch ((showBots, kind)) {
+      (true, HistoryKind.all) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          DsBotDrawerRow(
+            running: scope.bots.any((s) => s.running),
+            onTap: () {
+              Navigator.of(context).push(BotsPage.route());
+              Future<void>.delayed(AppMotion.slow, onClose);
+            },
+          ),
+          if (collab.isNotEmpty) CollabHistorySection(onClose: onClose),
+        ],
+      ),
+      (true, _) => DsBotDrawerRow(
+        running: scope.bots.any((s) => s.running),
+        onTap: () {
+          Navigator.of(context).push(BotsPage.route());
+          Future<void>.delayed(AppMotion.slow, onClose);
+        },
+      ),
+      (false, HistoryKind.all) when collab.isNotEmpty => CollabHistorySection(onClose: onClose),
+      _ => null,
+    };
     return DrawerConversationList(
       now: now,
       onNewChat: onClose,
       readOnly: scope.readOnly,
-      leading: showBots
-          ? DsBotDrawerRow(
-              running: scope.bots.any((s) => s.running),
-              onTap: () {
-                Navigator.of(context).push(BotsPage.route());
-                // Close once the page covers us, so "back" lands on the chat.
-                Future<void>.delayed(AppMotion.slow, onClose);
-              },
-            )
-          : null,
+      leading: leading,
       onOpen: (id) {
         if (ref.read(readListIdentityProvider) != identity ||
             ref.read(drawerScopeProvider)?.sessions.any((s) => s.sessionId == id) != true) {

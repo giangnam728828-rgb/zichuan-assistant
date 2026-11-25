@@ -1,87 +1,135 @@
-// 议会（C2 MVP）：把一个问题同时发给多家模型，主席综合出裁决。
+// 议会：一个真正的聊天模式（方案第一部分）。
 //
-// 页面两个形态：
-// - 编辑态：议题、成员（按供应商分组的模型多选，2 到 6 个）、运行方式；
-// - 运行态：席位进度（谁在答、谁答完、谁失败）、主席裁决、取消。
+// 点「议会」= 新建一条议会会话并直接进聊天：顶部是模式标识、标题和成员入口，
+// 中间是消息流（我的问题 → 各席位的独立回答 → 主席裁决），底部是和普通聊天
+// 一样的输入栏。可以一直追问：下一轮沿用同一批席位的子会话，所以模型记得上文。
 //
-// 编排在 [CollabOrchestrator]（lib/council/），这里只管界面：
-// 提交后订阅 events 流刷新，离开页面不打断运行（驱动在内存里继续，
-// 回到页面时从 store 里捡回未完成的那次运行）。
+// 编排仍在 [CollabOrchestrator]（lib/council/），页面只管界面与「这条会话
+// 有哪些回合」。成员配置收进成员抽屉（ui/collab/collab_members.dart），
+// 关掉抽屉回到聊天，不重建、不清空记录。
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../collab/collab_approval_banner.dart';
 import '../../collab/collab_approvals.dart';
+import '../../collab/collab_conversations.dart';
 import '../../collab/collab_export.dart';
 import '../../collab/collab_session_book.dart';
 import '../../council/collab_models.dart';
 import '../../council/collab_orchestrator.dart';
 import '../../council/collab_store.dart';
 import '../../council/verdict_parser.dart';
-import '../../state/features_state.dart';
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
-import '../../state/sessions_state.dart';
-import '../chat/model_brand_mark.dart';
-import '../chat/new_chat_options.dart' show newChatPresets, presetIcon;
+import '../providers/provider_brand_icon.dart';
 import '../shell/root_tab.dart';
+import '../theme/app_icons.dart';
+import '../collab/collab_members.dart';
+import '../collab/collab_kit.dart';
+import '../chat/render/markdown_body.dart';
 
 class CouncilPage extends ConsumerStatefulWidget {
-  const CouncilPage({super.key, this.orchestrator, this.runId});
+  const CouncilPage({
+    super.key,
+    this.orchestrator,
+    this.runId,
+    this.conversationId,
+    this.createNew = true,
+  });
 
   /// 测试注入用；生产为空，页面自己建实例。
   final CollabOrchestrator? orchestrator;
 
-  /// 从通知或登记表直接打开的那次运行；空表示挑最近未完成的一次。
+  /// 从通知或旧数据直接打开的那次运行；空表示新会话或 [conversationId]。
   final String? runId;
+
+  /// 从历史记录打开的议会会话。
+  final String? conversationId;
+
+  /// 没给 [conversationId] / [runId] 时是否新建一条会话。
+  final bool createNew;
 
   @override
   ConsumerState<CouncilPage> createState() => _CouncilPageState();
 }
 
 class _CouncilPageState extends ConsumerState<CouncilPage> {
-  final _question = TextEditingController();
-  final _selected = <String>{}; // 'provider|model'
-  final _roles = <String, SeatRole>{}; // 'provider|model' → 角色
-  final _efforts = <String, String>{}; // 'provider|model' → reasoningEffort
-  final _presets = <String, String>{}; // 'provider|model' → agentPreset（空表示 Host 默认）
-  CollabMode _mode = CollabMode.quick;
+  final _draft = TextEditingController();
 
   CollabOrchestrator? _orchestrator;
   DshClient? _client;
   CollabApprovalInbox? _inbox;
   StreamSubscription<CollabRun>? _sub;
-  CollabRun? _run;
+  CouncilConversation? _conversation;
+  final _runs = <String, CollabRun>{};
   bool _busy = false;
+  bool _loading = true;
   String? _error;
+  final _scroll = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    _restore();
+    _boot();
   }
 
   @override
   void dispose() {
     _sub?.cancel();
     _inbox?.dispose();
-    _question.dispose();
+    _draft.dispose();
+    _scroll.dispose();
     // 注入的编排器归测试管；自建的才在离开页面时关掉。
     if (widget.orchestrator == null) unawaited(_orchestrator?.dispose() ?? Future<void>.value());
     super.dispose();
   }
 
-  /// 回到页面时捡回还没跑完的那次议会，并把历史运行的席位会话补登记
-  /// （C6 之前跑的议会没登记过，历史列表里会一条条冒出来）。
-  Future<void> _restore() async {
+  // ---------------------------------------------------------------------------
+  // 启动：开一条会话（或恢复给定的那条）
+
+  Future<void> _boot() async {
     try {
       final orchestrator = await _ensureOrchestrator();
+      // 先等登记表把盘上的旧会话读进来：从历史打开时才找得到那条。
+      await ref.read(councilConversationsProvider.notifier).ready;
+      _listen();
+      // 历史运行的席位会话补登记：否则会一条条冒进普通聊天历史。
+      await _registerPastSessions(orchestrator);
+
+      CouncilConversation? conversation;
+      if (widget.conversationId case final id?) {
+        conversation = ref.read(councilConversationsProvider)[id];
+      }
+      if (conversation == null) {
+        final runId = widget.runId;
+        if (runId != null) conversation = await _conversationForRun(runId);
+      }
+      conversation ??= widget.createNew ? await _createConversation() : null;
+      if (!mounted) return;
+      setState(() {
+        _conversation = conversation;
+        _loading = false;
+      });
+      if (conversation != null) await _loadTurns(conversation);
+    } on Object catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = '$error';
+          _loading = false;
+        });
+      }
+    } finally {
+      _watchApprovals();
+    }
+  }
+
+  /// 把已有运行的席位子会话登记进协作登记表（历史列表据此折叠）。
+  Future<void> _registerPastSessions(CollabOrchestrator orchestrator) async {
+    try {
       final runs = await orchestrator.store.list();
       final owners = <CollabSessionOwner>[
         for (final run in runs)
@@ -98,29 +146,76 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       if (owners.isNotEmpty) {
         unawaited(ref.read(collabSessionBookProvider.notifier).registerAll(owners));
       }
-
-      // 通知点进来：直接打开那一次（已完成的也能回看裁决）。
-      if (widget.runId case final runId?) {
-        final target = await orchestrator.store.load(runId);
-        if (target == null || !mounted) return;
-        setState(() => _run = target);
-        if (target.phase.isTerminal) return;
-        _listen();
-        final resumed = await orchestrator.resume(target.id);
-        if (mounted && resumed != null) setState(() => _run = resumed);
-        return;
-      }
-
-      final unfinished = runs.where((run) => !run.phase.isTerminal).firstOrNull;
-      if (unfinished == null || !mounted) return;
-      _listen();
-      final resumed = await orchestrator.resume(unfinished.id);
-      if (mounted) setState(() => _run = resumed ?? unfinished);
     } on Object {
-      // 恢复失败不挡新议题。
-    } finally {
-      // 等 _run 就绪后再接审批：挂着的请求要靠它认人。
-      _watchApprovals();
+      // 登记失败只影响历史列表的折叠，不影响议会。
+    }
+  }
+
+  /// 通知点进来（或旧数据只有 runId）：找到它属于哪条会话；找不到就为它
+  /// 补一条会话记录，老数据也能在历史里出现。
+  Future<CouncilConversation> _conversationForRun(String runId) async {
+    for (final conversation in ref.read(councilConversationsProvider).values) {
+      if (conversation.turns.any((turn) => turn.runId == runId)) return conversation;
+    }
+    final run = await _orchestrator?.store.load(runId);
+    if (run == null) return _createConversation();
+    final notifier = ref.read(councilConversationsProvider.notifier);
+    final created = await notifier.create(seats: run.spec.seats, mode: run.spec.mode, chairId: run.spec.chairId);
+    return notifier.save(
+      created.copyWith(
+        title: run.spec.question,
+        turns: [
+          CouncilTurn(
+            runId: run.id,
+            question: run.spec.question,
+            at: run.createdAt,
+            phase: run.phase.name,
+            summary: collabNotifierLead(run),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 新会话：默认沿用上次议会的成员配置，复制成独立的一份。
+  Future<CouncilConversation> _createConversation() async {
+    final notifier = ref.read(councilConversationsProvider.notifier);
+    final last = notifier.latest();
+    if (last != null && last.seats.length >= 2) {
+      return notifier.create(seats: last.seats, mode: last.mode, chairId: last.chairId);
+    }
+    final ModelCatalog? catalog = await ref.read(modelCatalogProvider.future).catchError((_) => null);
+    final seats = <SeatSpec>[];
+    if (catalog != null) {
+      for (final group in catalog.groups) {
+        for (final info in group.models) {
+          if (seats.length >= 2) break;
+          seats.add(
+            SeatSpec(
+              id: 'seat${seats.length}',
+              provider: info.provider,
+              model: info.id,
+              label: info.name,
+            ),
+          );
+        }
+        if (seats.length >= 2) break;
+      }
+    }
+    return notifier.create(seats: seats);
+  }
+
+  /// 把会话里的回合对应的运行读进内存；没跑完的接着驱动。
+  Future<void> _loadTurns(CouncilConversation conversation) async {
+    final orchestrator = _orchestrator;
+    if (orchestrator == null) return;
+    for (final turn in conversation.turns) {
+      final run = await orchestrator.store.load(turn.runId);
+      if (run != null && mounted) setState(() => _runs[run.id] = run);
+    }
+    final unfinished = conversation.turns.where((turn) => turn.running);
+    for (final turn in unfinished) {
+      unawaited(orchestrator.resume(turn.runId));
     }
   }
 
@@ -133,10 +228,9 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     final conn = ref.read(readListLiveConnectionProvider);
     if (conn == null) throw StateError('还没有连上引擎');
     _client = conn.client;
-    final support = await getApplicationSupportDirectory();
     final orchestrator = CollabOrchestrator(
       driver: DshCollabDriver(conn.client),
-      store: CollabStore(Directory('${support.path}/council')),
+      store: CollabStore(await ref.read(councilRootProvider)()),
       onSession: (info) {
         unawaited(
           ref
@@ -158,9 +252,31 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   }
 
   void _listen() {
-    _sub ??= _orchestrator?.events.listen((run) {
-      if (mounted) setState(() => _run = run);
+    if (_sub != null) return;
+    final orchestrator = _orchestrator;
+    if (orchestrator == null) return;
+    _sub = orchestrator.events.listen((run) {
+      if (!mounted) return;
+      setState(() {
+        _runs[run.id] = run;
+        if (run.phase.isTerminal) _busy = false;
+      });
+      _syncTurn(run);
     });
+  }
+
+  /// 运行结束时把阶段与裁决首句写回会话记录（历史列表用）。
+  void _syncTurn(CollabRun run) {
+    final conversation = _conversation;
+    if (conversation == null) return;
+    final index = conversation.turns.indexWhere((turn) => turn.runId == run.id);
+    if (index < 0) return;
+    if (!run.phase.isTerminal) return;
+    final turns = [...conversation.turns];
+    turns[index] = turns[index].copyWith(phase: run.phase.name, summary: collabNotifierLead(run));
+    final next = conversation.copyWith(turns: turns);
+    _conversation = next;
+    unawaited(ref.read(councilConversationsProvider.notifier).save(next));
   }
 
   /// 席位子会话的审批：按 sessionId 认人，标明是哪一席在申请。
@@ -170,9 +286,14 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     if (client == null) return;
     _inbox = CollabApprovalInbox(
       events: client.hostEvents,
-      // 打开页面时已经挂着的请求（通知点进来、重连）也要接住。
       pending: client.mux.pendingRequests,
-      labelOf: (sessionId) => _run?.seatBySession(sessionId)?.displayName,
+      labelOf: (sessionId) {
+        for (final run in _runs.values) {
+          final seat = run.seatBySession(sessionId);
+          if (seat != null) return seat.displayName;
+        }
+        return null;
+      },
       respond: (request, decision) => client.respondApproval(request, decision),
       onChanged: () {
         if (mounted) setState(() {});
@@ -192,284 +313,368 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     }
   }
 
-  Future<void> _submit() async {
-    final question = _question.text.trim();
-    if (question.isEmpty || _selected.length < 2) return;
+  // ---------------------------------------------------------------------------
+  // 发言
+
+  Future<void> _send() async {
+    final conversation = _conversation;
+    final question = _draft.text.trim();
+    if (conversation == null || question.isEmpty || _busy) return;
+    if (conversation.seats.length < 2) {
+      setState(() => _error = '议会至少需要 2 位成员，先去成员管理里加两位。');
+      return;
+    }
+    final orchestrator = _orchestrator;
+    if (orchestrator == null) return;
     setState(() {
       _busy = true;
       _error = null;
     });
+    _draft.clear();
     try {
-      final orchestrator = await _ensureOrchestrator();
-      _listen();
-      _watchApprovals();
-      final catalog = ref.read(modelCatalogProvider).value;
-      final seats = <SeatSpec>[];
-      var index = 0;
-      for (final key in _selected) {
-        final parts = key.split('|');
-        final provider = parts.first;
-        final model = parts.sublist(1).join('|');
-        final name = _modelName(catalog, provider, model);
-        seats.add(
-          SeatSpec(
-            id: 'seat${index++}',
-            provider: provider,
-            model: model,
-            label: name,
-            role: _roles[key] ?? SeatRole.none,
-            reasoningEffort: _efforts[key],
-            agentPreset: _presets[key],
-          ),
-        );
+      // 下一轮沿用上一轮各席位的子会话：模型自己记得上文。
+      final seeds = <String, String>{};
+      for (final turn in conversation.turns.reversed) {
+        final run = _runs[turn.runId];
+        if (run == null) continue;
+        for (final seat in run.spec.seats) {
+          final sessionId = run.seatOf(seat.id).sessionId;
+          if (sessionId != null && sessionId.isNotEmpty) {
+            seeds.putIfAbsent(seat.id, () => sessionId);
+          }
+        }
+        if (seeds.isNotEmpty) break;
       }
-      final run = await orchestrator.submit(
-        CouncilSpec(
-          question: question,
-          seats: seats,
-          mode: _mode,
-          // 预计调用 + 2 次重试余量。
-          budgetCalls: (seats.length * (_mode == CollabMode.deliberative ? 2 : 1)) + 3,
-        ),
+      final spec = CouncilSpec(
+        question: question,
+        seats: conversation.seats,
+        mode: conversation.mode,
+        chairId: conversation.chairId,
+        // 预计调用 + 2 次重试余量。
+        budgetCalls: (conversation.seats.length * (conversation.mode == CollabMode.deliberative ? 2 : 1)) + 3,
       );
-      if (mounted) setState(() => _run = run);
-    } on Object catch (e) {
-      if (mounted) setState(() => _error = '$e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      final run = await orchestrator.submit(spec, seedSessions: seeds);
+      _listen();
+      final turn = CouncilTurn(runId: run.id, question: question, at: DateTime.now(), phase: run.phase.name);
+      final next = conversation.copyWith(
+        title: conversation.title.trim().isEmpty ? question : conversation.title,
+        turns: [...conversation.turns, turn],
+      );
+      setState(() {
+        _conversation = next;
+        _runs[run.id] = run;
+      });
+      await ref.read(councilConversationsProvider.notifier).save(next);
+      // 跑得快的运行可能在回合写进会话之前就已经结束：用最新快照补一次阶段。
+      _syncTurn(_runs[run.id] ?? run);
+      _scrollToBottom();
+    } on Object catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = '$error';
+          _busy = false;
+        });
+      }
     }
   }
 
-  Future<void> _cancel() async {
-    final run = _run;
-    if (run == null) return;
-    await _orchestrator?.cancel(run.id);
+  Future<void> _stop() async {
+    final conversation = _conversation;
+    if (conversation == null) return;
+    final turn = conversation.turns.lastOrNull;
+    if (turn == null) return;
+    await _orchestrator?.cancel(turn.runId);
   }
 
-  /// 历史：最近开过的议会，点一条回看（终态的运行不会再变）。
-  Future<void> _openHistory() async {
-    final store = _orchestrator?.store;
-    if (store == null) return;
-    final runs = await store.list();
-    if (!mounted) return;
-    if (runs.isEmpty) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(content: Text('还没有跑过议会')));
-      return;
-    }
-    final picked = await showModalBottomSheet<CollabRun>(
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      _scroll.animateTo(
+        _scroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 成员管理
+
+  Future<void> _openMembers() async {
+    final conversation = _conversation;
+    if (conversation == null) return;
+    await showCouncilMembersSheet(
+      context,
+      seats: conversation.seats,
+      mode: conversation.mode,
+      chairId: conversation.chairId,
+      onSave: (seats, mode, chairId) async {
+        final next = conversation.copyWith(seats: seats, mode: mode, chairId: chairId);
+        if (!mounted) return;
+        setState(() => _conversation = next);
+        await ref.read(councilConversationsProvider.notifier).save(next);
+      },
+    );
+  }
+
+  Future<void> _rename() async {
+    final conversation = _conversation;
+    if (conversation == null) return;
+    final controller = TextEditingController(text: conversation.title);
+    final next = await showDialog<String>(
       context: context,
-      showDragHandle: true,
-      builder: (sheet) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheet).height * 0.7),
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text('最近的议会', style: Theme.of(sheet).textTheme.titleMedium),
-              ),
-              for (final run in runs)
-                ListTile(
-                  title: Text(run.spec.question, maxLines: 2, overflow: TextOverflow.ellipsis),
-                  subtitle: Text(
-                    '${collabStamp(run.createdAt)} · ${_phaseLabel(run.phase)} · '
-                    '${run.answeredCount}/${run.spec.seats.length} 席',
-                  ),
-                  onTap: () => Navigator.pop(sheet, run),
-                ),
-            ],
-          ),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('会话名称'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '给这条议会起个名字'),
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text), child: const Text('保存')),
+        ],
       ),
     );
-    if (picked != null && mounted) setState(() => _run = picked);
+    controller.dispose();
+    if (next == null || next.trim().isEmpty || !mounted) return;
+    final updated = conversation.copyWith(title: next.trim());
+    setState(() => _conversation = updated);
+    await ref.read(councilConversationsProvider.notifier).save(updated);
   }
 
   Future<void> _export() async {
-    final run = _run;
-    if (run == null) return;
-    final stamp = collabStamp(run.createdAt).replaceAll(RegExp(r'[: ]'), '-');
+    final conversation = _conversation;
+    if (conversation == null || conversation.turns.isEmpty) return;
+    final buffer = StringBuffer('# ${conversation.displayTitle}\n');
+    for (final turn in conversation.turns) {
+      final run = _runs[turn.runId];
+      buffer.writeln('\n## 问：${turn.question}\n');
+      if (run == null) {
+        buffer.writeln('（这一轮的记录已经不在了）');
+        continue;
+      }
+      buffer.writeln(councilMarkdown(run));
+    }
+    final stamp = collabStamp(conversation.updatedAt).replaceAll(RegExp(r'[: ]'), '-');
     try {
-      await shareMarkdownFile(fileName: '议会-$stamp.md', content: councilMarkdown(run));
-    } on Object catch (e) {
+      await shareMarkdownFile(fileName: '议会-$stamp.md', content: buffer.toString());
+    } on Object catch (error) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('导出失败：$e')));
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('导出失败：$error')));
       }
     }
   }
 
-  /// 打开某个席位的完整对话（这些会话不在历史列表里，只从这里进）。
-  void _openSession(String sessionId) {
-    ref.read(currentSessionProvider.notifier).select(sessionId);
-    switchTab(context, RootTab.chat);
+  Future<void> _newConversation() async {
+    final conversation = await _createConversation();
+    if (!mounted) return;
+    setState(() {
+      _conversation = conversation;
+      _runs.clear();
+      _error = null;
+    });
   }
 
-  static String _phaseLabel(CollabPhase phase) => switch (phase) {
-    CollabPhase.queued => '排队中',
-    CollabPhase.round1 => '作答中',
-    CollabPhase.reviewing => '互评中',
-    CollabPhase.verifying => '校验中',
-    CollabPhase.synthesizing => '综合中',
-    CollabPhase.done => '已完成',
-    CollabPhase.cancelled => '已取消',
-    CollabPhase.failed => '失败',
-  };
-
-  String _modelName(ModelCatalog? catalog, String provider, String model) {
-    if (catalog != null) {
-      for (final group in catalog.groups) {
-        for (final info in group.models) {
-          if (info.provider == provider && info.id == model) return info.name;
-        }
-      }
-    }
-    return model;
-  }
+  // ---------------------------------------------------------------------------
+  // 界面
 
   @override
   Widget build(BuildContext context) {
-    final run = _run;
+    final theme = Theme.of(context);
+    final conversation = _conversation;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('议会'),
-        actions: [
-          if (run?.verdict != null) IconButton(tooltip: '导出裁决', icon: const Icon(Icons.ios_share), onPressed: _export),
-          IconButton(tooltip: '历史议会', icon: const Icon(Icons.history), onPressed: _openHistory),
-          if (run != null && !run.phase.isTerminal) TextButton(onPressed: _cancel, child: const Text('取消')),
-        ],
-      ),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
+            CollabHeader(
+              title: conversation?.displayTitle ?? '议会',
+              subtitle: [
+                _modeLabel(conversation?.mode ?? CollabMode.quick),
+                '${conversation?.seats.length ?? 0} 位成员',
+              ].join(' · '),
+              badge: CollabModeBadge(label: '议会', color: theme.colorScheme.primary),
+              onTitleTap: _rename,
+              actions: [
+                IconButton(
+                  key: const ValueKey('council-members'),
+                  tooltip: '成员',
+                  icon: const Icon(AppIcons.team, size: 21),
+                  onPressed: conversation == null ? null : _openMembers,
+                ),
+                PopupMenuButton<String>(
+                  tooltip: '更多',
+                  icon: const Icon(AppIcons.more, size: 20),
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'export':
+                        unawaited(_export());
+                      case 'new':
+                        unawaited(_newConversation());
+                      case 'history':
+                        switchTab(context, RootTab.history);
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'export', child: Text('导出 Markdown')),
+                    PopupMenuItem(value: 'new', child: Text('新议会')),
+                    PopupMenuItem(value: 'history', child: Text('历史议会')),
+                  ],
+                ),
+              ],
+            ),
             if (_inbox?.pending.isNotEmpty ?? false)
               for (final approval in _inbox!.pending)
                 CollabApprovalBanner(
                   approval: approval,
                   onDecide: (decision) => _respond(approval.eventId, decision),
                 ),
-            Expanded(child: run == null ? _buildEditor(context) : _buildRun(context, run)),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : conversation == null || conversation.turns.isEmpty
+                  ? _empty(conversation)
+                  : _messages(conversation),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  _error!,
+                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
+                ),
+              ),
+            CollabComposer(
+              controller: _draft,
+              busy: _busy,
+              hint: '向议会提问，成员会各自作答',
+              onSend: _send,
+              onStop: _stop,
+              enabled: conversation != null,
+            ),
           ],
         ),
       ),
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // 编辑态
-
-  Widget _buildEditor(BuildContext context) {
+  Widget _empty(CouncilConversation? conversation) {
     final theme = Theme.of(context);
-    final catalog = ref.watch(modelCatalogProvider).value;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      children: [
-        Text('向议会提问', style: theme.textTheme.titleMedium),
-        const SizedBox(height: 4),
-        Text(
-          '同一个问题发给多家模型，各自作答后由主席综合出结论、共识与分歧。',
-          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _question,
-          minLines: 3,
-          maxLines: 8,
-          textInputAction: TextInputAction.newline,
-          onChanged: (_) => setState(() {}),
-          decoration: const InputDecoration(hintText: '想让大家一起判断什么？', border: OutlineInputBorder()),
-        ),
-        const SizedBox(height: 20),
-        Row(
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text('成员', style: theme.textTheme.titleSmall),
-            const SizedBox(width: 8),
+            Icon(AppIcons.team, size: 38, color: theme.colorScheme.outline),
+            const SizedBox(height: 12),
+            Text('议会已就绪', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 4),
             Text(
-              '已选 ${_selected.length}（2 到 6 个）',
+              conversation == null || conversation.seats.isEmpty
+                  ? '先加几位成员，再开始提问。'
+                  : '${[for (final seat in conversation.seats) seat.displayName].join('、')} 会各自作答，主席最后综合。',
+              textAlign: TextAlign.center,
               style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: conversation == null ? null : _openMembers,
+              icon: const Icon(AppIcons.team, size: 18),
+              label: const Text('管理成员'),
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        if (catalog == null)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text(
-              '还没有读到模型目录：先在聊天里连上引擎并配置模型。',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-          )
-        else
-          for (final group in catalog.groups)
-            if (group.models.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.only(top: 8, bottom: 4),
-                child: Text(
-                  group.name,
-                  style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                ),
-              ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final info in group.models)
-                    FilterChip(
-                      label: Text(info.name),
-                      avatar: _brandAvatar(info.provider, info.name),
-                      selected: _selected.contains('${info.provider}|${info.id}'),
-                      onSelected: (on) {
-                        setState(() {
-                          final key = '${info.provider}|${info.id}';
-                          if (on) {
-                            if (_selected.length < 6) _selected.add(key);
-                          } else {
-                            _selected.remove(key);
-                          }
-                        });
-                      },
-                    ),
-                ],
+      ),
+    );
+  }
+
+  Widget _messages(CouncilConversation conversation) {
+    final children = <Widget>[];
+    for (final turn in conversation.turns) {
+      children.add(CollabUserBubble(key: ValueKey('q-${turn.runId}'), text: turn.question));
+      final run = _runs[turn.runId];
+      if (run == null) {
+        children.add(
+          CollabSystemNote(
+            key: ValueKey('missing-${turn.runId}'),
+            text: turn.running ? '这一轮正在恢复…' : '这一轮的记录已经不在了',
+          ),
+        );
+        continue;
+      }
+      // 各席位独立作答：一位一条，绝不混在一条消息里。
+      for (final seat in run.spec.seats) {
+        final state = run.seatOf(seat.id);
+        final (status, color) = seatStatus(run, seat, Theme.of(context).colorScheme);
+        final text = state.best ?? '';
+        children.add(
+          CollabMessage(
+            key: ValueKey('seat-${run.id}-${seat.id}'),
+            brand: brandOf(seat.provider, seat.model),
+            name: seat.displayName,
+            text: text.isEmpty ? (state.status == SeatStatus.pending ? '等待作答' : '（没有产出内容）') : text,
+            status: status,
+            statusColor: color,
+            failed: state.status == SeatStatus.failed || state.status == SeatStatus.timedOut,
+            streaming: state.status == SeatStatus.running,
+            trailing: seat.id == run.spec.chairId
+                ? CollabModeBadge(label: '主席', color: Theme.of(context).colorScheme.primary)
+                : null,
+          ),
+        );
+      }
+      final verdict = run.verdict;
+      if (verdict != null) {
+        children.add(const SizedBox(height: 4));
+        children.add(_verdictCard(run, verdict));
+      } else if (run.phase == CollabPhase.failed && run.failure != null) {
+        children.add(CollabSystemNote(text: '议会没能完成：${run.failure}'));
+      } else if (run.phase == CollabPhase.cancelled) {
+        children.add(const CollabSystemNote(text: '这一轮已取消'));
+      }
+    }
+    return ListView(
+      controller: _scroll,
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+      children: children,
+    );
+  }
+
+  Widget _verdictCard(CollabRun run, String verdict) {
+    final theme = Theme.of(context);
+    final chair = run.spec.chair;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, left: 4, right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ProviderBrandIcon(brand: brandOf(chair.provider, chair.model), size: 18, filled: true),
+              const SizedBox(width: 8),
+              Text('主席裁决', style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600)),
+              const SizedBox(width: 6),
+              Text(
+                chair.displayName,
+                style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
             ],
-        if (_selected.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text('成员与角色', style: theme.textTheme.titleSmall),
-          for (final key in _selected.toList()) _seatEditRow(key, catalog),
-        ],
-        const SizedBox(height: 20),
-        Text('运行方式', style: theme.textTheme.titleSmall),
-        const SizedBox(height: 8),
-        SegmentedButton<CollabMode>(
-          segments: const [
-            ButtonSegment(value: CollabMode.quick, label: Text('快速'), icon: Icon(Icons.bolt_outlined)),
-            ButtonSegment(value: CollabMode.deliberative, label: Text('审议'), icon: Icon(Icons.forum_outlined)),
-            ButtonSegment(value: CollabMode.evidence, label: Text('循证'), icon: Icon(Icons.fact_check_outlined)),
-          ],
-          selected: {_mode},
-          onSelectionChanged: (set) => setState(() => _mode = set.first),
-        ),
-        const SizedBox(height: 8),
-        Text(switch (_mode) {
-          CollabMode.quick => '各席位并行作答，主席直接综合。',
-          CollabMode.deliberative => '第一轮后互看匿名答案修订一轮，成本约 2 倍。',
-          CollabMode.evidence => '权威席位先答，其余成员只做校验与补漏。',
-        }, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-        if (_error != null) ...[
-          const SizedBox(height: 12),
-          Text(_error!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
-        ],
-        const SizedBox(height: 20),
-        FilledButton.icon(
-          onPressed: _busy || _selected.length < 2 || _question.text.trim().isEmpty ? null : _submit,
-          icon: const Icon(Icons.groups_outlined),
-          label: Text(
-            _selected.length < 2
-                ? '至少选 2 个成员'
-                : '提交 · ${_selected.length} 位成员 · ${_mode == CollabMode.quick ? '快速' : '审议'} · 预计 ${_selected.length * (_mode == CollabMode.deliberative ? 2 : 1) + 1} 次调用',
           ),
-        ),
-      ],
+          const SizedBox(height: 6),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.18)),
+            ),
+            child: _verdictBody(context, verdict),
+          ),
+        ],
+      ),
     );
   }
 
@@ -479,14 +684,15 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   Widget _verdictBody(BuildContext context, String verdict) {
     final theme = Theme.of(context);
     final parsed = parseVerdict(verdict);
-    if (!parsed.isStructured) {
-      return SelectableText(verdict, style: theme.textTheme.bodyMedium);
-    }
+    if (!parsed.isStructured) return MarkdownBody(text: verdict);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (parsed.conclusion case final conclusion?) SelectableText(conclusion, style: theme.textTheme.bodyLarge),
-        if (parsed.confidence case final c?) ...[const SizedBox(height: 8), _confidenceRow(theme, c)],
+        if (parsed.conclusion case final conclusion?) MarkdownBody(text: conclusion, selectable: false),
+        if (parsed.confidence case final confidence?) ...[
+          const SizedBox(height: 8),
+          _confidenceRow(theme, confidence),
+        ],
         if (parsed.consensus.isNotEmpty) _verdictSection(theme, '共识', parsed.consensus, theme.colorScheme.primary),
         if (parsed.disagreement.isNotEmpty)
           _verdictSection(theme, '分歧', parsed.disagreement, theme.colorScheme.tertiary),
@@ -547,296 +753,27 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       ),
     );
   }
+}
 
-  // ---------------------------------------------------------------------------
-  // 已选成员：角色与深度思考
+String _modeLabel(CollabMode mode) => switch (mode) {
+  CollabMode.quick => '快速',
+  CollabMode.deliberative => '审议',
+  CollabMode.evidence => '循证',
+};
 
-  /// 预设键：决定这个席位能用哪些工具（比如联网）。没选就是 Host 默认。
-  Widget _presetKey(String key) {
-    final theme = Theme.of(context);
-    final picked = _presets[key];
-    final all = ref.watch(agentPresetsProvider).value;
-    final name = picked == null ? null : _presetName(all, picked);
-    return IconButton(
-      tooltip: name == null ? '预设：Host 默认' : '预设：$name',
-      icon: Icon(name == null ? Icons.extension_outlined : Icons.extension, size: 17),
-      color: name == null ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.primary,
-      visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-      style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-      onPressed: () => _pickPreset(key),
-    );
-  }
-
-  String? _presetName(List<AgentPresetInfo>? all, String id) {
-    for (final preset in all ?? const <AgentPresetInfo>[]) {
-      if (preset.id == id) return preset.name ?? preset.id;
+/// 裁决首句：历史列表的副标题（与通知用同一套裁剪）。
+String collabNotifierLead(CollabRun run) {
+    final verdict = run.verdict;
+    if (verdict == null || verdict.trim().isEmpty) {
+      return run.phase == CollabPhase.failed ? '没能完成' : '议会';
     }
-    return id;
-  }
-
-  Future<void> _pickPreset(String key) async {
-    final presets = newChatPresets(ref.read(agentPresetsProvider).value);
-    if (presets.isEmpty) {
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(const SnackBar(content: Text('引擎还没有提供预设：先在「全部功能 › Agent 预设」里建一个')));
-      return;
+    for (final raw in verdict.split('\n')) {
+      final line = raw
+          .replaceAll(RegExp(r'^#+\s*'), '')
+          .replaceAll(RegExp(r'[*_`>]'), '')
+          .trim();
+      if (line.isEmpty || line.startsWith('结论') && line.length <= 4) continue;
+      return line.length <= 60 ? line : '${line.substring(0, 60)}…';
     }
-    final theme = Theme.of(context);
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheet) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheet).height * 0.7),
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                child: Text('这一席的预设', style: Theme.of(sheet).textTheme.titleMedium),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  '预设决定它能用哪些工具（例如联网、改文件）。不选就用 Host 的默认。',
-                  style: Theme.of(sheet).textTheme.bodySmall
-                      ?.copyWith(color: Theme.of(sheet).colorScheme.onSurfaceVariant),
-                ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.auto_awesome_outlined),
-                title: const Text('Host 默认'),
-                subtitle: const Text('跟随引擎当前的默认预设'),
-                trailing: _presets[key] == null ? Icon(Icons.check, color: theme.colorScheme.primary) : null,
-                onTap: () => Navigator.pop(sheet, ''),
-              ),
-              for (final preset in presets)
-                ListTile(
-                  leading: Icon(presetIcon(preset.id)),
-                  title: Text(preset.name ?? preset.id),
-                  subtitle: preset.description == null ? null : Text(preset.description!),
-                  trailing: _presets[key] == preset.id ? Icon(Icons.check, color: theme.colorScheme.primary) : null,
-                  enabled: preset.broken == null,
-                  onTap: preset.broken == null ? () => Navigator.pop(sheet, preset.id) : null,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (picked == null || !mounted) return;
-    setState(() {
-      if (picked.isEmpty) {
-        _presets.remove(key);
-      } else {
-        _presets[key] = picked;
-      }
-    });
-  }
-
-  Widget _seatEditRow(String key, ModelCatalog? catalog) {
-    final theme = Theme.of(context);
-    final parts = key.split('|');
-    final provider = parts.first;
-    final model = parts.sublist(1).join('|');
-    final name = _modelName(catalog, provider, model);
-    var efforts = const <ReasoningEffort>[];
-    if (catalog != null) {
-      for (final group in catalog.groups) {
-        for (final info in group.models) {
-          if (info.provider == provider && info.id == model) efforts = info.efforts;
-        }
-      }
-    }
-    final brand = brandOf(provider, model);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: [
-          Icon(brandIconData(brand), size: 18, color: brandColor(brand, theme.colorScheme.primary)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium),
-          ),
-          DropdownButton<SeatRole>(
-            value: _roles[key] ?? SeatRole.none,
-            underline: const SizedBox.shrink(),
-            style: theme.textTheme.labelMedium,
-            items: [for (final role in SeatRole.values) DropdownMenuItem(value: role, child: Text(role.label))],
-            onChanged: (role) => setState(() {
-              if (role != null) _roles[key] = role;
-            }),
-          ),
-          if (efforts.isNotEmpty) ...[
-            const SizedBox(width: 4),
-            DropdownButton<String>(
-              value: _efforts[key] ?? '',
-              underline: const SizedBox.shrink(),
-              style: theme.textTheme.labelMedium,
-              items: [
-                const DropdownMenuItem(value: '', child: Text('默认思考')),
-                for (final effort in efforts) DropdownMenuItem(value: effort.id, child: Text(effort.name)),
-              ],
-              onChanged: (value) => setState(() {
-                if (value == null) return;
-                if (value.isEmpty) {
-                  _efforts.remove(key);
-                } else {
-                  _efforts[key] = value;
-                }
-              }),
-            ),
-          ],
-          _presetKey(key),
-          IconButton(
-            tooltip: '移除',
-            icon: const Icon(Icons.close, size: 16),
-            visualDensity: VisualDensity.compact,
-            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-            style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-            onPressed: () => setState(() => _selected.remove(key)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _brandAvatar(String provider, String name) {
-    final brand = brandOf(provider, name);
-    final color = brandColor(brand, Theme.of(context).colorScheme.primary);
-    return Icon(brandIconData(brand), color: color, size: 18);
-  }
-
-  // ---------------------------------------------------------------------------
-  // 运行态
-
-  Widget _buildRun(BuildContext context, CollabRun run) {
-    final theme = Theme.of(context);
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      children: [
-        Text('议题', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-        const SizedBox(height: 4),
-        SelectableText(run.spec.question, style: theme.textTheme.bodyLarge),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Text(
-              '${run.spec.mode == CollabMode.quick ? '快速 · 民主计票' : '审议 · 两轮'} · ${_phaseLabel(run.phase)}',
-              style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-            const Spacer(),
-            Text(
-              '${run.answeredCount}/${run.spec.seats.length} 席 · ${run.callsUsed} 次调用',
-              style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        for (final seat in run.spec.seats) _seatRow(context, run, seat),
-        if (run.phase.isTerminal) ...[
-          const SizedBox(height: 16),
-          if (run.verdict != null)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.gavel_rounded, size: 18, color: theme.colorScheme.primary),
-                        const SizedBox(width: 6),
-                        Text('主席裁决', style: theme.textTheme.titleSmall),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    _verdictBody(context, run.verdict!),
-                  ],
-                ),
-              ),
-            ),
-          if (run.failure != null && run.verdict == null)
-            Text(run.failure!, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error)),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: () => setState(() {
-              _run = null;
-              _sub?.cancel();
-              _sub = null;
-            }),
-            icon: const Icon(Icons.add_comment_outlined),
-            label: const Text('再问一次'),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _seatRow(BuildContext context, CollabRun run, SeatSpec seat) {
-    final theme = Theme.of(context);
-    final state = run.seatOf(seat.id);
-    final (label, color) = switch (state.status) {
-      SeatStatus.pending => ('等待中', theme.colorScheme.onSurfaceVariant),
-      SeatStatus.running => ('作答中…', theme.colorScheme.primary),
-      SeatStatus.answered => ('已作答', theme.colorScheme.primary),
-      SeatStatus.revised => ('已修订', theme.colorScheme.primary),
-      SeatStatus.failed => ('失败${state.error == null ? '' : '：${state.error}'}', theme.colorScheme.error),
-      SeatStatus.timedOut => ('超时${state.attempts > 1 ? '（重试后）' : ''}', theme.colorScheme.error),
-      SeatStatus.cancelled => ('已取消', theme.colorScheme.onSurfaceVariant),
-    };
-    final brand = brandOf(seat.provider, seat.model);
-    final sessionId = state.sessionId;
-    return InkWell(
-      // 席位会话不在历史列表里，点这一行去看它的完整对话。
-      onTap: sessionId == null || sessionId.isEmpty ? null : () => _openSession(sessionId),
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            Icon(brandIconData(brand), size: 18, color: brandColor(brand, theme.colorScheme.primary)),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Row(
-                children: [
-                  Flexible(
-                    child: Text(
-                      seat.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                  ),
-                  if (seat.role != SeatRole.none)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 6),
-                      child: Text(
-                        seat.role.label,
-                        style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            if (state.tokensOut > 0)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Text(
-                  '${state.tokensIn}/${state.tokensOut}',
-                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                ),
-              ),
-            Text(label, style: theme.textTheme.labelMedium?.copyWith(color: color)),
-            if (sessionId != null && sessionId.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(left: 4),
-                child: Icon(Icons.chevron_right, size: 16, color: theme.colorScheme.onSurfaceVariant),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+  return '议会';
 }

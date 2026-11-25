@@ -128,14 +128,20 @@ final class CollabOrchestrator {
   CollabStore get store => _store;
 
   /// 提交议题：校验 → 落盘 → 后台驱动。返回初始快照。
-  Future<CollabRun> submit(CouncilSpec spec) async {
+  ///
+  /// [seedSessions] 是上一轮各席位的子会话 id：带上的话这一轮直接续在同一个
+  /// 会话里问，模型自己记得上文（多轮议会靠它，不用把历史塞进提示词）。
+  Future<CollabRun> submit(CouncilSpec spec, {Map<String, String> seedSessions = const {}}) async {
     _validate(spec);
     final now = _clock();
     final run = CollabRun(
       id: _newId(),
       spec: spec,
       phase: CollabPhase.queued,
-      seats: {for (final s in spec.seats) s.id: const SeatState()},
+      seats: {
+        for (final s in spec.seats)
+          s.id: SeatState(sessionId: seedSessions[s.id]),
+      },
       createdAt: now,
       updatedAt: now,
     );

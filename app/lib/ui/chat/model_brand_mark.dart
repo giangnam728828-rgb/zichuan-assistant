@@ -1,86 +1,139 @@
-import 'dart:math' as math;
+// 厂商标记：模型选择器、聊天消息、议会成员、团队成员、历史会话共用一套。
+//
+// 规则（方案第四部分）：
+// 1. 图标必须是真实品牌资源，统一放本地 assets/brands/，不请求远程图片。
+// 2. Provider 与 Model 分两层判断：模型名优先认品牌（OpenRouter 上的
+//    deepseek-chat 仍是 DeepSeek），模型名认不出再看 Provider。
+// 3. 认不出的用中性标记，绝不伪造品牌 Logo。
+// 4. 所有页面走同一个 [brandOf] + [ProviderBrandIcon]，不各写一套。
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
-/// 输入栏里的模型键：当前模型所属厂商的标记，点开模型选择。
+enum ModelBrand {
+  claude,
+  gemini,
+  openai,
+  deepseek,
+  qwen,
+  spark,
+  kimi,
+  glm,
+  grok,
+  llama,
+  mistral,
+  doubao,
+  hunyuan,
+  minimax,
+  other,
+}
+
+/// 从 provider id / 模型 id / 展示名里认品牌。
 ///
-/// 顶栏不再放模型名（B5）：模型选择跟着输入栏走，跟手边的事待在一起。
-/// 没有厂商 logo 素材，用「品牌色 + 自绘标记」表达是哪一家：各家显示
-/// 自己的品牌形——Claude 的放射星芒、Gemini 的四角星、OpenAI 的花结、
-/// DeepSeek 的鲸、Llama 的无穷环，字谱的品牌本身就是字母 Z；其余用
-/// 品牌字母。24dp 的圆里认得出来，也不依赖版权素材。
-enum ModelBrand { claude, gemini, openai, deepseek, qwen, kimi, glm, grok, llama, mistral, other }
-
-/// 从 provider id / 展示名里认品牌。认不出就是 [ModelBrand.other]。
+/// 先看模型名：同一个模型挂在自定义中转、聚合网关（OpenRouter、SiliconFlow、
+/// Together…）下时，Provider 变了，品牌不该变。模型名里没有任何已知品牌词
+/// 时才退回 Provider（官方账户的模型名常是 V4、GLM-5 这类不带厂商的短名）。
 ModelBrand brandOf(String? provider, [String? name]) {
-  final text = '${provider ?? ''} ${name ?? ''}'.toLowerCase();
-  if (text.contains('claude') || text.contains('anthropic')) return ModelBrand.claude;
-  if (text.contains('gemini') || text.contains('google')) return ModelBrand.gemini;
-  if (text.contains('openai') || text.contains('gpt')) return ModelBrand.openai;
-  if (text.contains('deepseek')) return ModelBrand.deepseek;
-  if (text.contains('qwen') || text.contains('通义')) return ModelBrand.qwen;
-  if (text.contains('kimi') || text.contains('moonshot')) return ModelBrand.kimi;
-  // 字谱（zhipu 的中文名）的品牌标是字母 Z。
-  if (text.contains('glm') || text.contains('zhipu') || text.contains('字谱') || text.contains('智谱')) {
-    return ModelBrand.glm;
+  final model = (name ?? '').toLowerCase();
+  final vendor = (provider ?? '').toLowerCase();
+  const aliases = <ModelBrand, List<String>>{
+    ModelBrand.claude: ['claude', 'anthropic'],
+    ModelBrand.gemini: ['gemini', 'gemma'],
+    ModelBrand.openai: ['gpt', 'openai', 'chatgpt', 'davinci'],
+    ModelBrand.deepseek: ['deepseek'],
+    ModelBrand.qwen: ['qwen', 'qwq', '通义', '千问'],
+    // 讯飞星火：中英文都认；spark 单独留给星火（不是 Apache Spark）。
+    ModelBrand.spark: ['spark', '星火', '讯飞', 'iflytek', 'xfyun'],
+    ModelBrand.kimi: ['kimi', 'moonshot'],
+    ModelBrand.glm: ['glm', 'zhipu', '字谱', '智谱', 'chatglm'],
+    ModelBrand.grok: ['grok'],
+    ModelBrand.llama: ['llama', 'meta-llama'],
+    ModelBrand.mistral: ['mistral', 'mixtral', 'codestral'],
+    ModelBrand.doubao: ['doubao', '豆包'],
+    ModelBrand.hunyuan: ['hunyuan', '混元'],
+    ModelBrand.minimax: ['minimax', 'abab'],
+  };
+  for (final entry in aliases.entries) {
+    if (entry.value.any((token) => model.contains(token))) return entry.key;
   }
-  if (text.contains('grok') || text.contains('xai')) return ModelBrand.grok;
-  if (text.contains('llama') || text.contains('meta')) return ModelBrand.llama;
-  if (text.contains('mistral')) return ModelBrand.mistral;
+  // 模型名认不出：官方 Provider 本身就说明品牌。
+  for (final entry in aliases.entries) {
+    if (entry.value.any((token) => vendor.contains(token))) return entry.key;
+  }
   return ModelBrand.other;
 }
 
-/// 品牌色在给定配色下的实际颜色：近黑的几家（OpenAI、Kimi、Grok）在深色
-/// 主题里改用正文色，否则字压在深底上看不见。
-Color brandColorOn(ModelBrand brand, ColorScheme scheme) {
-  final color = brandColor(brand, scheme.primary);
-  if (scheme.brightness == Brightness.dark && color.computeLuminance() < 0.12) return scheme.onSurface;
-  return color;
-}
-
+/// 品牌色。近黑的几家（OpenAI、Kimi、Grok）在深色主题里由 [brandColorOn]
+/// 换成正文色。
 Color brandColor(ModelBrand brand, Color fallback) => switch (brand) {
   ModelBrand.claude => const Color(0xFFC96442),
   ModelBrand.gemini => const Color(0xFF4285F4),
   ModelBrand.openai => const Color(0xFF0F0F0F),
   ModelBrand.deepseek => const Color(0xFF4D6BFE),
   ModelBrand.qwen => const Color(0xFF615CED),
+  ModelBrand.spark => const Color(0xFF0A4C9B),
   ModelBrand.kimi => const Color(0xFF1F1F1F),
   ModelBrand.glm => const Color(0xFF2E5BFF),
   ModelBrand.grok => const Color(0xFF111111),
   ModelBrand.llama => const Color(0xFF0866FF),
   ModelBrand.mistral => const Color(0xFFFF7000),
+  ModelBrand.doubao => const Color(0xFF1C64F2),
+  ModelBrand.hunyuan => const Color(0xFF0052D9),
+  ModelBrand.minimax => const Color(0xFFE8332A),
   ModelBrand.other => fallback,
 };
 
-String _letter(ModelBrand brand) => switch (brand) {
-  ModelBrand.deepseek => 'D',
-  ModelBrand.qwen => 'Q',
-  ModelBrand.kimi => 'K',
-  // 字谱的品牌标本身就是字母 Z。
-  ModelBrand.glm => 'Z',
-  ModelBrand.grok => 'X',
-  ModelBrand.mistral => 'M',
-  // 品牌形走 CustomPainter，不会落到这里。
-  _ => '',
+Color brandColorOn(ModelBrand brand, ColorScheme scheme) {
+  final color = brandColor(brand, scheme.primary);
+  if (scheme.brightness == Brightness.dark && color.computeLuminance() < 0.12) return scheme.onSurface;
+  return color;
+}
+
+/// 品牌名：模型卡第二行、成员列表里用。
+String brandLabel(ModelBrand brand) => switch (brand) {
+  ModelBrand.claude => 'Anthropic',
+  ModelBrand.gemini => 'Google',
+  ModelBrand.openai => 'OpenAI',
+  ModelBrand.deepseek => 'DeepSeek',
+  ModelBrand.qwen => '通义千问',
+  ModelBrand.spark => '讯飞星火',
+  ModelBrand.kimi => 'Moonshot',
+  ModelBrand.glm => '智谱',
+  ModelBrand.grok => 'xAI',
+  ModelBrand.llama => 'Meta',
+  ModelBrand.mistral => 'Mistral',
+  ModelBrand.doubao => '字节跳动',
+  ModelBrand.hunyuan => '腾讯',
+  ModelBrand.minimax => 'MiniMax',
+  ModelBrand.other => '其他',
 };
 
-/// 列表里认厂商用的简笔图标（议会席位、团队队友）。要求不高，认得出即可；
-/// 输入栏那颗键走 [ModelBrandMark]，用自绘的品牌形。
+/// 本地品牌图（`assets/brands/<name>.svg`）。未知品牌没有图，用中性标记。
+String? brandAsset(ModelBrand brand) => switch (brand) {
+  ModelBrand.claude => 'assets/brands/claude.svg',
+  ModelBrand.gemini => 'assets/brands/gemini.svg',
+  ModelBrand.openai => 'assets/brands/openai.svg',
+  ModelBrand.deepseek => 'assets/brands/deepseek.svg',
+  ModelBrand.qwen => 'assets/brands/qwen.svg',
+  ModelBrand.spark => 'assets/brands/spark.svg',
+  ModelBrand.kimi => 'assets/brands/kimi.svg',
+  ModelBrand.glm => 'assets/brands/zhipu.svg',
+  ModelBrand.grok => 'assets/brands/grok.svg',
+  ModelBrand.llama => 'assets/brands/llama.svg',
+  ModelBrand.mistral => 'assets/brands/mistral.svg',
+  ModelBrand.doubao => 'assets/brands/doubao.svg',
+  ModelBrand.hunyuan => 'assets/brands/hunyuan.svg',
+  ModelBrand.minimax => 'assets/brands/minimax.svg',
+  ModelBrand.other => null,
+};
+
+/// 列表里的小图标兜底：真实品牌图走 [BrandGlyph]，这里只给没有素材的场合。
 IconData brandIconData(ModelBrand brand) => switch (brand) {
-  ModelBrand.claude => Icons.auto_awesome,
-  ModelBrand.gemini => Icons.star_rounded,
-  ModelBrand.openai => Icons.blur_circular,
-  ModelBrand.deepseek => Icons.water,
-  ModelBrand.qwen => Icons.circle_outlined,
-  ModelBrand.kimi => Icons.nightlight_round,
-  ModelBrand.glm => Icons.bolt_rounded,
-  ModelBrand.grok => Icons.close,
-  ModelBrand.llama => Icons.all_inclusive,
-  ModelBrand.mistral => Icons.change_history,
   ModelBrand.other => Icons.smart_toy_outlined,
+  _ => Icons.circle,
 };
 
-/// 36dp 的圆钮，与输入栏其他键同高。底色是品牌色的一层淡雾，里面是标记。
+/// 36dp 的圆钮（输入栏的模型键）：品牌色淡底 + 真实品牌图。
 class ModelBrandMark extends StatelessWidget {
   const ModelBrandMark({
     super.key,
@@ -93,8 +146,6 @@ class ModelBrandMark extends StatelessWidget {
   final ModelBrand brand;
   final VoidCallback onTap;
   final double size;
-
-  /// 读屏念的名字（「切换模型，当前 Spark X2.6」）。
   final String? semanticLabel;
 
   @override
@@ -120,7 +171,7 @@ class ModelBrandMark extends StatelessWidget {
                 height: size - 4,
                 decoration: BoxDecoration(shape: BoxShape.circle, color: color.withValues(alpha: 0.12)),
                 alignment: Alignment.center,
-                child: _glyph(color),
+                child: BrandGlyph(brand: brand, size: size * 0.5, color: color),
               ),
             ),
           ),
@@ -128,11 +179,12 @@ class ModelBrandMark extends StatelessWidget {
       ),
     );
   }
-
-  Widget _glyph(Color color) => BrandGlyph(brand: brand, size: size * 0.5, color: color);
 }
 
-/// 一家的品牌形，无底色、无点击：有底色的圆钮和聊天里的身份标都用它。
+/// 一家的品牌图，无底色、无点击：消息身份、成员行、模型卡都用它。
+///
+/// 品牌图是单色 SVG（`currentColor`），用 [color] 染色；未知品牌画一枚中性
+/// 星形，不冒充任何 Logo。
 class BrandGlyph extends StatelessWidget {
   const BrandGlyph({super.key, required this.brand, required this.size, required this.color});
 
@@ -141,162 +193,18 @@ class BrandGlyph extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => switch (brand) {
-    ModelBrand.claude => CustomPaint(size: Size.square(size), painter: _ClaudeStar(color)),
-    ModelBrand.gemini => CustomPaint(size: Size.square(size), painter: _GeminiStar(color)),
-    ModelBrand.openai => CustomPaint(size: Size.square(size), painter: _OpenAIKnot(color)),
-    ModelBrand.deepseek => CustomPaint(size: Size.square(size), painter: _DeepseekWhale(color)),
-    ModelBrand.llama => CustomPaint(size: Size.square(size), painter: _LlamaLoop(color)),
-    ModelBrand.other => Icon(Icons.auto_awesome, size: size * 0.82, color: color),
-    _ => Text(
-      _letter(brand),
-      style: TextStyle(
-        fontSize: size * 0.72,
-        fontWeight: FontWeight.w700,
-        height: 1,
-        color: color,
-        letterSpacing: 0,
-      ),
-    ),
-  };
-}
-
-/// Claude 的放射星芒：从圆心散出的短线，端点圆头。
-class _ClaudeStar extends CustomPainter {
-  const _ClaudeStar(this.color);
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
-    final inner = size.shortestSide * 0.10;
-    final outer = size.shortestSide * 0.48;
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = math.max(1.4, size.shortestSide * 0.09)
-      ..strokeCap = StrokeCap.round;
-    const spokes = 8;
-    for (var i = 0; i < spokes; i++) {
-      final angle = i * math.pi * 2 / spokes + math.pi / 8;
-      final dir = Offset(math.cos(angle), math.sin(angle));
-      canvas.drawLine(center + dir * inner, center + dir * outer, paint);
+  Widget build(BuildContext context) {
+    final asset = brandAsset(brand);
+    if (asset == null) {
+      return Icon(Icons.auto_awesome_outlined, size: size * 0.86, color: color);
     }
+    return SvgPicture.asset(
+      asset,
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+      excludeFromSemantics: true,
+    );
   }
-
-  @override
-  bool shouldRepaint(_ClaudeStar old) => old.color != color;
-}
-
-/// Gemini 的四角星：四个尖角，腰身内收。
-class _GeminiStar extends CustomPainter {
-  const _GeminiStar(this.color);
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = size.center(Offset.zero);
-    final r = size.shortestSide * 0.48;
-    final waist = r * 0.28;
-    final path = Path()
-      ..moveTo(c.dx, c.dy - r)
-      ..quadraticBezierTo(c.dx + waist * 0.4, c.dy - waist, c.dx + r, c.dy)
-      ..quadraticBezierTo(c.dx + waist * 0.4, c.dy + waist, c.dx, c.dy + r)
-      ..quadraticBezierTo(c.dx - waist * 0.4, c.dy + waist, c.dx - r, c.dy)
-      ..quadraticBezierTo(c.dx - waist * 0.4, c.dy - waist, c.dx, c.dy - r)
-      ..close();
-    canvas.drawPath(path, Paint()..color = color);
-  }
-
-  @override
-  bool shouldRepaint(_GeminiStar old) => old.color != color;
-}
-
-/// OpenAI 的花结：六瓣细长花瓣绕心放射，六重对称咬合的结。
-class _OpenAIKnot extends CustomPainter {
-  const _OpenAIKnot(this.color);
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = size.center(Offset.zero);
-    final r = size.shortestSide * 0.5;
-    final paint = Paint()..color = color;
-    final petal = Size(r * 0.30, r * 0.78);
-    for (var i = 0; i < 6; i++) {
-      canvas.save();
-      canvas.translate(c.dx, c.dy);
-      canvas.rotate(i * math.pi / 3);
-      // 花瓣中心离圆心一段距离：瓣与瓣在中点咬合，露出六重对称。
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(0, -r * 0.34), width: petal.width, height: petal.height),
-        paint,
-      );
-      canvas.restore();
-    }
-  }
-
-  @override
-  bool shouldRepaint(_OpenAIKnot old) => old.color != color;
-}
-
-/// DeepSeek 的鲸：流线鱼身 + 叉尾 + 小背鳍，一笔填充的侧影。
-class _DeepseekWhale extends CustomPainter {
-  const _DeepseekWhale(this.color);
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-    final path = Path()
-      // 尾根 → 尾上叶回勾
-      ..moveTo(w * 0.08, h * 0.50)
-      ..cubicTo(w * 0.02, h * 0.34, w * 0.10, h * 0.32, w * 0.16, h * 0.42)
-      // 背脊 → 头
-      ..cubicTo(w * 0.32, h * 0.22, w * 0.62, h * 0.20, w * 0.80, h * 0.34)
-      // 头 → 腹
-      ..cubicTo(w * 0.96, h * 0.44, w * 0.94, h * 0.64, w * 0.76, h * 0.70)
-      // 腹 → 尾下
-      ..cubicTo(w * 0.54, h * 0.78, w * 0.28, h * 0.74, w * 0.14, h * 0.60)
-      ..close()
-      // 尾下叶
-      ..moveTo(w * 0.08, h * 0.50)
-      ..cubicTo(w * 0.06, h * 0.66, w * 0.10, h * 0.76, w * 0.18, h * 0.74)
-      ..close()
-      // 背鳍
-      ..moveTo(w * 0.52, h * 0.24)
-      ..quadraticBezierTo(w * 0.62, h * 0.06, w * 0.76, h * 0.30)
-      ..close();
-    canvas.drawPath(path, Paint()..color = color);
-  }
-
-  @override
-  bool shouldRepaint(_DeepseekWhale old) => old.color != color;
-}
-
-/// Llama 的无穷环：两个相扣的圆环。
-class _LlamaLoop extends CustomPainter {
-  const _LlamaLoop(this.color);
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = size.center(Offset.zero);
-    final r = size.shortestSide * 0.5;
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = r * 0.24;
-    final ring = r * 0.44;
-    canvas.drawCircle(c.translate(-ring * 0.62, 0), ring, paint);
-    canvas.drawCircle(c.translate(ring * 0.62, 0), ring, paint);
-  }
-
-  @override
-  bool shouldRepaint(_LlamaLoop old) => old.color != color;
 }

@@ -9,7 +9,7 @@ import 'dart:io';
 
 import 'team_models.dart';
 
-final class TeamStore {
+class TeamStore {
   TeamStore(this.root);
 
   final Directory root;
@@ -52,6 +52,14 @@ final class TeamStore {
   Future<TeamState?> latest() async {
     final all = await list();
     return all.isEmpty ? null : all.first;
+  }
+
+  /// 删掉一个团队：会话、Markdown 导出都删，别的团队不动。
+  Future<void> delete(String id) async {
+    for (final name in ['$id.json', '$id.json.tmp', '$id.md']) {
+      final file = File('${root.path}/$name');
+      if (await file.exists()) await file.delete();
+    }
   }
 
   Future<void> writeMarkdown(TeamState state) async {

@@ -402,6 +402,9 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
   /// 上一次铺开的渠道：换了渠道就从第一页重新铺。
   String? _browsed;
 
+  /// 搜索词：按模型名、模型 id、Provider 名筛。空表示不筛。
+  String _query = '';
+
   /// 一次建多少张卡。聚合网关动辄上百个模型，打开面板时不该全部建出来；
   /// 滚到底再补一页——列表通常几十个，正常用户看不到这个边界。
   static const _page = 24;
@@ -531,6 +534,21 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             SheetTitleBar(catalog == null ? l10n.viewModelSelect : readListHeading(l10n.viewModelSelect, view.status)),
+            if (catalog != null && _currentProviderLabel(catalog) != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(SheetTitleBar.inset, 0, SheetTitleBar.inset, 8),
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    '当前：${_currentProviderLabel(catalog)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
             body,
             if (picking && widget.confirmSelection && !isValidModelSelection(catalog, _selection))
               Padding(
@@ -565,9 +583,42 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
     return UiTrace(scope: 'models', child: sheet);
   }
 
-  Widget _picker(List<ProviderGroup> groups, ModelInfo? selected, {required bool readOnly}) {
+  /// 当前选择的「Provider · 模型」，标题下面一行。
+  String? _currentProviderLabel(ModelCatalog catalog) {
+    final selection = _selection;
+    if (selection == null) return null;
+    final model = findModel(catalog, selection);
+    if (model == null) return null;
+    for (final group in catalog.groups) {
+      if (group.id == selection.provider) return '${group.name} · ${shortModelName(model.name)}';
+    }
+    return shortModelName(model.name);
+  }
+
+  Widget _picker(List<ProviderGroup> allGroups, ModelInfo? selected, {required bool readOnly}) {
+    // 搜索：模型名 / 模型 id / Provider 名都能命中，结果照常按 Provider 分组。
+    final query = _query.trim().toLowerCase();
+    final groups = query.isEmpty
+        ? allGroups
+        : [
+            for (final group in allGroups)
+              if (group.name.toLowerCase().contains(query) ||
+                  group.models.any(
+                    (model) => model.name.toLowerCase().contains(query) || model.id.toLowerCase().contains(query),
+                  ))
+                ProviderGroup(group.id, group.name, [
+                  for (final model in group.models)
+                    if (group.name.toLowerCase().contains(query) ||
+                        model.name.toLowerCase().contains(query) ||
+                        model.id.toLowerCase().contains(query))
+                      model,
+                ]),
+          ];
     final shownId = _channel ?? selected?.provider;
-    final shown = groups.firstWhere((g) => g.id == shownId, orElse: () => groups.first);
+    final shown = groups.firstWhere(
+      (g) => g.id == shownId,
+      orElse: () => groups.first,
+    );
     // 渠道一换，从第一页重新铺；否则会带着上一个渠道的页数进来。
     if (shown.id != _browsed) {
       _browsed = shown.id;
@@ -579,10 +630,43 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
     final quick = AppMotion.of(context, AppMotion.quick);
     const inset = SheetTitleBar.inset;
 
+    if (groups.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(inset, 8, inset, 24),
+        child: Text(
+          '没有匹配「${_query.trim()}」的模型',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(inset, 2, inset, 12),
+          child: TextField(
+            key: const ValueKey('model-search'),
+            onChanged: (value) => setState(() => _query = value),
+            style: Theme.of(context).textTheme.bodyMedium,
+            decoration: InputDecoration(
+              hintText: '搜索模型或 Provider',
+              prefixIcon: const Icon(AppIcons.search, size: 18),
+              isDense: true,
+              filled: true,
+              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+          ),
+        ),
         if (groups.length > 1)
           Padding(
             padding: const EdgeInsets.only(top: 4, bottom: 16),
@@ -605,6 +689,7 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
               child: _ModelGrid(
                 key: ValueKey(shown.id),
                 models: visible,
+                providerName: shown.name,
                 selected: selected,
                 onPick: readOnly ? null : _pickModel,
               ),
@@ -801,9 +886,18 @@ class _ChannelChip extends StatelessWidget {
 
 /// 两列等宽的模型卡,同一行等高、间距 12;单数时最后一张占满整行。
 class _ModelGrid extends StatelessWidget {
-  const _ModelGrid({super.key, required this.models, required this.selected, required this.onPick});
+  const _ModelGrid({
+    super.key,
+    required this.models,
+    required this.providerName,
+    required this.selected,
+    required this.onPick,
+  });
 
   final List<ModelInfo> models;
+
+  /// 这一批模型所属的 Provider（卡片第二行）。
+  final String providerName;
   final ModelInfo? selected;
   final ValueChanged<ModelInfo>? onPick;
 
@@ -814,6 +908,7 @@ class _ModelGrid extends StatelessWidget {
     Widget card(ModelInfo model) => _ModelCard(
       key: ValueKey('${model.provider}\u0000${model.id}'),
       model: model,
+      providerName: providerName,
       selected: selected?.id == model.id && selected?.provider == model.provider,
       onTap: onPick == null ? null : () => onPick!(model),
     );
@@ -845,9 +940,18 @@ class _ModelGrid extends StatelessWidget {
 /// 一张模型卡:短名(最多两行)+ 一行描述,右上角选择圈。选中时卡面染一层
 /// 很淡的主色、描一圈主色细边、圈里是实心对勾 —— 这一屏唯一的实心主色。
 class _ModelCard extends StatelessWidget {
-  const _ModelCard({super.key, required this.model, required this.selected, required this.onTap});
+  const _ModelCard({
+    super.key,
+    required this.model,
+    required this.providerName,
+    required this.selected,
+    required this.onTap,
+  });
 
   final ModelInfo model;
+
+  /// Provider 的展示名：与模型名分两层，不靠模型名猜是哪一家。
+  final String providerName;
   final bool selected;
   final VoidCallback? onTap;
 
@@ -917,13 +1021,21 @@ class _ModelCard extends StatelessWidget {
                     _CheckMark(selected: selected),
                   ],
                 ),
+                const SizedBox(height: 2),
+                // Provider 与 Model 分两层写清楚：同名模型挂在别家也不会混。
+                Text(
+                  providerName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(color: dsh.textTertiary),
+                ),
                 if (description != null && description.isNotEmpty) ...[
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 1),
                   Text(
                     description,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(color: dsh.textTertiary),
+                    style: theme.textTheme.labelSmall?.copyWith(color: dsh.textTertiary),
                   ),
                 ],
               ],

@@ -24,6 +24,10 @@
 
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
 
+## 模型厂商图标
+
+`app/assets/brands/` 下的厂商标识 SVG 取自 MIT 许可的 Lobe Icons（`@lobehub/icons-static-svg`），用于聊天 / 议会 / 团队 / 模型选择器里标明模型的来源。各标是其权利人的商标，仅作来源标识；详见 `THIRD_PARTY_NOTICES.md`「模型厂商品牌图标」。
+
 ## 协议声明
 
 本应用基于 [DSH Go](https://github.com/deepseek-ai/dsh-go) 衍生，整体采用 **AGPL-3.0** 协议。

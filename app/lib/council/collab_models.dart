@@ -131,6 +131,26 @@ final class SeatSpec {
 
   String get displayName => label?.trim().isNotEmpty == true ? label!.trim() : model;
 
+  /// 复制一份独立配置（新会话沿用上次成员时用，绝不共享可变状态）。
+  SeatSpec copyWith({
+    String? id,
+    String? provider,
+    String? model,
+    SeatRole? role,
+    String? reasoningEffort,
+    String? label,
+    String? agentPreset,
+    bool clearAgentPreset = false,
+  }) => SeatSpec(
+    id: id ?? this.id,
+    provider: provider ?? this.provider,
+    model: model ?? this.model,
+    role: role ?? this.role,
+    reasoningEffort: reasoningEffort ?? this.reasoningEffort,
+    label: label ?? this.label,
+    agentPreset: clearAgentPreset ? null : (agentPreset ?? this.agentPreset),
+  );
+
   Map<String, Object?> toJson() => {
     'id': id,
     'provider': provider,

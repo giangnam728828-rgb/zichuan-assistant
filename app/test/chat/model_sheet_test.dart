@@ -224,10 +224,13 @@ void main() {
     testWidgets('one channel: a label, no filter; cards and efforts', (tester) async {
       await _openSheet(tester, _harness(testCatalog));
       expect(find.text('选择模型'), findsOneWidget);
-      expect(find.text('DeepSeek'), findsOneWidget);
+      // 分组标题一处；方案要求每张卡也标出厂商，两张卡各一处。
+      expect(find.text('DeepSeek'), findsNWidgets(3));
       expect(find.text('V4 Pro'), findsOneWidget);
       expect(find.text('V41 Flash'), findsOneWidget);
       expect(find.text('思考深度'), findsOneWidget);
+      // 搜索框在标题下面。
+      expect(find.byKey(const ValueKey('model-search')), findsOneWidget);
       // Only the effort selector is a segmented pill.
       expect(find.byType(SegmentedPill<String>), findsOneWidget);
       for (final label in ['不思考', '低', '高', '最高']) {

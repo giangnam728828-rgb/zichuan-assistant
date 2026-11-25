@@ -53,6 +53,8 @@ dependencies:
   re_highlight: ^0.0.3
   path_provider: ^2.1.6
   url_launcher: ^6.3.3
+  # 真实厂商标记（assets/brands/*.svg，来自 @lobehub/icons 的公开品牌图形）。
+  flutter_svg: ^2.3.2
   dsh_client:
     path: ../packages/dsh_client
   dsh_remote:
@@ -167,6 +169,8 @@ flutter:
     - assets/whale/
     # 知川助手品牌资产：猫耳伙伴启动背景、头像、图标（用户提供的角色形象）。
     - assets/brand/
+    # 模型厂商的真实品牌标记（OpenAI / DeepSeek / Gemini / 通义 / 星火…）。
+    - assets/brands/
     # Engine-side auth bridge (ChatGPT / Claude sign-in), copied into the guest at
     # every engine start by runtime/AppAuthGuest.kt; tests in tool/engine_auth/.
     - assets/engine/auth/
