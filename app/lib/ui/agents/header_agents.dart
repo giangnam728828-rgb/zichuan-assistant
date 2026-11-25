@@ -16,11 +16,8 @@ import '../../l10n/l10n.dart';
 import '../../state/agents_state.dart';
 import '../../state/sessions_state.dart';
 import '../common/fluid_bits.dart';
-import '../common/status_dot.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
-import 'lineage_sheet.dart';
-import 'team_page.dart';
 
 /// What the header shows for the conversation on screen; null for a new chat.
 final _currentAgentsProvider = Provider.autoDispose<(String, HeaderAgents)?>((ref) {

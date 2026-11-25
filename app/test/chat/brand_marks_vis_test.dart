@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:dsh_app/ui/chat/model_brand_mark.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

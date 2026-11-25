@@ -401,7 +401,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
-          Icon(_brandIcon(brand), size: 18, color: brandColor(brand, theme.colorScheme.primary)),
+          Icon(brandIconData(brand), size: 18, color: brandColor(brand, theme.colorScheme.primary)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium),
@@ -454,22 +454,8 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   Widget _brandAvatar(String provider, String name) {
     final brand = brandOf(provider, name);
     final color = brandColor(brand, Theme.of(context).colorScheme.primary);
-    return Icon(_brandIcon(brand), color: color, size: 18);
+    return Icon(brandIconData(brand), color: color, size: 18);
   }
-
-  IconData _brandIcon(ModelBrand brand) => switch (brand) {
-    ModelBrand.claude => Icons.auto_awesome,
-    ModelBrand.gemini => Icons.star_rounded,
-    ModelBrand.openai => Icons.blur_circular,
-    ModelBrand.deepseek => Icons.water,
-    ModelBrand.qwen => Icons.circle_outlined,
-    ModelBrand.kimi => Icons.nightlight_round,
-    ModelBrand.glm => Icons.bolt_rounded,
-    ModelBrand.grok => Icons.close,
-    ModelBrand.llama => Icons.all_inclusive,
-    ModelBrand.mistral => Icons.change_history,
-    ModelBrand.other => Icons.smart_toy_outlined,
-  };
 
   // ---------------------------------------------------------------------------
   // 运行态
@@ -557,7 +543,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Icon(_brandIcon(brand), size: 18, color: brandColor(brand, theme.colorScheme.primary)),
+          Icon(brandIconData(brand), size: 18, color: brandColor(brand, theme.colorScheme.primary)),
           const SizedBox(width: 8),
           Expanded(
             child: Row(

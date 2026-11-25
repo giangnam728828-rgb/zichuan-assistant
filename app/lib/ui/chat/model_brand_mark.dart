@@ -56,6 +56,22 @@ String _letter(ModelBrand brand) => switch (brand) {
   _ => '',
 };
 
+/// 列表里认厂商用的简笔图标（议会席位、团队队友）。要求不高，认得出即可；
+/// 输入栏那颗键走 [ModelBrandMark]，用自绘的品牌形。
+IconData brandIconData(ModelBrand brand) => switch (brand) {
+  ModelBrand.claude => Icons.auto_awesome,
+  ModelBrand.gemini => Icons.star_rounded,
+  ModelBrand.openai => Icons.blur_circular,
+  ModelBrand.deepseek => Icons.water,
+  ModelBrand.qwen => Icons.circle_outlined,
+  ModelBrand.kimi => Icons.nightlight_round,
+  ModelBrand.glm => Icons.bolt_rounded,
+  ModelBrand.grok => Icons.close,
+  ModelBrand.llama => Icons.all_inclusive,
+  ModelBrand.mistral => Icons.change_history,
+  ModelBrand.other => Icons.smart_toy_outlined,
+};
+
 /// 36dp 的圆钮，与输入栏其他键同高。底色是品牌色的一层淡雾，里面是标记。
 class ModelBrandMark extends StatelessWidget {
   const ModelBrandMark({
