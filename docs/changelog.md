@@ -2,6 +2,30 @@
 
 每个版本先中文、后英文。发版时把对应版本的正文（不含版本标题）作为 Release 正文，见 `docs/release.md`。
 
+## 2.0.0 · 2026-11-25
+
+### 中文
+
+- **多个 AI 一起办一件事。** 输入栏新增「协作」入口，分议会和团队两种玩法。
+- **议会：同一个问题，几个模型各答一遍。** 席位可以自选模型和 Agent 预设（联网、检索这些按预设走），「快速」按票数定论，「审议」多辩一轮再看分歧。裁决会写明采纳了谁的理由、哪些地方有分歧，也能只把某位席位的原话翻出来看。
+- **团队：像拉个群一样分工。** 2–6 位队友，各有角色和模型；可以指定一位主管，主管会把活儿拆给合适的人；队友之间能互相移交（「交给阿蓝接着做」），@ 谁就只有谁接话。
+- **只读顾问和写互斥。** 标成只读的队友只出主意、不动文件，可以和别人并行；可写的队友默认排队干活，免得两个人同时改同一份代码，这个开关可以关。
+- **定时唤醒。** 团队可以设 5/10/30/60 分钟自动催一次，让它自己接着往下推；关掉 App 再回来，设置还在。
+- **协作不打扰日常聊天。** 议会席位和团队队友的会话不会混进历史列表，从议会页、团队页进去看；历史议会和房间都能回看，也能导出成 Markdown 分享出去。
+- **审批看得见是谁在申请。** 队友或席位要动手机、跑命令时，页面顶部会写明「阿蓝 需要你的授权」，可以直接允许一次或拒绝。
+- **窄屏适配。** 320dp 宽的手机上，输入栏会自动收起次要的上下文环，协作、模型、通话、发送都还在。
+
+### English
+
+- **Several AIs on one job.** The composer has a new Collaboration entry with two modes: council and team.
+- **Council: one question, answered by several models.** Each seat picks its own model and agent preset (web access and retrieval follow the preset). Quick mode decides by vote; Deliberate mode debates one more round before reporting disagreement. The verdict says whose reasoning was adopted and where the seats disagreed, and you can still open any seat's own answer.
+- **Team: divide the work like a group chat.** Two to six teammates, each with a role and model. Name a lead and it hands pieces to the right person; teammates can hand off to each other ("hand it to Lan"), and an @mention means only that teammate answers.
+- **Read-only advisors and a write lock.** A teammate marked read-only only gives advice and never touches files, so it can run in parallel; writable teammates take turns by default so two of them don't edit the same file, and the lock can be turned off.
+- **Scheduled wake-ups.** A team can nudge itself every 5, 10, 30 or 60 minutes to keep going; the setting survives leaving the app.
+- **Collaboration stays out of your chat list.** Council seats and teammates don't show up among your chats; open them from the council or team page. Past councils and rooms can be revisited and exported as Markdown to share.
+- **Approvals say who is asking.** When a teammate or seat wants to use the phone or run a command, the top of the page says "Lan needs your approval", with allow-once and reject right there.
+- **Narrow screens.** On a 320dp phone the composer folds away the secondary context ring; collaboration, model, call and send all stay.
+
 ## 1.2.0 · 2026-11-18
 
 ### 中文
