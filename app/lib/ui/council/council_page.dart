@@ -260,7 +260,12 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       // snapshot 先看内存：切回来时还在跑的席位、流式正文都在。
       final run = await orchestrator.snapshot(turn.runId);
       if (run == null) continue;
-      if (!run.phase.isTerminal) live = true;
+      if (run.phase.isTerminal) {
+        // 页面不在的时候跑完了：把终态写回会话记录，历史里不会一直挂「运行中」。
+        _syncTurn(run);
+      } else {
+        live = true;
+      }
       if (mounted) setState(() => _runs[run.id] = run);
     }
     // 页面退出前发起的任务还在跑：回来时输入栏仍是停止态，不能重复提交。
