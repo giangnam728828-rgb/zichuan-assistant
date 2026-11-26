@@ -139,11 +139,12 @@ android {
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
-                // All three schemes: AGP drops v1 for minSdk 24+, but some installers and
-                // security scanners on Chinese ROMs still read the JAR signature.
+                // v1 + v2，不开 v3。这个组合在 vivo 上仍然装不上（「套件似乎无效 /
+                // 安装组件欠缺开发人员证书」），所以它不是修复，只是把变量收窄到「没有 v3」。
+                // 根因未定：别再拿开关 v3 当结论（docs/release.md「签名」）。
                 enableV1Signing = true
                 enableV2Signing = true
-                enableV3Signing = true
+                enableV3Signing = false
             }
         }
     }
