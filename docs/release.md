@@ -351,6 +351,13 @@ AE 只留约 3 个月，想长期保留就定期把输出存下来。
 
 Android 只接受和已装版本**同一签名**的覆盖安装。`build.gradle.kts` 从 `app/android/key.properties` 读取发布签名；配置缺失时回落到打包机器的 `~/.android/debug.keystore`，仅供本地构建。正式发版必须先配置发布密钥。
 
+### 厂商安装器的限制：vivo 不认 v3
+
+- **症状**：APK 已签名、`apksigner verify` 全部通过，但 vivo（OriginOS / Funtouch）安装时报「套件似乎无效，无法安装应用程序」，副标题「安装组件欠缺开发者证书」。
+- **原因**：包里带 APK Signature Scheme v3 块（签名块 ID `0xf05368c0`）。2026-11 在 vivo 真机上用 2.0.0 预览包确认：v1（`META-INF/CERT.SF`、`CERT.RSA`）和 v2 都在，仍被拒；把 v3 去掉后，同一把钥匙签的包可以安装。
+- **做法**：`enableV1Signing = true`、`enableV2Signing = true`、`enableV3Signing = false`。v3 只用于密钥轮换，本项目不需要；Android 8+ 有 v1/v2 就够。
+- **守门**：CI 的 `Verify signature` 用 `apksigner verify --verbose --min-sdk-version 21` 断言 v1/v2 为 `true`、v3 为 `false`，不满足直接失败。不要在 vivo 真机复验前重新打开 v3。
+
 做法：生成一把发布密钥，只在发版机器上用，并离线备份（丢了等于以后再也发不了更新，所有用户都得卸载重装）。
 
 ```sh
