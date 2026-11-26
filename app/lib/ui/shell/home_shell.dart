@@ -16,12 +16,17 @@ import '../../pets/overlay_channel.dart' show petOverlayChannelProvider;
 import '../../pets/pet_overlay_bridge.dart';
 import '../../state/adaptive_layout_state.dart';
 import '../../state/android_features.dart';
+import '../../state/conversation_mode_state.dart';
 import '../../state/drawer_view_state.dart' show drawerSelectionProvider;
+import '../../state/hosts_state.dart';
 import '../../state/quick_panel_state.dart';
 import '../../state/sessions_state.dart' show currentSessionProvider;
 import '../bots/bot_alerts.dart';
 import '../chat/chat_screen.dart';
 import '../chat/composer_toast.dart' show composerToastGap;
+import '../chat/conversation_mode_switcher.dart' show conversationModeRoute;
+import '../council/council_page.dart';
+import '../team/team_page.dart';
 import '../engine/engine_screen.dart';
 import '../engine/reset_outcome.dart';
 import '../forum/forum_link_host.dart';
@@ -158,6 +163,27 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
     _petSettings = ref.read(petOverlayChannelProvider).settingsRequests.listen((_) {
       if (mounted) unawaited(PetSettingsPage.open(context));
     });
+    // 上次停在议会/团队：主壳一出来就恢复那条会话（无动画，不先闪聊天）。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _restoreConversationMode());
+  }
+
+  /// 启动恢复：只跳一次。会话 id 失效时页面自己会回退到「最近一条」。
+  Future<void> _restoreConversationMode() async {
+    if (!mounted) return;
+    final state = ref.read(conversationModeProvider);
+    if (state.mode == ConversationMode.chat) return;
+    final host = ref.read(activeHostProvider);
+    final id = state.idFor(state.mode, conversationHostKey(host));
+    final page = switch (state.mode) {
+      ConversationMode.council => CouncilPage(conversationId: id, createNew: true, resumeLatest: true),
+      ConversationMode.team => TeamPage(teamId: id, createNew: true, resumeLatest: true),
+      ConversationMode.chat => const SizedBox.shrink(),
+    };
+    if (!mounted) return;
+    await Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push(conversationModeRoute(context: context, page: page, immediate: true));
   }
 
   @override
@@ -292,10 +318,10 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
         switchTab(context, RootTab.tools);
         return;
       case DrawerDestination.web ||
-            DrawerDestination.remote ||
-            DrawerDestination.plugins ||
-            DrawerDestination.engine ||
-            DrawerDestination.settingsSearch:
+          DrawerDestination.remote ||
+          DrawerDestination.plugins ||
+          DrawerDestination.engine ||
+          DrawerDestination.settingsSearch:
         break;
     }
     final page = switch (destination) {
@@ -374,8 +400,9 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
     }
     // 3a：底部导航接管四个根页；≡ 只在宽屏（有持久侧栏）出现，用来收起/展开侧栏。
     // 第 7 步：聊天页可见时跟随手机倾斜（光斑偏移 ≤ 6dp），离开就停。
-    final chat =
-        TiltScope(child: widget.chatBuilder?.call(_onMenu) ?? ChatScreen(onOpenDrawer: _onMenu, backdrop: false));
+    final chat = TiltScope(
+      child: widget.chatBuilder?.call(_onMenu) ?? ChatScreen(onOpenDrawer: _onMenu, backdrop: false),
+    );
     final tab = ref.watch(rootTabProvider);
     final badges = ref.watch(navBadgesProvider);
     // 只有「左侧什么都没有」的手机布局才用底部四标签；有 rail / 侧栏的宽屏
@@ -392,11 +419,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
           // Android 14 预测性返回：只有停在「对话」、没有浮层、没有多选、没有任务在跑时才退出。
           // 少任何一项都会变成「按返回直接退应用」，所以这里逐项都列出来。
           canPop: phone
-              ? (tab == RootTab.chat &&
-                    !_open &&
-                    !_quickPanelOpen &&
-                    !selecting &&
-                    !badges.chatRunning)
+              ? (tab == RootTab.chat && !_open && !_quickPanelOpen && !selecting && !badges.chatRunning)
               : (!_open && !_quickPanelOpen && !(selecting && sidebar)),
           onPopInvokedWithResult: (didPop, _) {
             if (didPop) return;

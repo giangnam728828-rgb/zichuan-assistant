@@ -30,6 +30,7 @@ import '../../team/team_store.dart';
 import '../../team/team_orchestrator.dart';
 import '../chat/conversation_mode_switcher.dart';
 import '../chat/model_brand_mark.dart';
+import '../chat/shared/conversation_workspace.dart';
 import '../chat/model_sheet.dart' show shortModelName;
 import '../shell/root_tab.dart';
 import '../theme/app_icons.dart';
@@ -292,18 +293,32 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       setState(() => _error = '团队至少需要两位队友，先去成员管理里加两位。');
       return;
     }
+    final orchestrator = _orchestrator;
+    if (orchestrator == null) {
+      setState(() => _error = '还没连上引擎，稍等一下再发。');
+      return;
+    }
     _draft.clear();
     ref.read(conversationModeProvider.notifier).clearDraft(ConversationMode.team, _hostKey, team.id);
     setState(() {
       _busy = true;
       _error = null;
     });
-    final orchestrator = _orchestrator;
-    if (orchestrator == null) return;
     try {
       await orchestrator.send(team.id, text);
     } on Object catch (error) {
-      if (mounted) setState(() => _error = '$error');
+      if (mounted) {
+        setState(() {
+          _error = '$error';
+          _busy = false;
+        });
+        // 发送失败：把话放回输入框，草稿也一起还原。
+        if (_draft.text.isEmpty) {
+          _draft.text = text;
+          _draft.selection = TextSelection.collapsed(offset: text.length);
+          _saveDraft(text);
+        }
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
       _invalidateHistory();
@@ -554,88 +569,80 @@ class _TeamPageState extends ConsumerState<TeamPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final team = _team;
-    return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            CollabHeader(
-              title: team?.displayTitle ?? '团队',
-              subtitle: [
-                '${team?.teammates.length ?? 0} 位队友',
-                if (team?.lead case final lead?) '主管 ${lead.name}',
-              ].join(' · '),
-              badge: CollabModeBadge(label: '团队', color: theme.colorScheme.tertiary),
-              mode: ConversationMode.team,
-              onModeSelected: (mode) => switchConversationMode(context, ref, mode, from: ConversationMode.team),
-              onTitleTap: team == null ? null : _rename,
-              actions: [
-                IconButton(
-                  key: const ValueKey('team-members'),
-                  tooltip: '成员',
-                  icon: const Icon(AppIcons.team, size: 21),
-                  onPressed: team == null ? null : _openMembers,
-                ),
-                PopupMenuButton<String>(
-                  tooltip: '更多',
-                  icon: const Icon(AppIcons.more, size: 20),
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'settings':
-                        unawaited(_openSettings());
-                      case 'export':
-                        unawaited(_export());
-                      case 'new':
-                        unawaited(_newTeam());
-                      case 'history':
-                        switchTab(context, RootTab.history);
-                    }
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'settings', child: Text('团队设置')),
-                    PopupMenuItem(value: 'export', child: Text('导出 Markdown')),
-                    PopupMenuItem(value: 'new', child: Text('新团队')),
-                    PopupMenuItem(value: 'history', child: Text('历史团队')),
-                  ],
-                ),
-              ],
+    return ConversationWorkspace(
+      header: CollabHeader(
+        title: team?.displayTitle ?? '团队',
+        subtitle: [
+          '${team?.teammates.length ?? 0} 位队友',
+          if (team?.lead case final lead?) '主管 ${lead.name}',
+        ].join(' · '),
+        badge: CollabModeBadge(label: '团队', color: theme.colorScheme.tertiary),
+        mode: ConversationMode.team,
+        onModeSelected: (mode) => switchConversationMode(context, ref, mode, from: ConversationMode.team),
+        onTitleTap: team == null ? null : _rename,
+        actions: [
+          IconButton(
+            key: const ValueKey('team-members'),
+            tooltip: '成员',
+            icon: const Icon(AppIcons.team, size: 21),
+            onPressed: team == null ? null : _openMembers,
+          ),
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            icon: const Icon(AppIcons.more, size: 20),
+            onSelected: (value) {
+              switch (value) {
+                case 'settings':
+                  unawaited(_openSettings());
+                case 'export':
+                  unawaited(_export());
+                case 'new':
+                  unawaited(_newTeam());
+                case 'history':
+                  switchTab(context, RootTab.history);
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'settings', child: Text('团队设置')),
+              PopupMenuItem(value: 'export', child: Text('导出 Markdown')),
+              PopupMenuItem(value: 'new', child: Text('新团队')),
+              PopupMenuItem(value: 'history', child: Text('历史团队')),
+            ],
+          ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : team == null
+          ? const SizedBox.shrink()
+          : team.teammates.isEmpty
+          ? _onboarding(team)
+          : _buildChat(team),
+      error: _error == null
+          ? null
+          : Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(_error!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
             ),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : team == null
-                  ? const SizedBox.shrink()
-                  : team.teammates.isEmpty
-                  ? _onboarding(team)
-                  : _buildChat(team),
-            ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(_error!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
+      composer: CollabComposer(
+        controller: _draft,
+        // 后台还有队友在答（页面退出再回来）：仍显示停止键，不能重复发。
+        busy: _busy || (team?.running.isNotEmpty ?? false),
+        hint: '说点什么，@ 一位队友',
+        onSend: _send,
+        onStop: _stop,
+        onChanged: _saveDraft,
+        enabled: team != null,
+        leading: team == null || team.teammates.isEmpty
+            ? null
+            : PopupMenuButton<Teammate>(
+                tooltip: '点名',
+                icon: const Icon(AppIcons.mention, size: 20),
+                onSelected: _insertMention,
+                itemBuilder: (_) => [
+                  for (final mate in team.teammates) PopupMenuItem(value: mate, child: Text(mate.name)),
+                ],
               ),
-            CollabComposer(
-              controller: _draft,
-              // 后台还有队友在答（页面退出再回来）：仍显示停止键，不能重复发。
-              busy: _busy || (team?.running.isNotEmpty ?? false),
-              hint: '说点什么，@ 一位队友',
-              onSend: _send,
-              onStop: _stop,
-              onChanged: _saveDraft,
-              enabled: team != null,
-              leading: team == null || team.teammates.isEmpty
-                  ? null
-                  : PopupMenuButton<Teammate>(
-                      tooltip: '点名',
-                      icon: const Icon(AppIcons.mention, size: 20),
-                      onSelected: _insertMention,
-                      itemBuilder: (_) => [
-                        for (final mate in team.teammates) PopupMenuItem(value: mate, child: Text(mate.name)),
-                      ],
-                    ),
-            ),
-          ],
-        ),
       ),
     );
   }

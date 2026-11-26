@@ -8,7 +8,7 @@
 // - 用户消息就是 [UserBubble]（长按菜单、凭据遮挡、引用块都跟着走）；
 // - 助手正文就是 [MarkdownBody]（和 AssistantMessage 同一套参数：流式、
 //   reveal、不选中、修裸 dsh-ui），只是外面多一行身份（头像 + 名字 + 模型）；
-// - 输入栏就是 [GlassSurface] 的 chrome 玻璃 + 同一颗圆形发送键；
+// - 输入栏直接用普通聊天的 [Composer]，附件/语音等 Host 专属件通过扩展槽留空；
 // - 顶栏是普通聊天那条透明行的高度、字号、状态点和右侧键位。
 //
 // 议会与团队只提供数据（谁说的、什么模型、跑到哪一步），不再自己画一套。
@@ -17,11 +17,9 @@ import 'package:flutter/material.dart';
 
 import '../../../state/conversation_mode_state.dart';
 import '../../providers/provider_brand_icon.dart';
+import '../composer.dart';
 import '../../theme/app_icons.dart';
-import '../../theme/glass.dart';
 import '../../theme/motion.dart';
-import '../../theme/shapes.dart';
-import '../../theme/surfaces.dart';
 import '../conversation_mode_switcher.dart';
 import '../model_brand_mark.dart';
 import '../render/markdown_body.dart';
@@ -344,10 +342,11 @@ class ConversationSystemNote extends StatelessWidget {
   }
 }
 
-/// 议会/团队共用的输入栏：chrome 玻璃圆角、无边框输入、同一颗圆形发送键。
+/// 议会/团队共用的输入栏：**就是普通聊天的 [Composer]**。
 ///
-/// 普通聊天的 Composer 还带着附件、语音、审批、上下文环这些 Host 专属件，
-/// 这里只取它真正通用的那层壳：玻璃底、内边距、发送/停止键与键盘跟随。
+/// 附件、语音、上下文环这些 Host 专属件不传，就自然不显示；团队的点名按钮
+/// 走 [leading]，议会不需要就留空。输入高度、圆角、发送/停止键、焦点动画和
+/// 键盘行为都跟聊天完全一致，不再维护第二套外观。
 class ConversationComposer extends StatefulWidget {
   const ConversationComposer({
     super.key,
@@ -359,6 +358,7 @@ class ConversationComposer extends StatefulWidget {
     this.leading,
     this.onChanged,
     this.enabled = true,
+    this.sendable = true,
   });
 
   final TextEditingController controller;
@@ -370,6 +370,9 @@ class ConversationComposer extends StatefulWidget {
   final ValueChanged<String>? onChanged;
   final bool enabled;
 
+  /// 输入栏照常可用，但发送键不亮（例如成员不足）。
+  final bool sendable;
+
   @override
   State<ConversationComposer> createState() => _ConversationComposerState();
 }
@@ -378,139 +381,41 @@ class _ConversationComposerState extends State<ConversationComposer> {
   @override
   void initState() {
     super.initState();
-    widget.controller.addListener(_refresh);
+    widget.controller.addListener(_changed);
   }
 
   @override
   void didUpdateWidget(ConversationComposer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller.removeListener(_refresh);
-      widget.controller.addListener(_refresh);
+      oldWidget.controller.removeListener(_changed);
+      widget.controller.addListener(_changed);
     }
   }
 
-  void _refresh() => setState(() {});
+  void _changed() => widget.onChanged?.call(widget.controller.text);
 
   @override
   void dispose() {
-    widget.controller.removeListener(_refresh);
+    widget.controller.removeListener(_changed);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final canSend = widget.controller.text.trim().isNotEmpty && !widget.busy && widget.enabled;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
-      child: GlassSurface(
-        tier: GlassTier.chrome,
-        borderRadius: AppShape.radiusFloat,
-        padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (widget.leading != null) ...[widget.leading!, const SizedBox(width: 2)],
-            Expanded(
-              child: TextField(
-                controller: widget.controller,
-                enabled: widget.enabled,
-                minLines: 1,
-                maxLines: 6,
-                keyboardType: TextInputType.multiline,
-                textInputAction: TextInputAction.newline,
-                onChanged: widget.onChanged,
-                style: theme.textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.45, color: colors.onSurface),
-                cursorColor: colors.primary,
-                decoration: InputDecoration(
-                  hintText: widget.hint,
-                  hintMaxLines: 1,
-                  hintStyle: theme.textTheme.bodyLarge?.copyWith(
-                    fontSize: 15,
-                    height: 1.45,
-                    color: colors.onSurfaceVariant.withValues(alpha: 0.7),
-                  ),
-                  filled: false,
-                  isDense: true,
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  disabledBorder: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-                ),
-              ),
-            ),
-            const SizedBox(width: 4),
-            _SendKey(
-              key: ValueKey(widget.busy ? 'composer-stop' : 'composer-send'),
-              busy: widget.busy,
-              enabled: canSend,
-              onTap: widget.busy ? widget.onStop : (canSend ? widget.onSend : null),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 圆形发送/停止键：和普通聊天输入栏那颗同尺寸、同配色。
-class _SendKey extends StatelessWidget {
-  const _SendKey({super.key, required this.busy, required this.enabled, required this.onTap});
-
-  final bool busy;
-  final bool enabled;
-  final VoidCallback? onTap;
-
-  static const _size = 36.0;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final active = busy || enabled;
-    final bg = busy
-        ? colors.onSurface.withValues(alpha: 0.06)
-        : active
-        ? colors.primary
-        : colors.onSurface.withValues(alpha: 0.12);
-    final fg = busy
-        ? colors.onSurface
-        : active
-        ? colors.onPrimary
-        : colors.onSurface.withValues(alpha: 0.38);
-    return Semantics(
-      button: true,
-      enabled: active,
-      label: busy ? '停止' : '发送',
-      child: Tooltip(
-        message: busy ? '停止' : '发送',
-        child: Material(
-          color: bg,
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onTap,
-            child: SizedBox.square(
-              dimension: _size,
-              child: Center(
-                child: AnimatedSwitcher(
-                  duration: AppMotion.of(context, AppMotion.quick),
-                  switchInCurve: AppMotion.std,
-                  switchOutCurve: AppMotion.std,
-                  child: Icon(
-                    busy ? AppIcons.stopGenerating : AppIcons.send,
-                    key: ValueKey(busy),
-                    size: busy ? 18 : 20,
-                    color: fg,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+    // 真正的普通聊天输入栏：输入框高度、圆角、发送/停止键、焦点动画、键盘
+    // 行为都跟聊天一模一样；议会/团队只通过 leading 放各自的功能（@ 队友）。
+    return Composer(
+      controller: widget.controller,
+      connected: widget.enabled,
+      running: widget.busy,
+      busy: widget.busy,
+      sessionReady: widget.enabled,
+      onSend: widget.onSend,
+      onStop: widget.onStop ?? () {},
+      placeholder: widget.hint,
+      leading: widget.leading,
+      maxLines: 6,
     );
   }
 }

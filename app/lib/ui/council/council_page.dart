@@ -29,6 +29,7 @@ import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
 import '../chat/conversation_mode_switcher.dart';
 import '../chat/model_brand_mark.dart';
+import '../chat/shared/conversation_workspace.dart';
 import '../chat/model_sheet.dart' show shortModelName;
 import '../providers/provider_brand_icon.dart';
 import '../shell/root_tab.dart';
@@ -85,6 +86,10 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   final _seenTurns = <String>{};
   bool _busy = false;
   bool _loading = true;
+
+  /// 已经按下发送、但编排器还没把 runId 交回来的那一问：先画在时间线上，
+  /// 不让用户盯着空输入框等。
+  String? _pendingQuestion;
   String? _error;
   final _scroll = ScrollController();
   late final String _hostKey = conversationHostKey(ref.read(activeHostProvider));
@@ -97,6 +102,10 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
 
   @override
   void dispose() {
+    for (final timer in _timers) {
+      timer.cancel();
+    }
+    _timers.clear();
     _sub?.cancel();
     _inbox?.dispose();
     _draft.dispose();
@@ -109,48 +118,165 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   // ---------------------------------------------------------------------------
   // 启动：开一条会话（或恢复给定的那条）
 
-  Future<void> _boot() async {
-    try {
-      final orchestrator = await _ensureOrchestrator();
-      // 先等登记表把盘上的旧会话读进来：从历史打开时才找得到那条。
-      await ref.read(councilConversationsProvider.notifier).ready;
-      _listen();
-      // 历史运行的席位会话补登记：否则会一条条冒进普通聊天历史。
-      await _registerPastSessions(orchestrator);
+  /// 各阶段耗时/错误，出问题时能一眼看出卡在哪（方案 5.2）。
+  final _initTrace = <String, String>{};
+  bool _booting = false;
+  bool _engineBooting = false;
 
+  /// 自己管超时：Future.timeout 的计时器在页面 dispose 后还会挂着，测试会报
+  /// 「Timer still pending」。这里统一登记，dispose 时全部取消。
+  final _timers = <Timer>{};
+
+  Future<T?> _limit<T>(Future<T> future, Duration limit) {
+    final completer = Completer<T?>();
+    late Timer timer;
+    void settle(void Function() done) {
+      timer.cancel();
+      _timers.remove(timer);
+      if (!completer.isCompleted) done();
+    }
+
+    timer = Timer(limit, () => settle(() => completer.complete(null)));
+    _timers.add(timer);
+    future.then(
+      (value) => settle(() => completer.complete(value)),
+      onError: (Object error, StackTrace stack) => settle(() => completer.completeError(error, stack)),
+    );
+    return completer.future;
+  }
+
+  void _trace(String phase, Stopwatch watch, [Object? error]) {
+    final line = error == null ? '${watch.elapsedMilliseconds} ms' : 'failed: $error';
+    _initTrace[phase] = line;
+    debugPrint('[council boot] $phase: $line');
+  }
+
+  /// 第一段只做「本地能做的事」：恢复会话记录、决定显示哪条，立刻出页面。
+  ///
+  /// 引擎连接、历史席位登记、运行快照都在页面可见之后才跑，任何一步都不能
+  /// 把页面卡在中央转圈上。
+  Future<void> _boot() async {
+    if (_booting) return;
+    _booting = true;
+    _initTrace.clear();
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    final watch = Stopwatch()..start();
+    try {
+      // 1. 本地会话登记表：给 3 秒，读不出来也先放页面出来。
+      try {
+        final ready = await _limit(
+          ref.read(councilConversationsProvider.notifier).ready.then((_) => true),
+          const Duration(seconds: 3),
+        );
+        _trace('conversationStoreReady', watch, ready == null ? 'timeout 3s' : null);
+      } on Object catch (error) {
+        _trace('conversationStoreReady', watch, error);
+      }
+
+      // 2. 通知/旧数据带 runId 时要读一次运行记录，这需要编排器。
+      if (widget.runId != null && widget.conversationId == null) {
+        await _ensureOrchestratorSafely(watch);
+      }
+
+      // 3. 决定显示哪条会话。
       CouncilConversation? conversation;
       if (widget.conversationId case final id?) {
         conversation = ref.read(councilConversationsProvider)[id];
       }
-      if (conversation == null) {
-        final runId = widget.runId;
-        if (runId != null) conversation = await _conversationForRun(runId);
+      if (conversation == null && widget.runId != null) {
+        try {
+          conversation = await _limit(_conversationForRun(widget.runId!), const Duration(seconds: 4));
+          _trace('createConversation', watch);
+        } on Object catch (error) {
+          _trace('createConversation', watch, error);
+        }
       }
       if (conversation == null && widget.resumeLatest) {
         conversation = ref.read(councilConversationsProvider.notifier).latest();
       }
-      conversation ??= widget.createNew ? await _createConversation() : null;
+      if (conversation == null && widget.createNew) {
+        try {
+          conversation = await _limit(_createConversation(), const Duration(seconds: 4));
+          _trace('createConversation', watch);
+        } on Object catch (error) {
+          _trace('createConversation', watch, error);
+          if (mounted) setState(() => _error = '议会会话没能建立：$error');
+        }
+      }
+
       if (!mounted) return;
-      setState(() => _conversation = conversation);
+      setState(() {
+        _conversation = conversation;
+        _loading = false;
+      });
       if (conversation != null) {
         _remember(conversation);
         _restoreDraft(conversation);
-        // 先把已发生的回合读进内存，再落 loading：进页面不会先闪一下
-        // 「记录不在了」，历史消息也不重播进场。
-        await _loadTurns(conversation);
-      }
-      if (!mounted) return;
-      setState(() => _loading = false);
-    } on Object catch (error) {
-      if (mounted) {
-        setState(() {
-          _error = '$error';
-          _loading = false;
-        });
       }
     } finally {
-      _watchApprovals();
+      _booting = false;
     }
+
+    // 4. 页面已经可见，再去连引擎、补登记、读回合。
+    unawaited(_bootEngine(_conversation));
+  }
+
+  /// 第二段：引擎/编排器与历史运行，全部带超时，失败只影响状态行。
+  Future<void> _bootEngine(CouncilConversation? conversation) async {
+    if (!mounted || _engineBooting) return;
+    _engineBooting = true;
+    try {
+      final watch = Stopwatch()..start();
+      final orchestrator = await _ensureOrchestratorSafely(watch);
+      if (orchestrator == null || !mounted) return;
+      _listen();
+      _watchApprovals();
+      unawaited(
+        _registerPastSessions(orchestrator).timeout(const Duration(seconds: 6)).catchError((Object error) {
+          _trace('registerPastSessions', watch, error);
+        }),
+      );
+      if (conversation != null) {
+        try {
+          final loaded = await _limit(_loadTurns(conversation).then((_) => true), const Duration(seconds: 8));
+          _trace('loadTurns', watch, loaded == null ? 'timeout 8s' : null);
+        } on Object catch (error) {
+          _trace('loadTurns', watch, error);
+        }
+      }
+      if (mounted && _error != null) setState(() {});
+    } finally {
+      _engineBooting = false;
+    }
+  }
+
+  /// 连接换了：旧订阅作废，按新客户端重建编排器；正在跑的是旧连接的任务，
+  /// 随旧连接一起结束，不会串到新主机。
+  void _onConnectionChanged() {
+    _sub?.cancel();
+    _sub = null;
+    _orchestrator = null;
+    unawaited(_bootEngine(_conversation));
+  }
+
+  Future<CollabOrchestrator?> _ensureOrchestratorSafely(Stopwatch watch) async {
+    try {
+      final orchestrator = await _limit(_ensureOrchestrator(), const Duration(seconds: 8));
+      _trace('ensureOrchestrator', watch);
+      return orchestrator;
+    } on TimeoutException {
+      _trace('ensureOrchestrator', watch, 'timeout 8s');
+      if (mounted) setState(() => _error = '还没连上引擎，议会暂时只能看记录。');
+    } on Object catch (error) {
+      _trace('ensureOrchestrator', watch, error);
+      if (mounted) setState(() => _error = '议会引擎没有准备好：$error');
+    }
+    return null;
   }
 
   /// 记住这是议会「上次用的那条」：从聊天切回来时直接恢复它。
@@ -253,7 +379,10 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   /// 把会话里的回合对应的运行读进内存；没跑完的接着驱动。
   Future<void> _loadTurns(CouncilConversation conversation) async {
     final orchestrator = _orchestrator;
-    if (orchestrator == null) return;
+    if (orchestrator == null) {
+      setState(() => _error = '还没连上引擎，稍等一下再发。');
+      return;
+    }
     var live = false;
     for (final turn in conversation.turns) {
       _seenTurns.add(turn.runId);
@@ -315,7 +444,10 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   void _listen() {
     if (_sub != null) return;
     final orchestrator = _orchestrator;
-    if (orchestrator == null) return;
+    if (orchestrator == null) {
+      setState(() => _error = '还没连上引擎，稍等一下再发。');
+      return;
+    }
     _sub = orchestrator.events.listen((run) {
       if (!mounted) return;
       // 编排器是连接级共享的：别的议会会话的事件不能进这一页。
@@ -389,10 +521,14 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       return;
     }
     final orchestrator = _orchestrator;
-    if (orchestrator == null) return;
+    if (orchestrator == null) {
+      setState(() => _error = '还没连上引擎，稍等一下再发。');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
+      _pendingQuestion = question;
     });
     _draft.clear();
     ref.read(conversationModeProvider.notifier).clearDraft(ConversationMode.council, _hostKey, conversation.id);
@@ -428,6 +564,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       setState(() {
         _conversation = next;
         _runs[run.id] = run;
+        _pendingQuestion = null;
       });
       await ref.read(councilConversationsProvider.notifier).save(next);
       // 跑得快的运行可能在回合写进会话之前就已经结束：用最新快照补一次阶段。
@@ -438,7 +575,14 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
         setState(() {
           _error = '$error';
           _busy = false;
+          _pendingQuestion = null;
         });
+        // 发送失败：问题放回输入框，不丢字。
+        if (_draft.text.isEmpty) {
+          _draft.text = question;
+          _draft.selection = TextSelection.collapsed(offset: question.length);
+          _saveDraft(question);
+        }
       }
     }
   }
@@ -549,71 +693,74 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 引擎晚到/换连接：页面早就出来了，连上后自己补上编排器和运行状态。
+    ref.listen(readListLiveConnectionProvider, (previous, next) {
+      if (next == null) return;
+      if (previous == null || !identical(previous.client, next.client)) _onConnectionChanged();
+    });
     final theme = Theme.of(context);
     final conversation = _conversation;
-    return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            CollabHeader(
-              title: conversation?.displayTitle ?? '议会',
-              subtitle: _subtitle(conversation),
-              statusColor: _busy ? theme.colorScheme.primary : null,
-              badge: CollabModeBadge(label: '议会', color: theme.colorScheme.primary),
-              mode: ConversationMode.council,
-              onModeSelected: (mode) => switchConversationMode(context, ref, mode, from: ConversationMode.council),
-              onTitleTap: _rename,
-              actions: [
-                IconButton(
-                  key: const ValueKey('council-members'),
-                  tooltip: '成员',
-                  icon: const Icon(AppIcons.team, size: 21),
-                  onPressed: conversation == null ? null : _openMembers,
-                ),
-                PopupMenuButton<String>(
-                  tooltip: '更多',
-                  icon: const Icon(AppIcons.more, size: 20),
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'export':
-                        unawaited(_export());
-                      case 'new':
-                        unawaited(_newConversation());
-                      case 'history':
-                        switchTab(context, RootTab.history);
-                    }
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'export', child: Text('导出 Markdown')),
-                    PopupMenuItem(value: 'new', child: Text('新议会')),
-                    PopupMenuItem(value: 'history', child: Text('历史议会')),
-                  ],
-                ),
-              ],
-            ),
-            if (_inbox?.pending.isNotEmpty ?? false)
-              for (final approval in _inbox!.pending)
-                CollabApprovalBanner(approval: approval, onDecide: (decision) => _respond(approval.eventId, decision)),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : conversation == null || conversation.turns.isEmpty
-                  ? _empty(conversation)
-                  : _messages(conversation),
-            ),
-            if (_error case final message?) _errorRow(message),
-            CollabComposer(
-              controller: _draft,
-              busy: _busy,
-              hint: '向议会提问，成员会各自作答',
-              onSend: _send,
-              onStop: _stop,
-              onChanged: _saveDraft,
-              enabled: conversation != null,
-            ),
-          ],
-        ),
+    return ConversationWorkspace(
+      header: CollabHeader(
+        title: conversation?.displayTitle ?? '议会',
+        subtitle: _subtitle(conversation),
+        statusColor: _busy ? theme.colorScheme.primary : null,
+        badge: CollabModeBadge(label: '议会', color: theme.colorScheme.primary),
+        mode: ConversationMode.council,
+        onModeSelected: (mode) => switchConversationMode(context, ref, mode, from: ConversationMode.council),
+        onTitleTap: _rename,
+        actions: [
+          IconButton(
+            key: const ValueKey('council-members'),
+            tooltip: '成员',
+            icon: const Icon(AppIcons.team, size: 21),
+            onPressed: conversation == null ? null : _openMembers,
+          ),
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            icon: const Icon(AppIcons.more, size: 20),
+            onSelected: (value) {
+              switch (value) {
+                case 'export':
+                  unawaited(_export());
+                case 'new':
+                  unawaited(_newConversation());
+                case 'history':
+                  switchTab(context, RootTab.history);
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'export', child: Text('导出 Markdown')),
+              PopupMenuItem(value: 'new', child: Text('新议会')),
+              PopupMenuItem(value: 'history', child: Text('历史议会')),
+            ],
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (_inbox?.pending.isNotEmpty ?? false)
+            for (final approval in _inbox!.pending)
+              CollabApprovalBanner(approval: approval, onDecide: (decision) => _respond(approval.eventId, decision)),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : conversation == null || (conversation.turns.isEmpty && _pendingQuestion == null)
+                ? _empty(conversation)
+                : _messages(conversation),
+          ),
+        ],
+      ),
+      error: _error == null ? null : _errorRow(_error!),
+      composer: CollabComposer(
+        controller: _draft,
+        busy: _busy,
+        hint: conversation != null && conversation.seats.length < 2 ? '先添加至少两位成员' : '向议会提问，成员会各自作答',
+        onSend: _send,
+        onStop: _stop,
+        onChanged: _saveDraft,
+        enabled: conversation != null,
+        sendable: (conversation?.seats.length ?? 0) >= 2,
       ),
     );
   }
@@ -658,10 +805,12 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
 
   void _retry() {
     if (_loading) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    // 会话已经在屏幕上：只重连引擎/重读运行，不再把整页打回转圈。
+    if (_conversation != null) {
+      setState(() => _error = null);
+      unawaited(_bootEngine(_conversation));
+      return;
+    }
     unawaited(_boot());
   }
 
@@ -755,6 +904,10 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       } else if (run.phase == CollabPhase.cancelled) {
         children.add(const CollabSystemNote(text: '这一轮已取消'));
       }
+    }
+    if (_pendingQuestion case final question?) {
+      children.add(CollabUserBubble(key: const ValueKey('pending-question'), text: question));
+      children.add(const CollabSystemNote(key: ValueKey('pending-note'), text: '正在召集成员…'));
     }
     return ListView(controller: _scroll, padding: const EdgeInsets.fromLTRB(12, 4, 12, 12), children: children);
   }

@@ -1,21 +1,21 @@
-// 左上角的聊天模式切换器（总方案 v2 第一阶段）。
+// 左上角的聊天模式切换器（总方案 v3）。
 //
-// 输入栏不再承担导航：协作入口从 Composer 挪到顶栏，和标题并排。三个页面
-// （普通聊天 / 议会 / 团队）用的是同一个 [ConversationModeSwitcher]，一份
-// 菜单、一份路由，不在各自的页面里各写一套。
+// 三个模式**一直摆在顶栏上**：聊天 / 议会 / 团队。点哪个就直接切，不再先弹
+// 菜单。选中背景是一枚会滑动的药丸（AnimatedAlign，220ms easeOutCubic），
+// 图标轻微缩放淡入，窄屏只留图标（每段仍是 44dp 触控）。
 //
-// 点开是**锚在按钮下方**的紧凑菜单，不是底部弹层：三个选项一眼看完，当前
-// 模式带勾。选中即切换，不再二次确认。
+// 三个页面（普通聊天 / 议会 / 团队）用的是同一个 [ConversationModeSwitcher]，
+// 一份控件、一份路由，不在各自的页面里各写一套。
 //
-// 切换规则（第二阶段）：
+// 切换规则：
 // - 普通聊天 → 议会/团队：回到上次那条，没有就恢复最近一条，仍没有才新建；
 // - 议会 ⇄ 团队：顶层页面**替换**，不往路由栈上叠第二张协作页；
 // - 议会/团队 → 普通聊天：回到原来的聊天根页，当前会话不动。
 //
-// 页面过场只有淡入 + 8dp 位移（[AppMotion.page]）；系统要求减少动画时
-// 时长归零，直接换页。
+// 页面过场只有淡入 + 8dp 位移，210ms；系统要求减少动画时全部归零。
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/conversation_mode_state.dart';
@@ -28,7 +28,7 @@ import '../theme/glass.dart';
 import '../theme/motion.dart';
 import '../theme/surfaces.dart';
 
-/// 「聊天 ⌄」：小图标 + 当前模式 + 下拉箭头。窄屏只留图标和箭头。
+/// 「聊天 ｜ 议会 ｜ 团队」三段式切换器。三段常驻，点击即切换。
 class ConversationModeSwitcher extends ConsumerWidget {
   const ConversationModeSwitcher({super.key, required this.mode, this.onSelect, this.forceCompact = false});
 
@@ -40,11 +40,11 @@ class ConversationModeSwitcher extends ConsumerWidget {
   /// 测试或特殊版式里强制收起文字。
   final bool forceCompact;
 
-  /// 窄屏 / 大字号时先收起模式文字，给标题和模型让位。
+  /// 窄屏 / 大字号只留图标，给标题和模型让位。
   static bool compactFor(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final label = MediaQuery.textScalerOf(context).scale(13);
-    return width < 420 || label > 15.6;
+    return width < 560 || label > 16.5;
   }
 
   static IconData iconOf(ConversationMode mode) => switch (mode) {
@@ -57,8 +57,15 @@ class ConversationModeSwitcher extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final compact = forceCompact || compactFor(context);
     final colors = Theme.of(context).colorScheme;
-    final duration = AppMotion.of(context, AppMotion.quick);
+    final reduced = AppMotion.reduced(context);
+    final move = reduced ? Duration.zero : const Duration(milliseconds: 220);
+    final fade = reduced ? Duration.zero : const Duration(milliseconds: 160);
+    final segment = compact ? 44.0 : 64.0;
+    final index = mode.index;
+
     void select(ConversationMode target) {
+      if (target == mode) return;
+      HapticFeedback.selectionClick();
       if (onSelect case final callback?) {
         callback(target);
       } else {
@@ -66,77 +73,55 @@ class ConversationModeSwitcher extends ConsumerWidget {
       }
     }
 
-    return PopupMenuButton<ConversationMode>(
-      key: const ValueKey('conversation-mode'),
-      tooltip: '切换聊天模式 · ${mode.label}',
-      position: PopupMenuPosition.under,
-      offset: const Offset(0, 2),
-      color: colors.surfaceContainerHigh,
-      elevation: 8,
-      constraints: const BoxConstraints(minWidth: 176, maxWidth: 232),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      onSelected: select,
-      itemBuilder: (context) => [
-        for (final option in ConversationMode.values)
-          PopupMenuItem<ConversationMode>(
-            key: ValueKey('mode-${option.name}'),
-            value: option,
-            height: 44,
-            child: _ModeMenuRow(mode: option, selected: option == mode),
-          ),
-      ],
-      child: Semantics(
-        button: true,
-        label: '切换聊天模式，当前${mode.label}',
-        child: GlassSurface(
-          tier: GlassTier.chrome,
-          bare: true,
-          stadium: true,
-          grouped: true,
-          child: SizedBox(
-            height: 44,
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: compact ? 9 : 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  AnimatedSwitcher(
-                    duration: duration,
-                    switchInCurve: AppMotion.std,
-                    switchOutCurve: AppMotion.std,
-                    transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
-                    child: Icon(
-                      iconOf(mode),
-                      key: ValueKey('mode-icon-${mode.name}'),
-                      size: 18,
-                      color: colors.onSurface.withValues(alpha: 0.86),
-                    ),
-                  ),
-                  if (!compact) ...[
-                    const SizedBox(width: 5),
-                    AnimatedSwitcher(
-                      duration: duration,
-                      switchInCurve: AppMotion.std,
-                      switchOutCurve: AppMotion.std,
-                      transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
-                      child: Text(
-                        mode.label,
-                        key: ValueKey('mode-label-${mode.name}'),
-                        maxLines: 1,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          height: 1.2,
-                          color: colors.onSurface.withValues(alpha: 0.86),
-                        ),
+    return Semantics(
+      container: true,
+      label: '聊天模式，当前${mode.label}',
+      child: GlassSurface(
+        tier: GlassTier.chrome,
+        bare: true,
+        stadium: true,
+        grouped: true,
+        child: SizedBox(
+          height: 44,
+          width: segment * ConversationMode.values.length + 6,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 3),
+            child: Stack(
+              children: [
+                // 选中背景：一整段宽的药丸，靠 AnimatedAlign 在三个位置间滑动。
+                AnimatedAlign(
+                  duration: move,
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment(-1 + index.toDouble(), 0),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: AnimatedContainer(
+                      duration: move,
+                      curve: Curves.easeOutCubic,
+                      width: segment,
+                      decoration: BoxDecoration(
+                        color: colors.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: colors.primary.withValues(alpha: 0.18)),
                       ),
                     ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    for (final option in ConversationMode.values)
+                      _ModeSegment(
+                        key: ValueKey('mode-${option.name}'),
+                        mode: option,
+                        selected: option == mode,
+                        width: segment,
+                        showLabel: !compact,
+                        duration: fade,
+                        onTap: () => select(option),
+                      ),
                   ],
-                  const SizedBox(width: 2),
-                  // 箭头位置固定：图标和文字换的时候它不动。
-                  Icon(AppIcons.expand, size: 12, color: colors.onSurfaceVariant.withValues(alpha: 0.7)),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
@@ -145,37 +130,69 @@ class ConversationModeSwitcher extends ConsumerWidget {
   }
 }
 
-/// 菜单里的一行：选中打勾，未选中留同宽空位，文字不错位。
-class _ModeMenuRow extends StatelessWidget {
-  const _ModeMenuRow({required this.mode, required this.selected});
+class _ModeSegment extends StatelessWidget {
+  const _ModeSegment({
+    super.key,
+    required this.mode,
+    required this.selected,
+    required this.width,
+    required this.showLabel,
+    required this.duration,
+    required this.onTap,
+  });
 
   final ConversationMode mode;
   final bool selected;
+  final double width;
+  final bool showLabel;
+  final Duration duration;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final tint = selected ? colors.primary : colors.onSurfaceVariant;
-    return Row(
-      children: [
-        SizedBox(
-          width: 22,
-          child: selected ? Icon(Icons.check, size: 16, color: colors.primary) : const SizedBox.shrink(),
-        ),
-        Icon(ConversationModeSwitcher.iconOf(mode), size: 18, color: tint),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            mode.label,
-            maxLines: 1,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: selected ? colors.onSurface : colors.onSurfaceVariant,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+    final colors = Theme.of(context).colorScheme;
+    final tint = selected ? colors.primary : colors.onSurfaceVariant.withValues(alpha: 0.64);
+    final labelStyle = TextStyle(
+      fontSize: 13,
+      height: 1.2,
+      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+      color: tint,
+    );
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: mode.label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: SizedBox(
+          width: width,
+          height: 44,
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedScale(
+                  scale: selected ? 1 : 0.94,
+                  duration: duration,
+                  curve: AppMotion.std,
+                  child: Icon(ConversationModeSwitcher.iconOf(mode), size: 18, color: tint),
+                ),
+                if (showLabel) ...[
+                  const SizedBox(width: 5),
+                  AnimatedDefaultTextStyle(
+                    duration: duration,
+                    curve: AppMotion.std,
+                    style: labelStyle,
+                    child: Text(mode.label, maxLines: 1),
+                  ),
+                ],
+              ],
             ),
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -218,9 +235,12 @@ void switchConversationMode(BuildContext context, WidgetRef ref, ConversationMod
 }
 
 /// 模式页的过场：淡入 + 8dp 横向位移，旧页在下层淡出得不突兀。
-Route<T> conversationModeRoute<T>({required BuildContext context, required Widget page}) {
-  final duration = AppMotion.of(context, AppMotion.page);
-  final exit = AppMotion.of(context, AppMotion.quick);
+///
+/// [immediate] 给「启动时恢复上次模式」用：不走动画，第一帧就是目标页。
+Route<T> conversationModeRoute<T>({required BuildContext context, required Widget page, bool immediate = false}) {
+  // 内容切换 210ms（方案要求 180–220），减少动画时归零。
+  final duration = immediate || AppMotion.reduced(context) ? Duration.zero : const Duration(milliseconds: 210);
+  final exit = AppMotion.reduced(context) ? Duration.zero : AppMotion.of(context, AppMotion.quick);
   return PageRouteBuilder<T>(
     transitionDuration: duration,
     reverseTransitionDuration: exit,

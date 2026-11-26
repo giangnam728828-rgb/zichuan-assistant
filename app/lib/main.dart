@@ -11,6 +11,7 @@ import 'diagnostics/app_error_log.dart';
 import 'launch/launch_state.dart';
 import 'links/page_links.dart' show registerPageLink, tavernPageLink;
 import 'runtime/local_paths.dart';
+import 'state/conversation_mode_state.dart';
 import 'state/locale_state.dart';
 import 'ui/common/third_party_licenses.dart';
 import 'ui/fx/metal/metal_shader.dart';
@@ -27,7 +28,10 @@ Future<void> _startApp() async {
   appErrorCapture.install();
   // The first frame is already in the chosen language (设置 → 语言), and is the launch
   // window's own picture (启动画面, lib/launch/launch_state.dart).
-  await Future.wait([AppLanguageController.load(), LaunchController.begin(), LocalPaths.load()]);
+  final modeFuture = ConversationModeStore.load();
+  await Future.wait([AppLanguageController.load(), LaunchController.begin(), LocalPaths.load(), modeFuture]);
+  // 上次停在议会/团队：第一帧就按那个模式出，不先闪一下普通聊天。
+  final modeState = await modeFuture;
   // MIT / OFL notices must ship with the APK, not just the sources.
   registerThirdPartyLicenses();
   registerFontLicenses();
@@ -40,5 +44,7 @@ Future<void> _startApp() async {
   // through AnnotatedRegion(dshSystemOverlay(...)).
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(dshSystemOverlay(PlatformDispatcher.instance.platformBrightness));
-  runApp(const ProviderScope(child: DshApp()));
+  runApp(
+    ProviderScope(overrides: [conversationModeInitialProvider.overrideWithValue(modeState)], child: const DshApp()),
+  );
 }

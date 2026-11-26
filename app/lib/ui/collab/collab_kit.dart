@@ -179,6 +179,7 @@ class CollabComposer extends StatelessWidget {
     this.leading,
     this.onChanged,
     this.enabled = true,
+    this.sendable = true,
   });
 
   final TextEditingController controller;
@@ -189,6 +190,9 @@ class CollabComposer extends StatelessWidget {
   final Widget? leading;
   final ValueChanged<String>? onChanged;
   final bool enabled;
+
+  /// 成员不足时输入栏照常，只让发送键不亮。
+  final bool sendable;
 
   @override
   Widget build(BuildContext context) {
@@ -201,6 +205,7 @@ class CollabComposer extends StatelessWidget {
       leading: leading,
       onChanged: onChanged,
       enabled: enabled,
+      sendable: sendable,
     );
   }
 }

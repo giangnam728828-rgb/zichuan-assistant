@@ -74,6 +74,7 @@ class Composer extends StatefulWidget {
     this.onCall,
     this.emptySendLabel,
     this.tight = false,
+    this.sendable = true,
   });
 
   final TextEditingController controller;
@@ -150,6 +151,9 @@ class Composer extends StatefulWidget {
   /// is drawn quietly then, and labelled [emptySendLabel]; the mic, when
   /// there is one, still comes first.
   final bool sendWhenEmpty;
+
+  /// 外观照常、但这一刻不允许发送（例如议会成员不足两位）；提示语不变。
+  final bool sendable;
   final String? emptySendLabel;
 
   /// 「语音通话」 with this conversation: the key sits in the composer's own row now
@@ -388,7 +392,11 @@ class _ComposerState extends State<Composer> {
             final showStop = widget.running && empty && !dictating;
             final showMic = !dictating && !showStop && empty && !widget.busy && (voice?.available ?? false);
             final enabled =
-                !widget.busy && widget.connected && widget.sessionReady && (showStop || !empty || widget.sendWhenEmpty);
+                !widget.busy &&
+                widget.connected &&
+                widget.sessionReady &&
+                widget.sendable &&
+                (showStop || !empty || widget.sendWhenEmpty);
             final emptySend = empty && widget.sendWhenEmpty && !showStop && !showMic && !dictating;
             final waiting = widget.waiting || widget.waitHint != null;
             final hint = switch (phase) {
@@ -809,6 +817,11 @@ class _SendButtonState extends State<_SendButton> {
       _KeyMode.stopVoice => (AppIcons.stopGenerating, 18.0, l10n.chatStopVoiceInput),
     };
     return Semantics(
+      // 稳定的测试/自动化把手：发送与停止是同一个位置的两态。
+      key: ValueKey(switch (mode) {
+        _KeyMode.stopRun || _KeyMode.stopVoice => 'composer-stop',
+        _ => 'composer-send',
+      }),
       button: true,
       enabled: enabled,
       label: widget.busy && mode == _KeyMode.stopRun ? l10n.commonStopping : label,
