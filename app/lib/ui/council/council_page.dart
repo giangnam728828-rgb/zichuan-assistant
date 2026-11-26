@@ -700,67 +700,74 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     });
     final theme = Theme.of(context);
     final conversation = _conversation;
-    return ConversationWorkspace(
-      header: CollabHeader(
-        title: conversation?.displayTitle ?? '议会',
-        subtitle: _subtitle(conversation),
-        statusColor: _busy ? theme.colorScheme.primary : null,
-        badge: CollabModeBadge(label: '议会', color: theme.colorScheme.primary),
-        mode: ConversationMode.council,
-        onModeSelected: (mode) => switchConversationMode(context, ref, mode, from: ConversationMode.council),
-        onTitleTap: _rename,
-        actions: [
-          IconButton(
-            key: const ValueKey('council-members'),
-            tooltip: '成员',
-            icon: const Icon(AppIcons.team, size: 21),
-            onPressed: conversation == null ? null : _openMembers,
-          ),
-          PopupMenuButton<String>(
-            tooltip: '更多',
-            icon: const Icon(AppIcons.more, size: 20),
-            onSelected: (value) {
-              switch (value) {
-                case 'export':
-                  unawaited(_export());
-                case 'new':
-                  unawaited(_newConversation());
-                case 'history':
-                  switchTab(context, RootTab.history);
-              }
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'export', child: Text('导出 Markdown')),
-              PopupMenuItem(value: 'new', child: Text('新议会')),
-              PopupMenuItem(value: 'history', child: Text('历史议会')),
-            ],
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          if (_inbox?.pending.isNotEmpty ?? false)
-            for (final approval in _inbox!.pending)
-              CollabApprovalBanner(approval: approval, onDecide: (decision) => _respond(approval.eventId, decision)),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : conversation == null || (conversation.turns.isEmpty && _pendingQuestion == null)
-                ? _empty(conversation)
-                : _messages(conversation),
-          ),
-        ],
-      ),
-      error: _error == null ? null : _errorRow(_error!),
-      composer: CollabComposer(
-        controller: _draft,
-        busy: _busy,
-        hint: conversation != null && conversation.seats.length < 2 ? '先添加至少两位成员' : '向议会提问，成员会各自作答',
-        onSend: _send,
-        onStop: _stop,
-        onChanged: _saveDraft,
-        enabled: conversation != null,
-        sendable: (conversation?.seats.length ?? 0) >= 2,
+    return PopScope(
+      // 系统返回/返回键离开协作页：把「上次用的模式」改回聊天，下次启动不会
+      // 又把用户拽回议会。pushReplacement 不算 pop，切模式时不会误触发。
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) ref.read(conversationModeProvider.notifier).setMode(ConversationMode.chat);
+      },
+      child: ConversationWorkspace(
+        header: CollabHeader(
+          title: conversation?.displayTitle ?? '议会',
+          subtitle: _subtitle(conversation),
+          statusColor: _busy ? theme.colorScheme.primary : null,
+          badge: CollabModeBadge(label: '议会', color: theme.colorScheme.primary),
+          mode: ConversationMode.council,
+          onModeSelected: (mode) => switchConversationMode(context, ref, mode, from: ConversationMode.council),
+          onTitleTap: _rename,
+          actions: [
+            IconButton(
+              key: const ValueKey('council-members'),
+              tooltip: '成员',
+              icon: const Icon(AppIcons.team, size: 21),
+              onPressed: conversation == null ? null : _openMembers,
+            ),
+            PopupMenuButton<String>(
+              tooltip: '更多',
+              icon: const Icon(AppIcons.more, size: 20),
+              onSelected: (value) {
+                switch (value) {
+                  case 'export':
+                    unawaited(_export());
+                  case 'new':
+                    unawaited(_newConversation());
+                  case 'history':
+                    switchTab(context, RootTab.history);
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'export', child: Text('导出 Markdown')),
+                PopupMenuItem(value: 'new', child: Text('新议会')),
+                PopupMenuItem(value: 'history', child: Text('历史议会')),
+              ],
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            if (_inbox?.pending.isNotEmpty ?? false)
+              for (final approval in _inbox!.pending)
+                CollabApprovalBanner(approval: approval, onDecide: (decision) => _respond(approval.eventId, decision)),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : conversation == null || (conversation.turns.isEmpty && _pendingQuestion == null)
+                  ? _empty(conversation)
+                  : _messages(conversation),
+            ),
+          ],
+        ),
+        error: _error == null ? null : _errorRow(_error!),
+        composer: CollabComposer(
+          controller: _draft,
+          busy: _busy,
+          hint: conversation != null && conversation.seats.length < 2 ? '先添加至少两位成员' : '向议会提问，成员会各自作答',
+          onSend: _send,
+          onStop: _stop,
+          onChanged: _saveDraft,
+          enabled: conversation != null,
+          sendable: (conversation?.seats.length ?? 0) >= 2,
+        ),
       ),
     );
   }
