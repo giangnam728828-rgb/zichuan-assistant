@@ -77,24 +77,50 @@ jobs:
       timeout-minutes: 20
       run: python3 -I runtime/tawcroot/build.py
 
+    - name: Restore signing key
+      # 签名材料不进仓库：从 Secrets 还原到工作目录，构建结束随 runner 销毁。
+      env:
+        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      run: |
+        set -euo pipefail
+        [ -n "$KEYSTORE_BASE64" ] || { echo "缺少 KEYSTORE_BASE64 secret" >&2; exit 1; }
+        mkdir -p keystore
+        printf '%s' "$KEYSTORE_BASE64" | base64 -d > keystore/zichuan-release.jks
+        test -s keystore/zichuan-release.jks || { echo "keystore 还原失败" >&2; exit 1; }
+        echo "keystore restored: $(wc -c < keystore/zichuan-release.jks) bytes"
+
     - name: Build signed APK
-      # build-apk.sh reads keystore/keystore.properties (tracked) for signing.
+      # 签名参数全部走环境变量，不落盘、不进日志（不要再用 bash -x）。
       # DSH_MAVEN_MIRRORS=0: GitHub runners reach google()/mavenCentral() fast;
       # the Aliyun mirrors the project defaults to are slow from the US.
       # apksigner lives in build-tools; expose it to build-apk.sh's verify step.
       timeout-minutes: 70
       env:
         DSH_MAVEN_MIRRORS: '0'
+        KEYSTORE: ${{ github.workspace }}/keystore/zichuan-release.jks
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       run: |
         echo "$ANDROID_HOME/build-tools/36.0.0" >> "$GITHUB_PATH"
         export APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
-        bash -x build-apk.sh
+        bash build-apk.sh
 
     - name: Verify signature
+      # 硬门槛：v1/v2 必须在，v3 必须不在。
       run: |
         APK=$(ls dist/zichuan-assistant-*.apk | head -1)
         echo "APK: $APK ($(du -h "$APK" | cut -f1))"
-        "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" | grep 'SHA-256'
+        AS="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+        "$AS" verify --verbose --min-sdk-version 21 --print-certs "$APK" > /tmp/verify.txt
+        grep 'SHA-256' /tmp/verify.txt
+        grep -q 'Verified using v1 scheme (JAR signing): true' /tmp/verify.txt
+        grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/verify.txt
+        if grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' /tmp/verify.txt; then
+          echo "v3 signature present: 与签名约定不一致" >&2
+          exit 1
+        fi
+        echo "OK: v1 + v2, no v3"
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
