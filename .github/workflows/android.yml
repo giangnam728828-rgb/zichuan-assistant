@@ -122,17 +122,48 @@ jobs:
         fi
         echo "OK: v1 + v2, no v3"
 
+    - name: Package ZIP and checksums
+      # 为什么还要发 ZIP：APK 的签名块在文件最末尾（紧邻 ZIP 中央目录）。
+      # 600MB+ 的直链在手机浏览器/下载器里很容易断在半路，文件尾部缺失就等于
+      # 没有签名，vivo 会报「套件似乎无效 / 安装组件欠缺开发人员证书」。
+      # ZIP 解压时会做 CRC 校验，能当场发现坏包；SHA256SUMS 供人工核对。
+      run: |
+        set -euo pipefail
+        cd dist
+        for apk in zichuan-assistant-*.apk; do
+          zip -0 -q "${apk%.apk}.zip" "$apk"
+        done
+        sha256sum ./*.apk ./*.zip | sed 's#\./##' > SHA256SUMS.txt
+        cat SHA256SUMS.txt
+        ls -lh
+
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: zichuan-assistant-arm64
-        path: dist/zichuan-assistant-*.apk
+        path: |
+          dist/zichuan-assistant-*.apk
+          dist/zichuan-assistant-*.zip
+          dist/SHA256SUMS.txt
         if-no-files-found: error
 
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v2
       with:
-        files: dist/zichuan-assistant-*.apk
+        files: |
+          dist/zichuan-assistant-*.apk
+          dist/zichuan-assistant-*.zip
+          dist/SHA256SUMS.txt
+        body: |
+          ## 下载哪个文件
+
+          **优先下 `.zip` 那个**（同版本号的 APK 与 ZIP 各一份），用手机「文件管理」解压，再装里面的 APK。
+          ZIP 解压会做 CRC 校验，坏包当场报错；直链 APK 在手机上可能下不完整。
+
+          > 600MB+ 的 APK 直链容易断在半路。APK 签名块在文件最末尾，
+          > 尾部缺一块就等于没有签名，vivo 会报「套件似乎无效／安装组件欠缺开发人员证书」。
+
+          装完可用 `SHA256SUMS.txt` 核对：文件管理里长按 APK 看 SHA-256，应与其中一行一致。
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

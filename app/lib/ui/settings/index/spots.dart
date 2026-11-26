@@ -100,6 +100,7 @@ enum SettingsPageId {
   diagnostics,
   about,
   account,
+  dataBackup,
 }
 
 /// One engine setting a spot anchors: the field [key] in any of [namespaces]
@@ -664,6 +665,14 @@ final _pages = <SettingsPageMeta>[
     group: _help,
     keywords: (l) => l.searchKwAbout,
     links: const ['about'],
+  ),
+  SettingsPageMeta(
+    SettingsPageId.dataBackup,
+    title: (l) => l.dataBackupTitle,
+    group: _general,
+    keywords: (l) => l.searchKwDataBackup,
+    freq: Freq.medium,
+    links: const ['backup'],
   ),
   // The overview card.
   SettingsPageMeta(
@@ -1241,6 +1250,19 @@ abstract final class Spots {
     title: (l) => l.hubSettingsLicenses,
     keywords: (l) => l.searchKwLicenses,
   );
+  // 备份与恢复.
+  static final dataBackupExport = SettingSpot(
+    'data-backup-export',
+    page: SettingsPageId.dataBackup,
+    title: (l) => l.dataBackupExport,
+    keywords: (l) => l.searchKwDataBackup,
+  );
+  static final dataBackupRestore = SettingSpot(
+    'data-backup-restore',
+    page: SettingsPageId.dataBackup,
+    title: (l) => l.dataBackupRestore,
+    keywords: (l) => l.searchKwDataBackup,
+  );
 }
 
 final _rows = <SettingSpot>[
@@ -1321,4 +1343,6 @@ final _rows = <SettingSpot>[
   Spots.updateAuto,
   Spots.star,
   Spots.licenses,
+  Spots.dataBackupExport,
+  Spots.dataBackupRestore,
 ];

@@ -5867,6 +5867,103 @@ class L10nZh extends L10n {
   String get companionAdaptNetwork => '网络不通';
 
   @override
+  String get dataBackupTitle => '备份与恢复';
+
+  @override
+  String get dataBackupScopeTitle => '备份范围';
+
+  @override
+  String get dataBackupScopeHint => '勾选要放进备份的内容。API key、token、口令不会进入备份；恢复后部分设置要重启应用才生效。';
+
+  @override
+  String get dataBackupScopeChat => '聊天与草稿';
+
+  @override
+  String get dataBackupScopeAppearance => '外观与界面';
+
+  @override
+  String get dataBackupScopeVoice => '语音与朗读';
+
+  @override
+  String get dataBackupScopeNotify => '通知与提醒';
+
+  @override
+  String get dataBackupScopeModels => '模型与引擎';
+
+  @override
+  String get dataBackupScopePlugins => '插件与工作坊';
+
+  @override
+  String get dataBackupScopeRemote => '远程主机';
+
+  @override
+  String get dataBackupScopeOther => '其他设置';
+
+  @override
+  String dataBackupCount(int count) {
+    return '$count 项';
+  }
+
+  @override
+  String get dataBackupExport => '导出备份';
+
+  @override
+  String get dataBackupExportHint => '生成一个 JSON 文件，交给系统分享面板保存或发送';
+
+  @override
+  String get dataBackupRestore => '从备份恢复';
+
+  @override
+  String get dataBackupRestoreHint => '选择一份之前导出的备份，按范围写回本机';
+
+  @override
+  String get dataBackupPickScope => '先勾选至少一个范围';
+
+  @override
+  String get dataBackupEmpty => '所选范围还没有可备份的数据';
+
+  @override
+  String dataBackupExportDone(int count) {
+    return '已导出 $count 项';
+  }
+
+  @override
+  String get dataBackupExportFailed => '导出失败，请检查存储空间后重试';
+
+  @override
+  String get dataBackupRestoreTitle => '选择要恢复的范围';
+
+  @override
+  String get dataBackupConfirmTitle => '覆盖本机设置？';
+
+  @override
+  String dataBackupConfirmBody(int count) {
+    return '将写入 $count 项。同一项会以备份里的值覆盖当前值；未勾选的范围不受影响。';
+  }
+
+  @override
+  String dataBackupRestoreDone(int restored, int skipped) {
+    return '已恢复 $restored 项，跳过 $skipped 项';
+  }
+
+  @override
+  String get dataBackupRestoreFailed => '这不是一份可用的备份文件';
+
+  @override
+  String get dataBackupRestartHint => '已写回本机。重启应用后，界面与设置会按备份内容生效。';
+
+  @override
+  String dataBackupLastExport(String when) {
+    return '上次备份：$when';
+  }
+
+  @override
+  String get dataBackupNeverExported => '还没有导出过备份';
+
+  @override
+  String get searchKwDataBackup => '备份,导出,恢复,迁移,换机,数据';
+
+  @override
   String get automaticDiagnosticsRecover => '恢复本地记录';
 
   @override

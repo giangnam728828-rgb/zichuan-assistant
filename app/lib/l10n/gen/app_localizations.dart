@@ -10898,6 +10898,180 @@ abstract class L10n {
   /// **'网络不通'**
   String get companionAdaptNetwork;
 
+  /// No description provided for @dataBackupTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'备份与恢复'**
+  String get dataBackupTitle;
+
+  /// No description provided for @dataBackupScopeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'备份范围'**
+  String get dataBackupScopeTitle;
+
+  /// No description provided for @dataBackupScopeHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'勾选要放进备份的内容。API key、token、口令不会进入备份；恢复后部分设置要重启应用才生效。'**
+  String get dataBackupScopeHint;
+
+  /// No description provided for @dataBackupScopeChat.
+  ///
+  /// In zh, this message translates to:
+  /// **'聊天与草稿'**
+  String get dataBackupScopeChat;
+
+  /// No description provided for @dataBackupScopeAppearance.
+  ///
+  /// In zh, this message translates to:
+  /// **'外观与界面'**
+  String get dataBackupScopeAppearance;
+
+  /// No description provided for @dataBackupScopeVoice.
+  ///
+  /// In zh, this message translates to:
+  /// **'语音与朗读'**
+  String get dataBackupScopeVoice;
+
+  /// No description provided for @dataBackupScopeNotify.
+  ///
+  /// In zh, this message translates to:
+  /// **'通知与提醒'**
+  String get dataBackupScopeNotify;
+
+  /// No description provided for @dataBackupScopeModels.
+  ///
+  /// In zh, this message translates to:
+  /// **'模型与引擎'**
+  String get dataBackupScopeModels;
+
+  /// No description provided for @dataBackupScopePlugins.
+  ///
+  /// In zh, this message translates to:
+  /// **'插件与工作坊'**
+  String get dataBackupScopePlugins;
+
+  /// No description provided for @dataBackupScopeRemote.
+  ///
+  /// In zh, this message translates to:
+  /// **'远程主机'**
+  String get dataBackupScopeRemote;
+
+  /// No description provided for @dataBackupScopeOther.
+  ///
+  /// In zh, this message translates to:
+  /// **'其他设置'**
+  String get dataBackupScopeOther;
+
+  /// How many preference entries a scope holds. Shown at the end of the scope's row.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 项'**
+  String dataBackupCount(int count);
+
+  /// No description provided for @dataBackupExport.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出备份'**
+  String get dataBackupExport;
+
+  /// No description provided for @dataBackupExportHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'生成一个 JSON 文件，交给系统分享面板保存或发送'**
+  String get dataBackupExportHint;
+
+  /// No description provided for @dataBackupRestore.
+  ///
+  /// In zh, this message translates to:
+  /// **'从备份恢复'**
+  String get dataBackupRestore;
+
+  /// No description provided for @dataBackupRestoreHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择一份之前导出的备份，按范围写回本机'**
+  String get dataBackupRestoreHint;
+
+  /// No description provided for @dataBackupPickScope.
+  ///
+  /// In zh, this message translates to:
+  /// **'先勾选至少一个范围'**
+  String get dataBackupPickScope;
+
+  /// No description provided for @dataBackupEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'所选范围还没有可备份的数据'**
+  String get dataBackupEmpty;
+
+  /// After the share sheet closes. count is the number of preference entries written.
+  ///
+  /// In zh, this message translates to:
+  /// **'已导出 {count} 项'**
+  String dataBackupExportDone(int count);
+
+  /// No description provided for @dataBackupExportFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出失败，请检查存储空间后重试'**
+  String get dataBackupExportFailed;
+
+  /// No description provided for @dataBackupRestoreTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择要恢复的范围'**
+  String get dataBackupRestoreTitle;
+
+  /// No description provided for @dataBackupConfirmTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'覆盖本机设置？'**
+  String get dataBackupConfirmTitle;
+
+  /// The last question before a restore writes. count is how many entries will be written.
+  ///
+  /// In zh, this message translates to:
+  /// **'将写入 {count} 项。同一项会以备份里的值覆盖当前值；未勾选的范围不受影响。'**
+  String dataBackupConfirmBody(int count);
+
+  /// Restore finished. skipped counts entries with a type this build cannot write and secret-looking keys.
+  ///
+  /// In zh, this message translates to:
+  /// **'已恢复 {restored} 项，跳过 {skipped} 项'**
+  String dataBackupRestoreDone(int restored, int skipped);
+
+  /// No description provided for @dataBackupRestoreFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'这不是一份可用的备份文件'**
+  String get dataBackupRestoreFailed;
+
+  /// No description provided for @dataBackupRestartHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'已写回本机。重启应用后，界面与设置会按备份内容生效。'**
+  String get dataBackupRestartHint;
+
+  /// when is a local date and time, e.g. 2026-11-26 18:41.
+  ///
+  /// In zh, this message translates to:
+  /// **'上次备份：{when}'**
+  String dataBackupLastExport(String when);
+
+  /// No description provided for @dataBackupNeverExported.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没有导出过备份'**
+  String get dataBackupNeverExported;
+
+  /// No description provided for @searchKwDataBackup.
+  ///
+  /// In zh, this message translates to:
+  /// **'备份,导出,恢复,迁移,换机,数据'**
+  String get searchKwDataBackup;
+
   /// No description provided for @automaticDiagnosticsRecover.
   ///
   /// In zh, this message translates to:

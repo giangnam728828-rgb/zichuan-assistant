@@ -61,6 +61,7 @@ import 'linux_environment_page.dart';
 import 'notification_settings.dart';
 import 'performance_page.dart';
 import 'personalization_page.dart';
+import 'data_backup_page.dart';
 import 'privacy_page.dart';
 import 'search/settings_search_page.dart';
 import 'settings_widgets.dart';
@@ -277,6 +278,12 @@ class SettingsScreen extends ConsumerWidget {
               tint: SettingsHues.general,
               spot: SettingsIndex.entry(SettingsPageId.privacy),
               onTap: () => _push(context, const PrivacyPage()),
+            ),
+            SettingsTile(
+              icon: AppIcons.archive,
+              tint: SettingsHues.general,
+              spot: SettingsIndex.entry(SettingsPageId.dataBackup),
+              onTap: () => _push(context, const DataBackupPage()),
             ),
           ],
         ),

@@ -1,7 +1,7 @@
 #!/bin/bash
 # 构建并签名「子川助手」原生 Flutter/Kotlin APK。
 #
-#   bash build-apk.sh                 # 版本名默认 2.0.0，版本号自动递增
+#   bash build-apk.sh                 # 版本名取 app/pubspec.yaml，版本号自动递增
 #   VERSION_NAME=2.0.1 VERSION_CODE=12345678 bash build-apk.sh
 #
 # 产物：dist/zichuan-assistant-<version>.apk（保留现有 release signer）
@@ -13,7 +13,9 @@ KS="${KEYSTORE:-$ROOT/keystore/zichuan-release.jks}"
 # 签名材料不进仓库：keystore 与密码都由环境变量传入（CI 用 Secrets，本地放仓库外）。
 KS_PASS="${KEYSTORE_PASSWORD:-}"
 KS_ALIAS="${KEYSTORE_ALIAS:-zichuan}"
-VERSION_NAME="${VERSION_NAME:-2.0.0}"
+# 版本名跟 pubspec.yaml 走（app_info.dart 的默认值与之同步），避免脚本里再写死一份。
+VERSION_NAME="${VERSION_NAME:-$(sed -n 's/^version: \([0-9][^+ ]*\).*/\1/p' "$ROOT/app/pubspec.yaml" | head -1)}"
+[[ -n "$VERSION_NAME" ]] || { echo "读不到 app/pubspec.yaml 的版本名" >&2; exit 1; }
 VERSION_CODE="${VERSION_CODE:-}"
 
 # Build the independent Flutter/Kotlin app. Gradle reads the existing signer only

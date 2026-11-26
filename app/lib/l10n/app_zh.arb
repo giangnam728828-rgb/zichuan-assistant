@@ -3517,6 +3517,78 @@
   "companionAdaptUnreadable": "模型的回答看不懂",
   "companionAdaptEmpty": "模型没找到能用的对应",
   "companionAdaptNetwork": "网络不通",
+  "dataBackupTitle": "备份与恢复",
+  "dataBackupScopeTitle": "备份范围",
+  "dataBackupScopeHint": "勾选要放进备份的内容。API key、token、口令不会进入备份；恢复后部分设置要重启应用才生效。",
+  "dataBackupScopeChat": "聊天与草稿",
+  "dataBackupScopeAppearance": "外观与界面",
+  "dataBackupScopeVoice": "语音与朗读",
+  "dataBackupScopeNotify": "通知与提醒",
+  "dataBackupScopeModels": "模型与引擎",
+  "dataBackupScopePlugins": "插件与工作坊",
+  "dataBackupScopeRemote": "远程主机",
+  "dataBackupScopeOther": "其他设置",
+  "dataBackupCount": "{count} 项",
+  "@dataBackupCount": {
+    "description": "How many preference entries a scope holds. Shown at the end of the scope's row.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dataBackupExport": "导出备份",
+  "dataBackupExportHint": "生成一个 JSON 文件，交给系统分享面板保存或发送",
+  "dataBackupRestore": "从备份恢复",
+  "dataBackupRestoreHint": "选择一份之前导出的备份，按范围写回本机",
+  "dataBackupPickScope": "先勾选至少一个范围",
+  "dataBackupEmpty": "所选范围还没有可备份的数据",
+  "dataBackupExportDone": "已导出 {count} 项",
+  "@dataBackupExportDone": {
+    "description": "After the share sheet closes. count is the number of preference entries written.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dataBackupExportFailed": "导出失败，请检查存储空间后重试",
+  "dataBackupRestoreTitle": "选择要恢复的范围",
+  "dataBackupConfirmTitle": "覆盖本机设置？",
+  "dataBackupConfirmBody": "将写入 {count} 项。同一项会以备份里的值覆盖当前值；未勾选的范围不受影响。",
+  "@dataBackupConfirmBody": {
+    "description": "The last question before a restore writes. count is how many entries will be written.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dataBackupRestoreDone": "已恢复 {restored} 项，跳过 {skipped} 项",
+  "@dataBackupRestoreDone": {
+    "description": "Restore finished. skipped counts entries with a type this build cannot write and secret-looking keys.",
+    "placeholders": {
+      "restored": {
+        "type": "int"
+      },
+      "skipped": {
+        "type": "int"
+      }
+    }
+  },
+  "dataBackupRestoreFailed": "这不是一份可用的备份文件",
+  "dataBackupRestartHint": "已写回本机。重启应用后，界面与设置会按备份内容生效。",
+  "dataBackupLastExport": "上次备份：{when}",
+  "@dataBackupLastExport": {
+    "description": "when is a local date and time, e.g. 2026-11-26 18:41.",
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "dataBackupNeverExported": "还没有导出过备份",
+  "searchKwDataBackup": "备份,导出,恢复,迁移,换机,数据",
   "automaticDiagnosticsRecover": "恢复本地记录",
   "automaticDiagnosticsRecoverHint": "仅在本机恢复分析记录，跳过已留存故障，不重新发送旧请求。",
   "automaticDiagnosticsTitle": "自动故障分析",

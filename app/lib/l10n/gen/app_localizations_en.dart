@@ -6222,6 +6222,106 @@ class L10nEn extends L10n {
   String get companionAdaptNetwork => 'no connection';
 
   @override
+  String get dataBackupTitle => 'Backup & restore';
+
+  @override
+  String get dataBackupScopeTitle => 'What to back up';
+
+  @override
+  String get dataBackupScopeHint =>
+      'Tick what goes into the backup. API keys, tokens and passwords never do; some settings take effect after a restart.';
+
+  @override
+  String get dataBackupScopeChat => 'Chats & drafts';
+
+  @override
+  String get dataBackupScopeAppearance => 'Appearance & interface';
+
+  @override
+  String get dataBackupScopeVoice => 'Voice & reading';
+
+  @override
+  String get dataBackupScopeNotify => 'Notifications & reminders';
+
+  @override
+  String get dataBackupScopeModels => 'Models & engine';
+
+  @override
+  String get dataBackupScopePlugins => 'Plugins & Workshop';
+
+  @override
+  String get dataBackupScopeRemote => 'Remote hosts';
+
+  @override
+  String get dataBackupScopeOther => 'Other settings';
+
+  @override
+  String dataBackupCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(count, locale: localeName, other: '$count entries', one: '1 entry');
+    return '$_temp0';
+  }
+
+  @override
+  String get dataBackupExport => 'Export backup';
+
+  @override
+  String get dataBackupExportHint => 'Writes one JSON file and hands it to the share sheet';
+
+  @override
+  String get dataBackupRestore => 'Restore from backup';
+
+  @override
+  String get dataBackupRestoreHint => 'Pick a backup you exported before and write it back by scope';
+
+  @override
+  String get dataBackupPickScope => 'Tick at least one scope first';
+
+  @override
+  String get dataBackupEmpty => 'The selected scopes have nothing to back up yet';
+
+  @override
+  String dataBackupExportDone(int count) {
+    String _temp0 = intl.Intl.pluralLogic(count, locale: localeName, other: '$count entries', one: '1 entry');
+    return 'Exported $_temp0';
+  }
+
+  @override
+  String get dataBackupExportFailed => 'Export failed. Check free storage and try again.';
+
+  @override
+  String get dataBackupRestoreTitle => 'What to restore';
+
+  @override
+  String get dataBackupConfirmTitle => 'Overwrite this phone\'s settings?';
+
+  @override
+  String dataBackupConfirmBody(int count) {
+    return 'This writes $count entries. Matching keys take the backup\'s value; scopes you leave unticked are not touched.';
+  }
+
+  @override
+  String dataBackupRestoreDone(int restored, int skipped) {
+    return 'Restored $restored, skipped $skipped';
+  }
+
+  @override
+  String get dataBackupRestoreFailed => 'This is not a usable backup file';
+
+  @override
+  String get dataBackupRestartHint => 'Written back. Restart the app to see the restored settings.';
+
+  @override
+  String dataBackupLastExport(String when) {
+    return 'Last backup: $when';
+  }
+
+  @override
+  String get dataBackupNeverExported => 'No backup exported yet';
+
+  @override
+  String get searchKwDataBackup => 'backup,export,restore,migrate,new phone,data';
+
+  @override
   String get automaticDiagnosticsRecover => 'Recover local records';
 
   @override

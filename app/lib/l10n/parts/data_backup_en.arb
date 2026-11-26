@@ -1,0 +1,74 @@
+{
+  "dataBackupTitle": "Backup & restore",
+  "dataBackupScopeTitle": "What to back up",
+  "dataBackupScopeHint": "Tick what goes into the backup. API keys, tokens and passwords never do; some settings take effect after a restart.",
+  "dataBackupScopeChat": "Chats & drafts",
+  "dataBackupScopeAppearance": "Appearance & interface",
+  "dataBackupScopeVoice": "Voice & reading",
+  "dataBackupScopeNotify": "Notifications & reminders",
+  "dataBackupScopeModels": "Models & engine",
+  "dataBackupScopePlugins": "Plugins & Workshop",
+  "dataBackupScopeRemote": "Remote hosts",
+  "dataBackupScopeOther": "Other settings",
+  "dataBackupCount": "{count, plural, =1{1 entry} other{{count} entries}}",
+  "@dataBackupCount": {
+    "description": "How many preference entries a scope holds. Shown at the end of the scope's row.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dataBackupExport": "Export backup",
+  "dataBackupExportHint": "Writes one JSON file and hands it to the share sheet",
+  "dataBackupRestore": "Restore from backup",
+  "dataBackupRestoreHint": "Pick a backup you exported before and write it back by scope",
+  "dataBackupPickScope": "Tick at least one scope first",
+  "dataBackupEmpty": "The selected scopes have nothing to back up yet",
+  "dataBackupExportDone": "Exported {count, plural, =1{1 entry} other{{count} entries}}",
+  "@dataBackupExportDone": {
+    "description": "After the share sheet closes. count is the number of preference entries written.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dataBackupExportFailed": "Export failed. Check free storage and try again.",
+  "dataBackupRestoreTitle": "What to restore",
+  "dataBackupConfirmTitle": "Overwrite this phone's settings?",
+  "dataBackupConfirmBody": "This writes {count} entries. Matching keys take the backup's value; scopes you leave unticked are not touched.",
+  "@dataBackupConfirmBody": {
+    "description": "The last question before a restore writes. count is how many entries will be written.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dataBackupRestoreDone": "Restored {restored}, skipped {skipped}",
+  "@dataBackupRestoreDone": {
+    "description": "Restore finished. skipped counts entries with a type this build cannot write and secret-looking keys.",
+    "placeholders": {
+      "restored": {
+        "type": "int"
+      },
+      "skipped": {
+        "type": "int"
+      }
+    }
+  },
+  "dataBackupRestoreFailed": "This is not a usable backup file",
+  "dataBackupRestartHint": "Written back. Restart the app to see the restored settings.",
+  "dataBackupLastExport": "Last backup: {when}",
+  "@dataBackupLastExport": {
+    "description": "when is a local date and time, e.g. 2026-11-26 18:41.",
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "dataBackupNeverExported": "No backup exported yet",
+  "searchKwDataBackup": "backup,export,restore,migrate,new phone,data"
+}
