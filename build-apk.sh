@@ -10,7 +10,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 KS="${KEYSTORE:-$ROOT/keystore/zichuan-release.jks}"
-KS_PASS="${KEYSTORE_PASSWORD:-ZichuanRel2026!}"
+# 签名材料不进仓库：keystore 与密码都由环境变量传入（CI 用 Secrets，本地放仓库外）。
+KS_PASS="${KEYSTORE_PASSWORD:-}"
 KS_ALIAS="${KEYSTORE_ALIAS:-zichuan}"
 VERSION_NAME="${VERSION_NAME:-2.0.0}"
 VERSION_CODE="${VERSION_CODE:-}"
