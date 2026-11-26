@@ -32,9 +32,7 @@ ModelCatalog _catalog() => const ModelCatalog(
       ModelInfo(provider: 'deepseek', id: 'flash', name: 'V41 Flash'),
       ModelInfo(provider: 'deepseek', id: 'pro', name: 'V4 Pro'),
     ]),
-    ProviderGroup('zhipu', '智谱', [
-      ModelInfo(provider: 'zhipu', id: 'glm-5', name: 'GLM-5'),
-    ]),
+    ProviderGroup('zhipu', '智谱', [ModelInfo(provider: 'zhipu', id: 'glm-5', name: 'GLM-5')]),
   ],
   failures: [],
 );
@@ -54,8 +52,7 @@ final class _MemTeamStore extends TeamStore {
   Future<TeamState?> load(String id) async => teams[id];
 
   @override
-  Future<List<TeamState>> list() async => teams.values.toList()
-    ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  Future<List<TeamState>> list() async => teams.values.toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
   @override
   Future<void> delete(String id) async => teams.remove(id);
@@ -93,8 +90,7 @@ final class _Driver implements CollabSessionDriver {
   Future<void> cancel(String sessionId) async {}
 }
 
-Teammate _mate(String id, String name) =>
-    Teammate(id: id, name: name, provider: 'deepseek', model: 'flash');
+Teammate _mate(String id, String name) => Teammate(id: id, name: name, provider: 'deepseek', model: 'flash');
 
 /// 推进微任务与帧（内存仓库没有真实 IO，几帧就够）。
 Future<void> _settle(WidgetTester tester, {int frames = 12}) async {
@@ -121,7 +117,7 @@ Future<void> _waitForIdle(WidgetTester tester, _MemTeamStore store, String teamI
 Future<void> _send(WidgetTester tester, String text) async {
   await tester.enterText(find.byType(TextField), text);
   await tester.pump();
-  await tester.tap(find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '发送'));
+  await tester.tap(find.byKey(const ValueKey('composer-send')));
   await tester.pump();
 }
 
@@ -136,12 +132,19 @@ final class _MemConversationStore extends CouncilConversationStore {
   Future<void> save(Map<String, CouncilConversation> all) async {}
 }
 
-Future<void> _pump(WidgetTester tester, TeamOrchestrator orchestrator, {String? teamId}) async {
+Future<void> _pump(
+  WidgetTester tester,
+  TeamOrchestrator orchestrator, {
+  String? teamId,
+  bool resumeLatest = false,
+}) async {
   await tester.pumpWidget(
     testApp(
-      TeamPage(orchestrator: orchestrator, teamId: teamId),
+      TeamPage(orchestrator: orchestrator, teamId: teamId, resumeLatest: resumeLatest),
       overrides: [
         modelCatalogProvider.overrideWith((ref) async => _catalog()),
+        // 目录已缓存：新建会话按它凑两位成员（真机上点进来时通常也已经有缓存）。
+        currentModelCatalogProvider.overrideWithValue(_catalog()),
         readListLiveConnectionProvider.overrideWith((ref) => null),
       ],
     ),
@@ -157,7 +160,10 @@ void main() {
   });
 
   TeamOrchestrator orchestrator({Map<String, String> replies = const {}}) {
-    final created = TeamOrchestrator(driver: _Driver(replies: replies), store: store);
+    final created = TeamOrchestrator(
+      driver: _Driver(replies: replies),
+      store: store,
+    );
     addTearDown(created.dispose);
     return created;
   }
@@ -166,7 +172,9 @@ void main() {
     final orch = orchestrator();
     await _pump(tester, orch);
 
-    expect(find.text('团队'), findsOneWidget);
+    // 顶栏那块模式标识是「团队」，左上角的切换器也写着「团队」。
+    expect(find.byType(CollabModeBadge), findsOneWidget);
+    expect(find.text('团队'), findsNWidgets(2));
     expect(find.text('新团队'), findsOneWidget);
     expect(find.textContaining('2 位队友'), findsOneWidget);
     // 按模型目录默认给了两位，各用各的模型。
@@ -185,12 +193,7 @@ void main() {
         TeamPage(orchestrator: orch),
         overrides: [
           modelCatalogProvider.overrideWith(
-            (ref) async => const ModelCatalog(
-              defaultSelection: null,
-              routableProviders: [],
-              groups: [],
-              failures: [],
-            ),
+            (ref) async => const ModelCatalog(defaultSelection: null, routableProviders: [], groups: [], failures: []),
           ),
           readListLiveConnectionProvider.overrideWith((ref) => null),
         ],
@@ -329,12 +332,7 @@ void main() {
     late String opened;
     await tester.runAsync(() async {
       orch = TeamOrchestrator(
-        driver: _Driver(
-          replies: {
-            '阿蓝': '前端改完了。\n移交 @阿橙',
-            '阿橙': '测试跑过了',
-          },
-        ),
+        driver: _Driver(replies: {'阿蓝': '前端改完了。\n移交 @阿橙', '阿橙': '测试跑过了'}),
         store: store,
       );
       addTearDown(orch.dispose);

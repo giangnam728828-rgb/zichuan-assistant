@@ -81,10 +81,12 @@ void main() {
       expect(search.top - menu.bottom, _near(8));
       expect(settings.left, _near(menu.left));
       expect(settings.bottom, _near(composer.bottom));
-      // The rail owns ≡: the header has none, its pill starts on the chat
-      // column's 12.
+      // The rail owns ≡: the header has none, and the mode switcher takes the
+      // lead, so the pill starts after it.
       expect(find.byKey(const ValueKey('chat-menu')), findsNothing);
-      expect(pill.left, _near(68 + 12));
+      final mode = _key(tester, 'conversation-mode');
+      expect(mode.left, _near(68 + 12));
+      expect(pill.left, _near(mode.right + 8));
     });
 
     testWidgets('panel: edges, bar on the header line, tabs on 16', (tester) async {

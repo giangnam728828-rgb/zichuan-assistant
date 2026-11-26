@@ -1,8 +1,7 @@
 // 厂商标记：模型选择器、Grok 顶栏、QUORUM 成员与每条消息共用一枚。
 //
-// 没有厂商 logo 素材，统一用「品牌色 + 自绘品牌形」（见 model_brand_mark.dart）：
-// Claude 的星芒、Gemini 的四角星、OpenAI 的花结、DeepSeek 的鲸、Llama 的
-// 无穷环，字谱是字母 Z，其余用品牌字母。不请求远程图片，不依赖版权素材包。
+// 品牌图是本地 SVG（assets/brands/，见 model_brand_mark.dart）：按品牌色染色，
+// 不请求远程图片。认不出的品牌画一枚空心中性点，不冒充任何厂商。
 
 import 'package:flutter/material.dart';
 
@@ -51,8 +50,10 @@ class ProviderBrandIcon extends StatelessWidget {
 ProviderBrandIcon providerBrandIconOf(String? modelRef, {double size = 16, bool filled = false, String? semanticLabel}) {
   final slash = modelRef?.indexOf('/') ?? -1;
   final provider = slash > 0 ? modelRef!.substring(0, slash) : modelRef;
+  // 中转 Provider 下的 deepseek-chat 仍然是 DeepSeek：模型名一起交给 brandOf。
+  final model = slash > 0 ? modelRef!.substring(slash + 1) : null;
   return ProviderBrandIcon(
-    brand: brandOf(provider),
+    brand: brandOf(provider, model),
     size: size,
     filled: filled,
     semanticLabel: semanticLabel,

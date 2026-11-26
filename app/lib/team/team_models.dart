@@ -4,6 +4,8 @@
 // 随每条消息落盘；每个队友背后是一个独立的子会话（sessionId 记下来，
 // 恢复时沿用，不重建）。
 
+import '../council/collab_models.dart';
+
 /// 一个队友：名字、角色说明、所用模型。
 final class Teammate {
   const Teammate({
@@ -138,6 +140,7 @@ final class TeamState {
     this.wakePrompt = defaultWakePrompt,
     this.exclusiveWrite = true,
     this.running = const [],
+    this.activity = const {},
     required this.createdAt,
     required this.updatedAt,
     this.rev = 0,
@@ -204,6 +207,9 @@ final class TeamState {
   /// 免得两位队友同时改同一份代码。只读顾问不受影响，照常并行。
   final bool exclusiveWrite;
 
+  /// 各队友此刻的真实执行过程（teammateId → 状态）。只在本进程有意义，不落盘。
+  final Map<String, CollabActivity> activity;
+
   /// 正在跑的队友 id（按开始顺序）。每次开始/结束都落盘，重开页面还能
   /// 看到「谁在做」；进程重启后由编排器清掉（那已经不是在跑了）。
   final List<String> running;
@@ -255,6 +261,7 @@ final class TeamState {
     String? wakePrompt,
     bool? exclusiveWrite,
     List<String>? running,
+    Map<String, CollabActivity>? activity,
     DateTime? updatedAt,
     int? rev,
   }) => TeamState(
@@ -269,6 +276,7 @@ final class TeamState {
     wakePrompt: wakePrompt ?? this.wakePrompt,
     exclusiveWrite: exclusiveWrite ?? this.exclusiveWrite,
     running: running ?? this.running,
+    activity: activity ?? this.activity,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     rev: rev ?? this.rev,

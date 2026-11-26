@@ -90,10 +90,7 @@ CouncilSpec spec({
   Duration timeout = const Duration(milliseconds: 100),
 }) => CouncilSpec(
   question: '手机端的本地 AI 应该优先做哪一类功能？',
-  seats: [
-    for (var i = 0; i < seats; i++)
-      SeatSpec(id: 'seat$i', provider: 'p$i', model: 'm$i', label: '模型$i'),
-  ],
+  seats: [for (var i = 0; i < seats; i++) SeatSpec(id: 'seat$i', provider: 'p$i', model: 'm$i', label: '模型$i')],
   mode: mode,
   maxConcurrency: maxConcurrency,
   budgetCalls: budgetCalls,
@@ -176,9 +173,7 @@ void main() {
   });
 
   test('单席失败重试一次后成功', () async {
-    final driver = FakeDriver({
-      'seat2': const FakeScript(FakeKind.ok, text: '第二次才成功', failFirst: 1),
-    });
+    final driver = FakeDriver({'seat2': const FakeScript(FakeKind.ok, text: '第二次才成功', failFirst: 1)});
     final o = make(driver);
     await o.submit(spec());
     final done = await waitTerminal(o, 'run1');
@@ -217,6 +212,26 @@ void main() {
     final done = await waitTerminal(o, 'run1');
     expect(done.phase, CollabPhase.cancelled);
     expect(driver.cancelled, isNotEmpty);
+    await o.dispose();
+  });
+
+  test('页面回来再 resume：正在跑的 run 不重开第二条驱动，席位不重置', () async {
+    final driver = FakeDriver({'seat0': const FakeScript(FakeKind.ok)});
+    final o = make(driver);
+    await o.submit(spec(maxConcurrency: 1, timeout: const Duration(seconds: 2)));
+    final live = await o.snapshot('run1');
+    final resumed = await o.resume('run1');
+
+    // 正在驱动中：原样返回内存快照（还是队列/第一轮），不把 running 改回 pending。
+    expect(resumed, isNotNull);
+    expect(resumed!.rev, live!.rev);
+    expect(resumed.phase, live.phase);
+
+    final done = await waitTerminal(o, 'run1');
+    expect(done.phase, CollabPhase.done);
+    // 三个席位会话，没有因为 resume 再开一轮（再驱动会多开 3 个）。
+    expect(driver.opened, hasLength(3));
+    expect(done.seats.values.where((seat) => seat.status == SeatStatus.answered), hasLength(3));
     await o.dispose();
   });
 
@@ -325,9 +340,11 @@ void main() {
     expect(back.callsUsed, 3);
     expect(back.rev, 7);
     // 席位预设（决定工具，如联网）也随运行落盘。
-    expect(SeatSpec.fromJson(
-      const SeatSpec(id: 'x', provider: 'p', model: 'm', agentPreset: 'research').toJson(),
-    ).agentPreset, 'research');
+    expect(
+      SeatSpec.fromJson(const SeatSpec(id: 'x', provider: 'p', model: 'm', agentPreset: 'research').toJson())
+          .agentPreset,
+      'research',
+    );
     // 未知字段不炸（向后兼容）
     final withUnknown = {...run.toJson(), 'futureField': 42};
     expect(CollabRun.fromJson(withUnknown).id, 'r1');

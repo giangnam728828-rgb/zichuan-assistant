@@ -100,7 +100,14 @@ void main() {
       final position = tester.state<ScrollableState>(scroll).position;
       expect(position.maxScrollExtent, greaterThan(500));
       final before = position.pixels;
-      await tester.drag(find.byType(ScheduleQuestionBody), const Offset(0, -180));
+      // 卡片很高时会顶到顶栏下面，中心点正好落在标题胶囊上（那是另一个可点
+      // 区域，手势到不了列表）。从卡片下半截的可见处拖。
+      Offset visibleGrab() {
+        final rect = tester.getRect(find.byType(ScheduleQuestionBody));
+        return Offset(rect.center.dx, rect.bottom - 20);
+      }
+
+      await tester.dragFrom(visibleGrab(), const Offset(0, -180));
       await pumpFrames(tester);
       expect(position.pixels, greaterThan(before + 100));
       expect(tester.getRect(find.text('授权 / Authorize')), choiceRect);
@@ -108,7 +115,7 @@ void main() {
       // Use actual inner drags: Flutter's scrollUntilVisible ends by revealing
       // every ancestor, which would also move the anchored outer ChatList.
       for (var i = 0; i < 40 && find.text('null').hitTestable().evaluate().isEmpty; i++) {
-        await tester.drag(find.byType(ScheduleQuestionBody), const Offset(0, -220));
+        await tester.dragFrom(visibleGrab(), const Offset(0, -220));
         await pumpFrames(tester, 2);
       }
       expect(find.text('null').hitTestable(), findsOneWidget, reason: 'the last optional field is reachable');

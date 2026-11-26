@@ -1,19 +1,19 @@
-// 议会与团队共用的聊天外壳：顶栏、消息气泡、输入栏、成员行。
+// 议会与团队共用的聊天外壳。
 //
-// 方案第六部分要求两种模式与普通聊天同一套视觉：透明的顶栏行、同样的
-// 页面背景、同样的气泡间距、同样的底部输入栏。普通聊天的 ChatScreen 绑着
-// Host 会话与工具流，没法直接套在协作运行上，所以这里把两者共用的那几件
-// 抽出来，议会页与团队页都用它——不再各画一套。
+// 这里不再自己画一套：顶栏、用户气泡、助手消息、系统提示、输入栏全部转交给
+// `ui/chat/shared/conversation_kit.dart`——也就是普通聊天在用的那套部件与
+// 排版。本文件只保留两种协作模式自己的小东西（模式胶囊、成员头像、席位状态
+// 文案），以及把协作数据塞进公共部件的适配层。
 
 import 'package:flutter/material.dart';
 
 import '../../council/collab_models.dart';
+import '../../state/conversation_mode_state.dart';
 import '../chat/model_brand_mark.dart';
+import '../chat/shared/conversation_kit.dart';
 import '../providers/provider_brand_icon.dart';
-import '../chat/render/markdown_body.dart';
-import '../theme/app_icons.dart';
 
-/// 协作页顶栏：返回 + 标识 + 标题/副标题 + 右侧动作。
+/// 协作页顶栏：与普通聊天同一条透明行，只多一枚模式胶囊。
 class CollabHeader extends StatelessWidget {
   const CollabHeader({
     super.key,
@@ -22,6 +22,9 @@ class CollabHeader extends StatelessWidget {
     required this.badge,
     required this.actions,
     this.onTitleTap,
+    this.statusColor,
+    this.mode,
+    this.onModeSelected,
   });
 
   final String title;
@@ -32,58 +35,24 @@ class CollabHeader extends StatelessWidget {
   final List<Widget> actions;
   final VoidCallback? onTitleTap;
 
+  /// 状态点颜色（正在跑的时候给主色）。
+  final Color? statusColor;
+
+  /// 左上角模式切换器：返回键之后、标题之前。
+  final ConversationMode? mode;
+  final ValueChanged<ConversationMode>? onModeSelected;
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 6, 4, 6),
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: '返回',
-            icon: const Icon(AppIcons.back, size: 22),
-            onPressed: () => Navigator.of(context).maybePop(),
-          ),
-          Expanded(
-            child: InkWell(
-              onTap: onTitleTap,
-              borderRadius: BorderRadius.circular(10),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        badge,
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelSmall?.copyWith(color: colors.onSurfaceVariant),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          ...actions,
-        ],
-      ),
+    return ConversationHeader(
+      title: title,
+      subtitle: subtitle,
+      badge: badge,
+      actions: actions,
+      onTitleTap: onTitleTap,
+      statusColor: statusColor,
+      mode: mode,
+      onModeSelected: onModeSelected,
     );
   }
 }
@@ -113,52 +82,42 @@ class CollabModeBadge extends StatelessWidget {
   }
 }
 
-/// 我说的一句话：右侧主色容器气泡，与团队/聊天一致。
+/// 我说的一句话：直接用普通聊天的气泡。
 class CollabUserBubble extends StatelessWidget {
-  const CollabUserBubble({super.key, required this.text});
+  const CollabUserBubble({super.key, required this.text, this.animate = true});
 
   final String text;
 
+  /// 切回旧会话时传 false：历史消息不重播进场。
+  final bool animate;
+
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, left: 48, right: 4),
-      child: Align(
-        alignment: Alignment.centerRight,
-        child: Container(
-          constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.8),
-          padding: const EdgeInsets.fromLTRB(13, 10, 13, 11),
-          decoration: BoxDecoration(
-            color: colors.primaryContainer,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: MarkdownBody(text: text, selectable: false),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ConversationUserMessage(text: text, animate: animate);
 }
 
-/// 一条模型消息：品牌图 + 名字 + 正文，下面一行状态。
+/// 一条模型消息：品牌图 + 名字 + 普通聊天的裸排正文 + 一行状态。
 class CollabMessage extends StatelessWidget {
   const CollabMessage({
     super.key,
     required this.brand,
     required this.name,
     required this.text,
+    this.model,
     this.status,
     this.statusColor,
     this.failed = false,
     this.onNameTap,
     this.streaming = false,
     this.trailing,
+    this.animate = true,
   });
 
   final ModelBrand brand;
   final String name;
   final String text;
+
+  /// 「DeepSeek · V4 Pro」这一行；空则只显示品牌名。
+  final String? model;
 
   /// 「作答中…」/「失败：…」；空则不画。
   final String? status;
@@ -166,89 +125,35 @@ class CollabMessage extends StatelessWidget {
   final bool failed;
   final VoidCallback? onNameTap;
   final bool streaming;
+
+  /// 名字后面那枚小标签（主席 / 只读）。
   final Widget? trailing;
+
+  /// 切回旧会话时传 false：历史消息不重播进场。
+  final bool animate;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final color = failed ? colors.error : brandColorOn(brand, colors);
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, right: 28, left: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 1, right: 8),
-            child: ProviderBrandIcon(brand: brand, size: 20, filled: true),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: InkWell(
-                        onTap: onNameTap,
-                        borderRadius: BorderRadius.circular(4),
-                        child: Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: colors.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (trailing != null) ...[const SizedBox(width: 6), trailing!],
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Container(
-                  constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.86),
-                  padding: const EdgeInsets.fromLTRB(12, 9, 12, 10),
-                  decoration: BoxDecoration(
-                    color: failed ? colors.errorContainer.withValues(alpha: 0.55) : colors.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: MarkdownBody(text: text, streaming: streaming),
-                ),
-                if (status != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4, left: 2),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (streaming) ...[
-                          SizedBox(
-                            width: 10,
-                            height: 10,
-                            child: CircularProgressIndicator(strokeWidth: 1.6, color: color),
-                          ),
-                          const SizedBox(width: 5),
-                        ],
-                        Flexible(
-                          child: Text(
-                            status!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: statusColor ?? colors.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    final config = model ?? _modelLine(brand, name);
+    return ConversationAssistantMessage(
+      brand: brand,
+      name: name,
+      text: text,
+      model: config,
+      badge: trailing,
+      status: status,
+      statusColor: statusColor,
+      failed: failed,
+      streaming: streaming,
+      onNameTap: onNameTap,
+      animate: animate,
     );
+  }
+
+  /// 名字下面那行小字由调用方给的 `status` 决定，这里只标品牌名。
+  static String? _modelLine(ModelBrand brand, String name) {
+    final label = brandLabel(brand);
+    return label.isEmpty || label == name ? null : label;
   }
 }
 
@@ -259,23 +164,11 @@ class CollabSystemNote extends StatelessWidget {
   final String text;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 32),
-      child: Center(
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.outline),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ConversationSystemNote(text: text);
 }
 
-/// 议会/团队共用的输入栏：和普通聊天同一套圆角填充、同一颗发送键。
-class CollabComposer extends StatefulWidget {
+/// 议会/团队共用的输入栏：与普通聊天同一块玻璃、同一颗发送键。
+class CollabComposer extends StatelessWidget {
   const CollabComposer({
     super.key,
     required this.controller,
@@ -298,83 +191,16 @@ class CollabComposer extends StatefulWidget {
   final bool enabled;
 
   @override
-  State<CollabComposer> createState() => _CollabComposerState();
-}
-
-class _CollabComposerState extends State<CollabComposer> {
-  @override
-  void initState() {
-    super.initState();
-    widget.controller.addListener(_refresh);
-  }
-
-  @override
-  void didUpdateWidget(CollabComposer oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller != widget.controller) {
-      oldWidget.controller.removeListener(_refresh);
-      widget.controller.addListener(_refresh);
-    }
-  }
-
-  void _refresh() => setState(() {});
-
-  @override
-  void dispose() {
-    widget.controller.removeListener(_refresh);
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final text = widget.controller.text.trim();
-    final canSend = text.isNotEmpty && !widget.busy && widget.enabled;
-    return Padding(
-      // 键盘弹起时随 viewInsets 上移，不被系统导航栏遮住。
-      padding: EdgeInsets.fromLTRB(8, 6, 8, 8 + MediaQuery.viewInsetsOf(context).bottom * 0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (widget.leading != null) ...[widget.leading!, const SizedBox(width: 4)],
-          Expanded(
-            child: TextField(
-              controller: widget.controller,
-              enabled: widget.enabled,
-              minLines: 1,
-              maxLines: 5,
-              textInputAction: TextInputAction.newline,
-              onChanged: widget.onChanged,
-              style: theme.textTheme.bodyMedium?.copyWith(color: colors.onSurface),
-              decoration: InputDecoration(
-                hintText: widget.hint,
-                hintStyle: theme.textTheme.bodyMedium?.copyWith(color: colors.outline),
-                filled: true,
-                fillColor: colors.surfaceContainerHighest,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          if (widget.busy)
-            IconButton.filledTonal(
-              tooltip: '停止',
-              onPressed: widget.onStop,
-              icon: const Icon(AppIcons.stopGenerating, size: 20),
-            )
-          else
-            IconButton.filled(
-              tooltip: '发送',
-              onPressed: canSend ? widget.onSend : null,
-              icon: const Icon(AppIcons.send, size: 20),
-            ),
-        ],
-      ),
+    return ConversationComposer(
+      controller: controller,
+      onSend: onSend,
+      busy: busy,
+      hint: hint,
+      onStop: onStop,
+      leading: leading,
+      onChanged: onChanged,
+      enabled: enabled,
     );
   }
 }

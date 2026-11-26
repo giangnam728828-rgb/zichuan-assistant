@@ -12,6 +12,7 @@
 
 import 'dart:async';
 
+import '../collab/collab_activity.dart';
 import '../collab/collab_session_book.dart';
 import '../council/collab_models.dart';
 import '../council/collab_orchestrator.dart';
@@ -51,7 +52,7 @@ final class TeamOrchestrator {
   final Duration Function(int minutes) _wakeInterval;
 
   /// 开出一个队友会话时的回调：团队页据此登记，历史列表不再单列这些会话。
-  final void Function(CollabSessionInfo info)? onSession;
+  final FutureOr<void> Function(CollabSessionInfo info)? onSession;
 
   /// 同时在飞的队友数（手机并发：3）。
   final int maxConcurrency;
@@ -111,8 +112,7 @@ final class TeamOrchestrator {
 
   static String _defaultId() => 't${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
 
-  String _msgId() =>
-      'm${_clock().microsecondsSinceEpoch.toRadixString(36)}${(_msgSeq++).toRadixString(36)}';
+  String _msgId() => 'm${_clock().microsecondsSinceEpoch.toRadixString(36)}${(_msgSeq++).toRadixString(36)}';
 
   /// 状态流：每次落盘成功后发一份新快照，界面只订阅它。
   Stream<TeamState> get events => _events.stream;
@@ -186,12 +186,7 @@ final class TeamOrchestrator {
     return current.copyWith(
       teammates: [
         for (final other in current.teammates)
-          other.id == mate.id
-              ? mate.copyWith(
-                  name: mate.name.trim(),
-                  brief: mate.brief.trim(),
-                )
-              : other,
+          other.id == mate.id ? mate.copyWith(name: mate.name.trim(), brief: mate.brief.trim()) : other,
       ],
     );
   });
@@ -313,12 +308,7 @@ final class TeamOrchestrator {
   ///
   /// 同一个人在一次 [send] 里只跑一轮（[seen] 记着），所以 A→B→A 的推诿
   /// 会在第三跳停下；[depth] 再兜一层底。
-  Future<void> _drive(
-    String teamId,
-    List<String> mateIds, {
-    int depth = 0,
-    Set<String>? seen,
-  }) async {
+  Future<void> _drive(String teamId, List<String> mateIds, {int depth = 0, Set<String>? seen}) async {
     final visited = seen ?? <String>{};
     final pending = [
       for (final id in mateIds)
@@ -472,13 +462,24 @@ final class TeamOrchestrator {
     }
   }
 
-  /// 「谁在跑」：内存 + 广播，不排队写盘。
+  /// 「谁在跑」：内存 + 广播，不排队写盘。结束时顺手擦掉这一位的实时过程。
   void _setRunning(String teamId, String mateId, {required bool on}) {
     final current = _latest[teamId];
     if (current == null) return;
     final running = [...current.running]..remove(mateId);
     if (on) running.add(mateId);
-    final next = current.copyWith(running: running);
+    final activity = {...current.activity};
+    if (!on) activity.remove(mateId);
+    final next = current.copyWith(running: running, activity: activity);
+    _latest[teamId] = next;
+    _emit(next);
+  }
+
+  /// 一位队友此刻的真实进度：内存 + 广播，不写盘（每 90ms 一次，写盘会拖慢并发）。
+  void _setActivity(String teamId, String mateId, CollabActivity activity) {
+    final current = _latest[teamId];
+    if (current == null) return;
+    final next = current.copyWith(activity: {...current.activity, mateId: activity});
     _latest[teamId] = next;
     _emit(next);
   }
@@ -500,7 +501,7 @@ final class TeamOrchestrator {
           await _update(teamId, (current) => current.copyWith(sessions: {...current.sessions, mate.id: created}));
           // 登记它属于这个团队的哪位队友（失败也不影响这一轮）。
           try {
-            onSession?.call((
+            await onSession?.call((
               sessionId: created,
               label: mate.name,
               ownerId: teamId,
@@ -509,12 +510,27 @@ final class TeamOrchestrator {
           } on Object {
             // 登记只是给历史列表用的，不能挡住群聊。
           }
-          if (_aborted.contains(teamId)) return null;
+          if (_aborted.contains(teamId)) {
+            // 取消发生在开会话/落盘的当口：刚开出来的会话也停掉，别留着它空转。
+            unawaited(_driver.cancel(created).catchError((_) {}));
+            return null;
+          }
         }
         final sid = sessionId;
         _inflight.putIfAbsent(teamId, () => <String>{}).add(sid);
         registered = sid;
-        final outcome = await _driver.runTurn(sid, prompt, timeout: turnTimeout);
+        if (_aborted.contains(teamId)) {
+          // 取消发生在开会话/登记的当口：这一轮还没发出去，直接停下。
+          unawaited(_driver.cancel(sid).catchError((_) {}));
+          return null;
+        }
+        final outcome = await runTurnObserved(
+          driver: _driver,
+          sessionId: sid,
+          text: prompt,
+          timeout: turnTimeout,
+          onActivity: (activity) => _setActivity(teamId, mate.id, activity),
+        );
         if (_aborted.contains(teamId)) return null;
         final text = outcome.text.trim();
         if (outcome.isCompleted && text.isNotEmpty) {
@@ -547,29 +563,25 @@ final class TeamOrchestrator {
     };
   }
 
-  Future<void> _appendAnswer(
-    String teamId,
-    Teammate mate,
-    String text, {
-    String? handoffTo,
-  }) => _update(teamId, (current) {
-    final messages = [
-      ...current.messages,
-      TeamMsg(
-        id: _msgId(),
-        role: TeamMsgRole.teammate,
-        teammateId: mate.id,
-        text: text,
-        at: _clock(),
-        handoffTo: handoffTo,
-      ),
-    ];
-    return current.copyWith(
-      messages: messages,
-      // 它已经看过群里到目前为止的全部内容（含自己这条）。
-      cursors: {...current.cursors, mate.id: messages.length},
-    );
-  });
+  Future<void> _appendAnswer(String teamId, Teammate mate, String text, {String? handoffTo}) =>
+      _update(teamId, (current) {
+        final messages = [
+          ...current.messages,
+          TeamMsg(
+            id: _msgId(),
+            role: TeamMsgRole.teammate,
+            teammateId: mate.id,
+            text: text,
+            at: _clock(),
+            handoffTo: handoffTo,
+          ),
+        ];
+        return current.copyWith(
+          messages: messages,
+          // 它已经看过群里到目前为止的全部内容（含自己这条）。
+          cursors: {...current.cursors, mate.id: messages.length},
+        );
+      });
 
   Future<void> _appendFailure(String teamId, Teammate mate, String error) => _update(teamId, (current) {
     return current.copyWith(
@@ -604,8 +616,7 @@ final class TeamOrchestrator {
       buffer.writeln('这个团队目前只有你一个人。');
     } else {
       final list = [
-        for (final other in others)
-          other.brief.trim().isEmpty ? other.name : '${other.name}（${other.brief.trim()}）',
+        for (final other in others) other.brief.trim().isEmpty ? other.name : '${other.name}（${other.brief.trim()}）',
       ];
       buffer.writeln('团队其他成员：${list.join('、')}。');
     }

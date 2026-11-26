@@ -20,6 +20,7 @@ import 'dart:async';
 
 import 'package:dsh_client/dsh_client.dart';
 
+import '../collab/collab_activity.dart';
 import '../collab/collab_session_book.dart';
 import 'collab_models.dart';
 import 'collab_store.dart';
@@ -29,13 +30,7 @@ enum TurnKind { completed, aborted, failed }
 
 /// 一次 turn 的结果：终稿文本与用量。
 final class TurnOutcome {
-  const TurnOutcome({
-    required this.kind,
-    this.text = '',
-    this.tokensIn = 0,
-    this.tokensOut = 0,
-    this.error,
-  });
+  const TurnOutcome({required this.kind, this.text = '', this.tokensIn = 0, this.tokensOut = 0, this.error});
 
   final TurnKind kind;
   final String text;
@@ -60,6 +55,40 @@ abstract interface class CollabSessionDriver {
 
   /// 尽量停下会话里正在跑的一轮（取消时用）。
   Future<void> cancel(String sessionId);
+}
+
+/// 一轮进行中的真实事件（驱动能吐多少就吐多少，不编）。
+sealed class CollabTurnEvent {
+  const CollabTurnEvent();
+}
+
+/// 进入某个阶段：思考 / 调工具 / 开始写正文。`detail` 是真实的工具名等。
+final class CollabTurnStage extends CollabTurnEvent {
+  const CollabTurnStage(this.stage, {this.detail = ''});
+
+  /// `thinking` / `tool` / `replying`。
+  final String stage;
+  final String detail;
+}
+
+/// 正文增量（逐 token）。只来自 Host 的 assistant-stream。
+final class CollabTurnText extends CollabTurnEvent {
+  const CollabTurnText(this.delta);
+  final String delta;
+}
+
+/// 这一轮结束。
+final class CollabTurnDone extends CollabTurnEvent {
+  const CollabTurnDone(this.outcome);
+  final TurnOutcome outcome;
+}
+
+/// 能吐实时过程的驱动。生产实现是 [DshCollabDriver]；测试的假驱动不必实现，
+/// 编排器会退回 `runTurn`。
+abstract interface class CollabStreamingDriver {
+  /// 在会话里发一条消息，边跑边吐 [CollabTurnEvent]；最后一条是
+  /// [CollabTurnDone]。订阅取消等于放弃等待（不保证停下远端）。
+  Stream<CollabTurnEvent> streamTurn(String sessionId, String text, {Duration? timeout});
 }
 
 class _Cancelled implements Exception {}
@@ -87,7 +116,7 @@ final class CollabOrchestrator {
   final DateTime Function() _clock;
 
   /// 开出一个席位会话时的回调：协作页据此登记，历史列表不再单列这些会话。
-  final void Function(CollabSessionInfo info)? onSession;
+  final FutureOr<void> Function(CollabSessionInfo info)? onSession;
 
   /// 失败重试前的等待：限流给更长的时间，普通错误短等。
   final Duration Function(int attempt, TurnOutcome last) _retryDelay;
@@ -138,10 +167,7 @@ final class CollabOrchestrator {
       id: _newId(),
       spec: spec,
       phase: CollabPhase.queued,
-      seats: {
-        for (final s in spec.seats)
-          s.id: SeatState(sessionId: seedSessions[s.id]),
-      },
+      seats: {for (final s in spec.seats) s.id: SeatState(sessionId: seedSessions[s.id])},
       createdAt: now,
       updatedAt: now,
     );
@@ -153,7 +179,14 @@ final class CollabOrchestrator {
   }
 
   /// 从盘上恢复；已到终态则原样返回，不再驱动。
+  ///
+  /// 页面切走再切回来会再调一次：这个 run 如果**正在驱动**，直接把内存里的
+  /// 最新快照还回去，不重置席位、也不再起一条驱动循环（同一 run 只驱动一次）。
   Future<CollabRun?> resume(String runId) async {
+    if (_driving.contains(runId)) {
+      final live = _latest[runId];
+      if (live != null) return live;
+    }
     final run = await _store.load(runId);
     if (run == null) return null;
     _latest[run.id] = run;
@@ -178,7 +211,12 @@ final class CollabOrchestrator {
     final current = _latest[runId] ?? await _store.load(runId);
     if (current == null || current.phase.isTerminal) return;
     await _update(runId, (r) => r.copyWith(cancelRequested: true));
-    for (final session in [..._activeSessions]) {
+    // 只停这次运行的席位：同一连接上可能还有别的议会在跑，不能一起掐掉。
+    final sessions = <String>{
+      for (final seat in current.spec.seats)
+        if (current.seatOf(seat.id).sessionId case final sid? when sid.isNotEmpty) sid,
+    };
+    for (final session in sessions.intersection(_activeSessions)) {
       unawaited(_driver.cancel(session).catchError((_) {}));
     }
   }
@@ -207,6 +245,19 @@ final class CollabOrchestrator {
     });
     _queue = task.then((_) {}, onError: (_) {});
     return task;
+  }
+
+  /// 只改内存并广播（实时过程每 90ms 一次，写盘会把并发拖成串行）。
+  void _emitLocal(String runId, CollabRun Function(CollabRun current) mutate) {
+    final current = _latest[runId];
+    if (current == null) return;
+    final next = mutate(current);
+    _latest[runId] = next;
+    if (!_disposed && !_events.isClosed) _events.add(next);
+  }
+
+  void _setSeatActivity(String runId, String seatId, CollabActivity activity) {
+    _emitLocal(runId, (current) => current.copyWith(activity: {...current.activity, seatId: activity}));
   }
 
   void _driveLater(String runId) {
@@ -290,10 +341,7 @@ final class CollabOrchestrator {
       (seat, outcome) => _update(runId, (current) {
         if (outcome.kind != TurnKind.completed) return current;
         final state = current.seatOf(seat.id);
-        return current.withSeat(
-          seat.id,
-          state.copyWith(status: SeatStatus.answered, answer: outcome.text.trim()),
-        );
+        return current.withSeat(seat.id, state.copyWith(status: SeatStatus.answered, answer: outcome.text.trim()));
       }),
     );
     final latest = _require(runId);
@@ -385,10 +433,7 @@ final class CollabOrchestrator {
         final verdict = outcome.text.trim();
         final latest = _require(runId);
         if (latest.cancelRequested) throw _Cancelled();
-        final withVerdict = await _update(
-          runId,
-          (r) => r.copyWith(verdict: verdict.isEmpty ? '（主席没有写出裁决）' : verdict),
-        );
+        final withVerdict = await _update(runId, (r) => r.copyWith(verdict: verdict.isEmpty ? '（主席没有写出裁决）' : verdict));
         // 裁决正文单独存一份可读的 Markdown，落好了才进终态。
         await _store.writeVerdict(withVerdict);
         await _transition(runId, CollabPhase.done);
@@ -434,10 +479,13 @@ final class CollabOrchestrator {
       // 预算：每次调用前计数并检查，超限立即停下。
       final before = await _update(runId, (r) {
         if (r.callsUsed >= r.spec.budgetCalls) throw _BudgetExceeded();
-        return r.copyWith(callsUsed: r.callsUsed + 1, seats: {
-          ...r.seats,
-          seat.id: r.seatOf(seat.id).copyWith(status: SeatStatus.running, attempts: attempts),
-        });
+        return r.copyWith(
+          callsUsed: r.callsUsed + 1,
+          seats: {
+            ...r.seats,
+            seat.id: r.seatOf(seat.id).copyWith(status: SeatStatus.running, attempts: attempts),
+          },
+        );
       });
       final state = before.seatOf(seat.id);
       String sessionId;
@@ -455,22 +503,34 @@ final class CollabOrchestrator {
         final s = r.seatOf(seat.id);
         return r.withSeat(seat.id, s.copyWith(sessionId: sessionId));
       });
-      if (state.sessionId == null) {
-        // 新开出来的会话：登记它属于这次议会的哪个席位（失败也不影响运行）。
-        try {
-          onSession?.call((
-            sessionId: sessionId,
-            label: seat.label ?? seat.model,
-            ownerId: runId,
-            parentLabel: before.spec.question,
-          ));
-        } on Object {
-          // 登记只是给历史列表用的，不能挡住议会。
-        }
-      }
+      // 先登记为活跃，再等登记表落盘：这中间用户点取消也要能停掉它。
       _activeSessions.add(sessionId);
       try {
-        final outcome = await _driver.runTurn(sessionId, prompt, timeout: before.spec.seatTimeout);
+        if (_require(runId).cancelRequested) {
+          // 取消发生在开会话/登记的当口：不等这一轮跑完，立刻停。
+          unawaited(_driver.cancel(sessionId).catchError((_) {}));
+          return const TurnOutcome(kind: TurnKind.aborted, error: '已取消');
+        }
+        if (state.sessionId == null) {
+          // 新开出来的会话：登记它属于这次议会的哪个席位（失败也不影响运行）。
+          try {
+            await onSession?.call((
+              sessionId: sessionId,
+              label: seat.label ?? seat.model,
+              ownerId: runId,
+              parentLabel: before.spec.question,
+            ));
+          } on Object {
+            // 登记只是给历史列表用的，不能挡住议会。
+          }
+        }
+        final outcome = await runTurnObserved(
+          driver: _driver,
+          sessionId: sessionId,
+          text: prompt,
+          timeout: before.spec.seatTimeout,
+          onActivity: (activity) => _setSeatActivity(runId, seat.id, activity),
+        );
         last = outcome;
         await _update(runId, (r) {
           final s = r.seatOf(seat.id);
@@ -503,6 +563,7 @@ final class CollabOrchestrator {
         });
       } finally {
         _activeSessions.remove(sessionId);
+        _emitLocal(runId, (r) => r.copyWith(activity: {...r.activity}..remove(seat.id)));
       }
       // 还有一次机会：先退避再试（限流等更久）；用户已取消就收手。
       if (attempts < 2) {
@@ -651,7 +712,7 @@ final class CollabOrchestrator {
 ///
 /// 每席位一个普通子会话：`session/create` → `session/selectModel` →
 /// `session/prompt` → `session/follow` 直到 `turn/end`。
-final class DshCollabDriver implements CollabSessionDriver {
+final class DshCollabDriver implements CollabSessionDriver, CollabStreamingDriver {
   DshCollabDriver(this.client);
 
   final DshClient client;
@@ -680,53 +741,57 @@ final class DshCollabDriver implements CollabSessionDriver {
     var tokensOut = 0;
     var baseline = 0; // 快照之前的旧事件（历史回放）不参与本次 turn 的判定
     var sawSnapshot = false;
-    final subscription = client.watch(sessionId).listen(
-      (event) {
-        if (event is SessionSnapshotEvent) {
-          sawSnapshot = true;
-          for (final e in event.events) {
-            if (e.seq > baseline) baseline = e.seq;
-          }
-          return;
-        }
-        if (event is! SessionLogEvent || event.seq <= baseline) return;
-        if (event is AssistantMessageEvent) {
-          final texts = [
-            for (final part in event.message.parts)
-              if (part is TextPart) part.text,
-          ];
-          if (texts.isNotEmpty) answer = texts.join('\n');
-          tokensIn += event.usage?.inputTokens ?? 0;
-          tokensOut += event.usage?.outputTokens ?? 0;
-        } else if (event is TurnEndedEvent) {
-          if (completer.isCompleted) return;
-          final reason = event.reason;
-          completer.complete(
-            TurnOutcome(
-              kind: reason.isCompleted
-                  ? TurnKind.completed
-                  : reason.isAborted
-                  ? TurnKind.aborted
-                  : TurnKind.failed,
-              text: answer,
-              tokensIn: tokensIn,
-              tokensOut: tokensOut,
-              error: reason.isError ? (reason.error?.message ?? reason.kind) : (reason.isCompleted ? null : reason.kind),
-            ),
-          );
-        }
-      },
-      onError: (Object e) {
-        if (!completer.isCompleted) {
-          completer.complete(TurnOutcome(kind: TurnKind.failed, error: '$e'));
-        }
-      },
-      onDone: () {
-        if (!completer.isCompleted) {
-          completer.complete(const TurnOutcome(kind: TurnKind.failed, error: '会话流已经断开'));
-        }
-      },
-    );
+    final subscription = client
+        .watch(sessionId)
+        .listen(
+          (event) {
+            if (event is SessionSnapshotEvent) {
+              sawSnapshot = true;
+              for (final e in event.events) {
+                if (e.seq > baseline) baseline = e.seq;
+              }
+              return;
+            }
+            if (event is! SessionLogEvent || event.seq <= baseline) return;
+            if (event is AssistantMessageEvent) {
+              final texts = [
+                for (final part in event.message.parts)
+                  if (part is TextPart) part.text,
+              ];
+              if (texts.isNotEmpty) answer = texts.join('\n');
+              tokensIn += event.usage?.inputTokens ?? 0;
+              tokensOut += event.usage?.outputTokens ?? 0;
+            } else if (event is TurnEndedEvent) {
+              if (completer.isCompleted) return;
+              final reason = event.reason;
+              completer.complete(
+                TurnOutcome(
+                  kind: reason.isCompleted
+                      ? TurnKind.completed
+                      : reason.isAborted
+                      ? TurnKind.aborted
+                      : TurnKind.failed,
+                  text: answer,
+                  tokensIn: tokensIn,
+                  tokensOut: tokensOut,
+                  error: reason.isError
+                      ? (reason.error?.message ?? reason.kind)
+                      : (reason.isCompleted ? null : reason.kind),
+                ),
+              );
+            }
+          },
+          onError: (Object e) {
+            if (!completer.isCompleted) {
+              completer.complete(TurnOutcome(kind: TurnKind.failed, error: '$e'));
+            }
+          },
+          onDone: () {
+            if (!completer.isCompleted) {
+              completer.complete(const TurnOutcome(kind: TurnKind.failed, error: '会话流已经断开'));
+            }
+          },
+        );
     try {
       // 等快照（基线）最多 5 秒再发 prompt，避免历史回放干扰判定。
       for (var i = 0; i < 50 && !sawSnapshot; i++) {
@@ -738,6 +803,122 @@ final class DshCollabDriver implements CollabSessionDriver {
     } finally {
       await subscription.cancel();
     }
+  }
+
+  @override
+  Stream<CollabTurnEvent> streamTurn(String sessionId, String text, {Duration? timeout}) {
+    late final StreamController<CollabTurnEvent> controller;
+    StreamSubscription<DshEvent>? subscription;
+    Timer? timer;
+    var answer = '';
+    var tokensIn = 0;
+    var tokensOut = 0;
+    var baseline = 0; // 快照之前的旧事件（历史回放）不参与本轮
+    var sawSnapshot = false;
+    var finished = false;
+
+    void emit(CollabTurnEvent event) {
+      if (!controller.isClosed) controller.add(event);
+    }
+
+    void finish(TurnOutcome outcome) {
+      if (finished) return;
+      finished = true;
+      timer?.cancel();
+      emit(CollabTurnDone(outcome));
+      unawaited(subscription?.cancel());
+      unawaited(controller.close());
+    }
+
+    controller = StreamController<CollabTurnEvent>(
+      onListen: () async {
+        subscription = client
+            .watch(sessionId)
+            .listen(
+              (event) {
+                if (event is SessionSnapshotEvent) {
+                  sawSnapshot = true;
+                  for (final e in event.events) {
+                    if (e.seq > baseline) baseline = e.seq;
+                  }
+                  return;
+                }
+                if (event is AssistantStreamStarted) {
+                  emit(const CollabTurnStage('thinking'));
+                  return;
+                }
+                if (event is AssistantChunkEvent) {
+                  final chunk = event.chunk;
+                  if (chunk is TextDeltaChunk) {
+                    emit(const CollabTurnStage('replying'));
+                    emit(CollabTurnText(chunk.text));
+                  } else if (chunk is ReasoningDeltaChunk) {
+                    // 只报「在思考」，不把推理正文当可见内容。
+                    emit(const CollabTurnStage('thinking'));
+                  } else if (chunk is ToolCallDeltaChunk && (chunk.name?.isNotEmpty ?? false)) {
+                    emit(CollabTurnStage('tool', detail: chunk.name!));
+                  }
+                  return;
+                }
+                if (event is! SessionLogEvent || event.seq <= baseline) return;
+                if (event is ToolCallEvent) {
+                  emit(CollabTurnStage('tool', detail: event.name));
+                } else if (event is ToolResultEvent) {
+                  emit(const CollabTurnStage('thinking'));
+                } else if (event is AssistantMessageEvent) {
+                  final texts = [
+                    for (final part in event.message.parts)
+                      if (part is TextPart) part.text,
+                  ];
+                  if (texts.isNotEmpty) answer = texts.join('\n');
+                  tokensIn += event.usage?.inputTokens ?? 0;
+                  tokensOut += event.usage?.outputTokens ?? 0;
+                  emit(const CollabTurnStage('replying'));
+                } else if (event is TurnEndedEvent) {
+                  final reason = event.reason;
+                  finish(
+                    TurnOutcome(
+                      kind: reason.isCompleted
+                          ? TurnKind.completed
+                          : reason.isAborted
+                          ? TurnKind.aborted
+                          : TurnKind.failed,
+                      text: answer,
+                      tokensIn: tokensIn,
+                      tokensOut: tokensOut,
+                      error: reason.isError
+                          ? (reason.error?.message ?? reason.kind)
+                          : (reason.isCompleted ? null : reason.kind),
+                    ),
+                  );
+                }
+              },
+              onError: (Object e) => finish(TurnOutcome(kind: TurnKind.failed, error: '$e')),
+              onDone: () {
+                if (!finished) finish(const TurnOutcome(kind: TurnKind.failed, error: '会话流已经断开'));
+              },
+            );
+        timer = Timer(timeout ?? const Duration(seconds: 90), () {
+          finish(const TurnOutcome(kind: TurnKind.failed, error: '这一轮超时了'));
+        });
+        try {
+          // 等快照（基线）最多 5 秒再发 prompt，避免历史回放干扰判定。
+          for (var i = 0; i < 50 && !sawSnapshot && !finished; i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+          }
+          if (finished) return;
+          emit(const CollabTurnStage('thinking'));
+          await client.prompt(sessionId, text);
+        } on Object catch (e) {
+          finish(TurnOutcome(kind: TurnKind.failed, error: '$e'));
+        }
+      },
+      onCancel: () async {
+        timer?.cancel();
+        await subscription?.cancel();
+      },
+    );
+    return controller.stream;
   }
 
   @override

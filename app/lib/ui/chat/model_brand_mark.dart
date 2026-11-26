@@ -45,7 +45,7 @@ ModelBrand brandOf(String? provider, [String? name]) {
     // 讯飞星火：中英文都认；spark 单独留给星火（不是 Apache Spark）。
     ModelBrand.spark: ['spark', '星火', '讯飞', 'iflytek', 'xfyun'],
     ModelBrand.kimi: ['kimi', 'moonshot'],
-    ModelBrand.glm: ['glm', 'zhipu', '字谱', '智谱', 'chatglm'],
+    ModelBrand.glm: ['glm', 'zhipu', '智谱', 'chatglm'],
     ModelBrand.grok: ['grok'],
     ModelBrand.llama: ['llama', 'meta-llama'],
     ModelBrand.mistral: ['mistral', 'mixtral', 'codestral'],
@@ -54,13 +54,33 @@ ModelBrand brandOf(String? provider, [String? name]) {
     ModelBrand.minimax: ['minimax', 'abab'],
   };
   for (final entry in aliases.entries) {
-    if (entry.value.any((token) => model.contains(token))) return entry.key;
+    if (entry.value.any((token) => _mentions(model, token))) return entry.key;
   }
   // 模型名认不出：官方 Provider 本身就说明品牌。
   for (final entry in aliases.entries) {
-    if (entry.value.any((token) => vendor.contains(token))) return entry.key;
+    if (entry.value.any((token) => _mentions(vendor, token))) return entry.key;
   }
   return ModelBrand.other;
+}
+
+/// 英文品牌词按「词」匹配：`spark` 命中 `spark-4.0`，但不命中 `sparkling`；
+/// `gpt` 命中 `gpt-4o`，但不命中 `gptx`。中文品牌词直接包含即可。
+bool _mentions(String haystack, String token) {
+  if (token.isEmpty) return false;
+  final ascii = RegExp(r'^[\x00-\x7F]+$').hasMatch(token);
+  if (!ascii) return haystack.contains(token);
+  var from = 0;
+  while (true) {
+    final at = haystack.indexOf(token, from);
+    if (at < 0) return false;
+    final before = at == 0 ? '' : haystack[at - 1];
+    final end = at + token.length;
+    final after = end >= haystack.length ? '' : haystack[end];
+    final leftOk = !RegExp(r'[a-z0-9]').hasMatch(before);
+    final rightOk = !RegExp(r'[a-z0-9]').hasMatch(after);
+    if (leftOk && rightOk) return true;
+    from = at + 1;
+  }
 }
 
 /// 品牌色。近黑的几家（OpenAI、Kimi、Grok）在深色主题里由 [brandColorOn]
@@ -196,7 +216,27 @@ class BrandGlyph extends StatelessWidget {
   Widget build(BuildContext context) {
     final asset = brandAsset(brand);
     if (asset == null) {
-      return Icon(Icons.auto_awesome_outlined, size: size * 0.86, color: color);
+      // 未知品牌：一枚空心圆点，明确表示「没有 Logo」，不拿星星或机器人冒充。
+      return SizedBox.square(
+        dimension: size,
+        child: Center(
+          child: Container(
+            width: size * 0.72,
+            height: size * 0.72,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: color.withValues(alpha: 0.55), width: 1.2),
+            ),
+            child: Center(
+              child: Container(
+                width: size * 0.16,
+                height: size * 0.16,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: color.withValues(alpha: 0.55)),
+              ),
+            ),
+          ),
+        ),
+      );
     }
     return SvgPicture.asset(
       asset,

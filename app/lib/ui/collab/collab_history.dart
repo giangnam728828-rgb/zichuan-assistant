@@ -8,7 +8,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../collab/collab_conversations.dart';
 import '../../collab/collab_export.dart';
+import '../../state/conversation_mode_state.dart';
 import '../../state/history_kind_state.dart';
+import '../../state/hosts_state.dart';
+import '../chat/conversation_mode_switcher.dart';
 import '../common/capsule_chip.dart';
 import '../council/council_page.dart';
 import '../team/team_page.dart';
@@ -74,10 +77,7 @@ class CollabHistoryTile extends StatelessWidget {
     final isCouncil = entry.kind == CollabKind.council;
     final accent = isCouncil ? colors.primary : colors.tertiary;
     final icon = isCouncil ? AppIcons.team : AppIcons.groupChat;
-    final subtitle = [
-      entry.subtitle,
-      if (entry.running) '进行中' else collabStamp(entry.updatedAt),
-    ].join(' · ');
+    final subtitle = [entry.subtitle, if (entry.running) '进行中' else collabStamp(entry.updatedAt)].join(' · ');
     return Semantics(
       button: true,
       label: '${entry.title}，$subtitle',
@@ -162,10 +162,7 @@ class CollabKindTag extends StatelessWidget {
     final color = kind == CollabKind.council ? theme.colorScheme.primary : theme.colorScheme.tertiary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
       child: Text(
         kind == CollabKind.council ? '议会' : '团队',
         style: theme.textTheme.labelSmall?.copyWith(color: color, height: 1.4),
@@ -187,7 +184,10 @@ class CollabHistoryList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final entries = ref.watch(collabHistoryProvider).value ?? const <CollabHistoryEntry>[];
-    final shown = [for (final entry in entries) if (entry.kind == kind) entry];
+    final shown = [
+      for (final entry in entries)
+        if (entry.kind == kind) entry,
+    ];
     if (shown.isEmpty) {
       return Center(
         child: Padding(
@@ -195,7 +195,11 @@ class CollabHistoryList extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(kind == CollabKind.council ? AppIcons.team : AppIcons.groupChat, size: 34, color: theme.colorScheme.outline),
+              Icon(
+                kind == CollabKind.council ? AppIcons.team : AppIcons.groupChat,
+                size: 34,
+                color: theme.colorScheme.outline,
+              ),
               const SizedBox(height: 10),
               Text(
                 kind == CollabKind.council ? '还没有议会会话' : '还没有团队会话',
@@ -239,10 +243,7 @@ class CollabHistorySection extends ConsumerWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(10, 6, 10, 2),
-          child: Text(
-            '议会与团队',
-            style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-          ),
+          child: Text('议会与团队', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         ),
         for (final entry in shown)
           CollabHistoryTile(
@@ -260,9 +261,21 @@ class CollabHistorySection extends ConsumerWidget {
 /// 打开一条协作会话：恢复原会话，不新建。
 void openCollabEntry(BuildContext context, CollabHistoryEntry entry, {VoidCallback? onClose}) {
   onClose?.call();
+  final container = ProviderScope.containerOf(context, listen: false);
+  final mode = entry.kind == CollabKind.council ? ConversationMode.council : ConversationMode.team;
+  final controller = container.read(conversationModeProvider.notifier);
+  controller.setMode(mode);
+  // 从历史打开的这条就是该模式「上次用的那条」，再切回来还是它。
+  final hostKey = conversationHostKey(container.read(activeHostProvider));
+  if (mode == ConversationMode.council) {
+    controller.rememberCouncil(hostKey, entry.id);
+  } else {
+    controller.rememberTeam(hostKey, entry.id);
+  }
   Navigator.of(context, rootNavigator: true).push(
-    MaterialPageRoute<void>(
-      builder: (_) => switch (entry.kind) {
+    conversationModeRoute<void>(
+      context: context,
+      page: switch (entry.kind) {
         CollabKind.council => CouncilPage(conversationId: entry.id, createNew: false),
         CollabKind.team => TeamPage(teamId: entry.id, createNew: false),
       },
@@ -282,11 +295,15 @@ Future<void> confirmDeleteCollab(BuildContext context, WidgetRef ref, CollabHist
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('删除这条${entry.kind == CollabKind.council ? '议会' : '团队'}会话？', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              '删除这条${entry.kind == CollabKind.council ? '议会' : '团队'}会话？',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 4),
             Text(
               '「${entry.title}」的记录与成员配置会一起删掉，其他会话不受影响。',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 14),
             FilledButton(

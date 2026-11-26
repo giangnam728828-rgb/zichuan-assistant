@@ -19,13 +19,16 @@ import '../../collab/collab_approval_banner.dart';
 import '../../collab/collab_approvals.dart';
 import '../../collab/collab_export.dart';
 import '../../collab/collab_session_book.dart';
+import '../../council/collab_models.dart';
 import '../../council/collab_orchestrator.dart';
+import '../../state/conversation_mode_state.dart';
+import '../../state/hosts_state.dart';
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
-import '../../state/sessions_state.dart';
 import '../../team/team_models.dart';
 import '../../team/team_store.dart';
 import '../../team/team_orchestrator.dart';
+import '../chat/conversation_mode_switcher.dart';
 import '../chat/model_brand_mark.dart';
 import '../chat/model_sheet.dart' show shortModelName;
 import '../shell/root_tab.dart';
@@ -44,6 +47,7 @@ class TeamPage extends ConsumerStatefulWidget {
     this.orchestrator,
     this.teamId,
     this.createNew = true,
+    this.resumeLatest = false,
     this.teamStoreRoot,
   });
 
@@ -55,6 +59,10 @@ class TeamPage extends ConsumerStatefulWidget {
 
   /// 没给 [teamId] 时是否新建一条团队会话。
   final bool createNew;
+
+  /// 没有指定的团队时，先恢复最近一条（左上角模式切换走这条）；
+  /// 一条都没有才新建。
+  final bool resumeLatest;
 
   /// 测试注入的团队目录；生产为空，走 [teamRootProvider]。
   final Future<Directory> Function()? teamStoreRoot;
@@ -73,6 +81,10 @@ class _TeamPageState extends ConsumerState<TeamPage> {
   bool _loading = true;
   bool _busy = false;
   String? _error;
+
+  /// 已经呈现过的消息：切回旧团队时不再重播每条消息的进场。
+  final _seenMessages = <String>{};
+  late final String _hostKey = conversationHostKey(ref.read(activeHostProvider));
 
   @override
   void initState() {
@@ -103,6 +115,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
 
       TeamState? team;
       if (widget.teamId case final id?) team = await orchestrator.load(id);
+      if (team == null && widget.resumeLatest) team = await orchestrator.latest();
       if (team == null && widget.createNew) team = await _createDefaultTeam(orchestrator);
       team ??= await orchestrator.latest();
       if (!mounted) return;
@@ -110,6 +123,11 @@ class _TeamPageState extends ConsumerState<TeamPage> {
         _team = team;
         _loading = false;
       });
+      if (team != null) {
+        _remember(team);
+        _restoreDraft(team);
+        _seenMessages.addAll([for (final msg in team.messages) msg.id]);
+      }
       _watchApprovals();
     } on Object catch (error) {
       if (mounted) {
@@ -145,7 +163,8 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       }
     }
     if (mates.isEmpty) {
-      final ModelCatalog? catalog = await ref.read(modelCatalogProvider.future).catchError((_) => null);
+      // 不等目录：目录慢或断线时，团队也要能立刻进群聊，队友在抽屉里补。
+      final catalog = ref.read(currentModelCatalogProvider);
       if (catalog != null) {
         for (final group in catalog.groups) {
           for (final info in group.models) {
@@ -164,6 +183,25 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       }
     }
     return orchestrator.create(teammates: mates, leadId: mates.isNotEmpty ? mates.first.id : null, allowEmpty: true);
+  }
+
+  /// 记住这是团队「上次用的那个」：从聊天/议会切回来直接恢复它。
+  void _remember(TeamState team) {
+    ref.read(conversationModeProvider.notifier).rememberTeam(_hostKey, team.id);
+  }
+
+  void _restoreDraft(TeamState team) {
+    final saved = ref.read(conversationModeProvider).draftOf(ConversationMode.team, _hostKey, team.id);
+    if (saved.isEmpty || _draft.text.isNotEmpty) return;
+    _draft.text = saved;
+    _draft.selection = TextSelection.collapsed(offset: saved.length);
+  }
+
+  /// 草稿按「模式 + 主机 + 团队」存：切走再切回来，没发的字还在。
+  void _saveDraft(String _) {
+    final team = _team;
+    if (team == null) return;
+    ref.read(conversationModeProvider.notifier).saveDraft(ConversationMode.team, _hostKey, team.id, _draft.text);
   }
 
   /// 把队友子会话登记进协作登记表（历史列表据此折叠）。
@@ -202,24 +240,23 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     if (existing != null && identical(_sharedClient, conn.client)) return existing;
     final override = widget.teamStoreRoot;
     final root = override != null ? await override() : await ref.read(teamRootProvider)();
+    // 共享实例活得比页面久，回调里不能抓页面自己的 ref。
+    final container = ProviderScope.containerOf(context, listen: false);
     final created = TeamOrchestrator(
       driver: DshCollabDriver(conn.client),
       store: TeamStore(root),
-      onSession: (info) {
-        unawaited(
-          ref
-              .read(collabSessionBookProvider.notifier)
-              .register(
-                CollabSessionOwner(
-                  sessionId: info.sessionId,
-                  kind: CollabSessionKind.team,
-                  ownerId: info.ownerId,
-                  label: info.label,
-                  parentLabel: info.parentLabel,
-                ),
-              ),
-        );
-      },
+      // 返回 Future：编排器发消息前会等它落盘，内部会话不会先在历史里闪一下。
+      onSession: (info) => container
+          .read(collabSessionBookProvider.notifier)
+          .register(
+            CollabSessionOwner(
+              sessionId: info.sessionId,
+              kind: CollabSessionKind.team,
+              ownerId: info.ownerId,
+              label: info.label,
+              parentLabel: info.parentLabel,
+            ),
+          ),
     );
     if (existing != null) unawaited(existing.dispose());
     _shared = created;
@@ -250,12 +287,13 @@ class _TeamPageState extends ConsumerState<TeamPage> {
   Future<void> _send() async {
     final team = _team;
     final text = _draft.text.trim();
-    if (team == null || text.isEmpty || _busy) return;
+    if (team == null || text.isEmpty || _busy || team.running.isNotEmpty) return;
     if (team.teammates.length < 2) {
       setState(() => _error = '团队至少需要两位队友，先去成员管理里加两位。');
       return;
     }
     _draft.clear();
+    ref.read(conversationModeProvider.notifier).clearDraft(ConversationMode.team, _hostKey, team.id);
     setState(() {
       _busy = true;
       _error = null;
@@ -293,6 +331,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     final separator = text.isEmpty || text.endsWith(' ') ? '' : ' ';
     _draft.text = '$text$separator@${mate.name} ';
     _draft.selection = TextSelection.collapsed(offset: _draft.text.length);
+    _saveDraft(_draft.text);
     setState(() {});
   }
 
@@ -308,12 +347,73 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     }
   }
 
-  /// 打开某位队友的完整对话（这些会话不在历史列表里，只从这里进）。
-  void _openMateSession(TeamState team, String mateId) {
-    final sessionId = team.sessions[mateId];
-    if (sessionId == null || sessionId.isEmpty) return;
-    ref.read(currentSessionProvider.notifier).select(sessionId);
-    switchTab(context, RootTab.chat);
+  /// 点名字看这位队友的配置。
+  ///
+  /// 以前这里直接跳进他的子会话——那是执行任务用的内部会话，提示词里塞着
+  /// 群聊背景和角色说明，当普通聊天打开会让人以为自己在跟模型对话。现在只
+  /// 展示成员信息，要看执行记录请到成员抽屉里换模型/看任务，主记录仍是群聊。
+  Future<void> _openMateInfo(TeamState team, String mateId) async {
+    final mate = team.mate(mateId);
+    if (mate == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    CollabAvatar(brand: brandOf(mate.provider, mate.model), size: 36),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(mate.name, style: theme.textTheme.titleMedium),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${brandLabel(brandOf(mate.provider, mate.model))} · ${shortModelName(mate.model)}',
+                            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (mate.readOnly) CollabModeBadge(label: '只读', color: theme.colorScheme.outline),
+                    if (team.leadId == mate.id) CollabModeBadge(label: '主管', color: theme.colorScheme.primary),
+                  ],
+                ),
+                if (mate.brief.trim().isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Text(mate.brief, style: theme.textTheme.bodyMedium),
+                ],
+                const SizedBox(height: 16),
+                Text(
+                  '他收到的任务背景只属于这个群聊；这里不单独打开他的执行会话。',
+                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.outline),
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.tonal(
+                    onPressed: () {
+                      Navigator.of(sheetContext).pop();
+                      unawaited(_openMembers());
+                    },
+                    child: const Text('在成员管理里编辑'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _rename() async {
@@ -346,6 +446,9 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       _team = team;
       _error = null;
     });
+    _seenMessages.clear();
+    _remember(team);
+    _restoreDraft(team);
     _invalidateHistory();
   }
 
@@ -463,6 +566,8 @@ class _TeamPageState extends ConsumerState<TeamPage> {
                 if (team?.lead case final lead?) '主管 ${lead.name}',
               ].join(' · '),
               badge: CollabModeBadge(label: '团队', color: theme.colorScheme.tertiary),
+              mode: ConversationMode.team,
+              onModeSelected: (mode) => switchConversationMode(context, ref, mode, from: ConversationMode.team),
               onTitleTap: team == null ? null : _rename,
               actions: [
                 IconButton(
@@ -507,17 +612,16 @@ class _TeamPageState extends ConsumerState<TeamPage> {
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  _error!,
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
-                ),
+                child: Text(_error!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
               ),
             CollabComposer(
               controller: _draft,
-              busy: _busy,
+              // 后台还有队友在答（页面退出再回来）：仍显示停止键，不能重复发。
+              busy: _busy || (team?.running.isNotEmpty ?? false),
               hint: '说点什么，@ 一位队友',
               onSend: _send,
               onStop: _stop,
+              onChanged: _saveDraft,
               enabled: team != null,
               leading: team == null || team.teammates.isEmpty
                   ? null
@@ -569,6 +673,11 @@ class _TeamPageState extends ConsumerState<TeamPage> {
 
   Widget _buildChat(TeamState team) {
     final messages = team.messages;
+    // 正在跑的队友：一位一行，正文就是他这一轮已经吐出来的部分。
+    final live = [
+      for (final id in team.running)
+        if (team.activity[id] case final activity? when activity.isActive) (id: id, activity: activity),
+    ];
     return Column(
       children: [
         if (_inbox?.pending.isNotEmpty ?? false)
@@ -578,22 +687,40 @@ class _TeamPageState extends ConsumerState<TeamPage> {
               approval: approval,
               onDecide: (decision) => _respond(approval.eventId, decision),
             ),
-        if (team.running.isNotEmpty) _runningBar(team),
+        if (live.length > 1) _runningBar(team, live.length),
         Expanded(
-          child: messages.isEmpty && !_busy
+          child: messages.isEmpty && live.isEmpty
               ? _emptyChat(team)
               : ListView.builder(
                   reverse: true,
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                  itemCount: messages.length + (_busy ? 1 : 0),
+                  itemCount: messages.length + live.length,
                   itemBuilder: (context, index) {
-                    if (_busy && index == 0) return _typingRow();
-                    final offset = _busy ? 1 : 0;
-                    return _bubble(team, messages[messages.length - 1 - (index - offset)]);
+                    if (index < live.length) {
+                      final entry = live[index];
+                      return _liveBubble(team, entry.id, entry.activity);
+                    }
+                    return _bubble(team, messages[messages.length - 1 - (index - live.length)]);
                   },
                 ),
         ),
       ],
+    );
+  }
+
+  /// 一位队友正在跑的那一行：头像、名字、真实阶段，正文边收边长。
+  Widget _liveBubble(TeamState team, String mateId, CollabActivity activity) {
+    final mate = team.mate(mateId);
+    final brand = mate == null ? ModelBrand.other : brandOf(mate.provider, mate.model);
+    return CollabMessage(
+      key: ValueKey('live-${team.id}-$mateId'),
+      brand: brand,
+      name: mate?.name ?? '队友',
+      model: mate == null ? null : '${brandLabel(brand)} · ${shortModelName(mate.model)}',
+      text: activity.text,
+      status: activity.label,
+      statusColor: Theme.of(context).colorScheme.primary,
+      streaming: true,
     );
   }
 
@@ -625,28 +752,11 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     );
   }
 
-  Widget _typingRow() {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 12,
-            height: 12,
-            child: CircularProgressIndicator(strokeWidth: 2, color: theme.colorScheme.primary),
-          ),
-          const SizedBox(width: 8),
-          Text('队友在想…', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-        ],
-      ),
-    );
-  }
-
   Widget _bubble(TeamState team, TeamMsg msg) {
+    final animate = !_seenMessages.contains(msg.id);
+    _seenMessages.add(msg.id);
     if (msg.role == TeamMsgRole.system) return CollabSystemNote(text: msg.text);
-    if (msg.role == TeamMsgRole.user) return CollabUserBubble(text: msg.text);
+    if (msg.role == TeamMsgRole.user) return CollabUserBubble(text: msg.text, animate: animate);
 
     final mate = msg.teammateId == null ? null : team.mate(msg.teammateId!);
     final handoff = msg.handoffTo == null ? null : team.mate(msg.handoffTo!);
@@ -657,17 +767,15 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       name: mate?.name ?? '队友',
       text: text,
       failed: msg.failed,
-      onNameTap: mate == null ? null : () => _openMateSession(team, mate.id),
-      status: mate == null
-          ? null
-          : '${brandLabel(brandOf(mate.provider, mate.model))} · ${shortModelName(mate.model)}',
+      animate: animate,
+      model: mate == null ? null : '${brandLabel(brandOf(mate.provider, mate.model))} · ${shortModelName(mate.model)}',
+      onNameTap: mate == null ? null : () => _openMateInfo(team, mate.id),
     );
   }
 
-  /// 「谁在跑」：状态每步落盘，切走再回来、乃至重开 App 都看得到。
-  Widget _runningBar(TeamState team) {
+  /// 多位同时跑时的一句汇总；细节在每位的消息行里。
+  Widget _runningBar(TeamState team, int count) {
     final theme = Theme.of(context);
-    final names = [for (final id in team.running) team.mate(id)?.name ?? '队友'];
     return Container(
       width: double.infinity,
       color: theme.colorScheme.surfaceContainerHighest,
@@ -678,7 +786,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '${names.join('、')} 正在跑…',
+              '$count 位队友在并行处理…',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),

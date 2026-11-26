@@ -185,6 +185,8 @@ class SessionsController extends AsyncNotifier<List<SessionSummary>> {
   @override
   Future<List<SessionSummary>> build() async {
     final r = ref;
+    // 先把协作会话登记表读完：队友/席位的内部会话不能先冒进列表再消失。
+    await ref.read(collabSessionBookProvider.notifier).ready;
     _retireArchives();
     ref.listen(activeHostProvider, (previous, next) {
       if (previous != next && _hasArchivePlans) {

@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/l10n.dart';
 import '../../state/adaptive_layout_state.dart';
 import '../../state/agents_state.dart';
+import '../../state/conversation_mode_state.dart';
 import '../../state/header_schedule_state.dart';
 import '../../state/sessions_state.dart';
 import '../agents/header_agents.dart';
@@ -28,6 +29,7 @@ import '../common/status_dot.dart';
 import '../shell/adaptive/adaptive_scaffold.dart' show AdaptiveChrome;
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
+import 'conversation_mode_switcher.dart';
 import 'header_schedule.dart';
 import 'model_sheet.dart' show ModelChip;
 
@@ -67,10 +69,17 @@ class ChatHeader extends ConsumerStatefulWidget {
     this.onNewChat,
     this.onCompanion,
     this.scrolledUnder,
+    this.mode,
+    this.onModeSelected,
   });
 
   final String title;
   final HeaderStatus status;
+
+  /// 左上角的聊天模式（总方案 v2）。空则不画切换器（子代理对话、测试里
+  /// 只关心标题栏的场合）。
+  final ConversationMode? mode;
+  final ValueChanged<ConversationMode>? onModeSelected;
 
   /// What follows the status under the title (a phone: the workspace). Shortens first.
   final String? detail;
@@ -151,6 +160,7 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
     final chrome = AdaptiveChrome.maybeOf(context);
     // A1 边缘渐隐:顶栏不再铺纱幕,内容滚到顶栏后面时由列表的 EdgeFade 渐隐,
     // 顶栏本身全透明。
+    final showsMenu = widget.onOpenDrawer != null && (chrome?.showsMenuKey ?? true);
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -167,24 +177,36 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                   // A subagent conversation shows 「‹ 上级对话」 here.
                   HeaderLeadSlot(
                     // 3a：抽屉不再是主入口，没有 onOpenDrawer 时不画 ≡。
-                    menu: widget.onOpenDrawer == null || !(chrome?.showsMenuKey ?? true)
-                        ? const SizedBox.shrink()
-                        : SizedBox.square(
-                            key: const ValueKey('chat-menu'),
-                            dimension: 44,
-                            child: GlassSurface(
-                              tier: GlassTier.chrome,
-                              // B1：顶栏去色块，键只剩图标和按下反馈。
-                              bare: true,
-                              circle: true,
-                              grouped: true,
-                              onTap: widget.onOpenDrawer,
-                              child: Tooltip(
-                                message: chrome?.menuTooltip ?? l10n.chatChats,
-                                child: Center(child: Icon(AppIcons.menu, size: 22, color: colors.onSurface)),
+                    menu: SizedBox(
+                      height: 44,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (showsMenu)
+                            SizedBox.square(
+                              key: const ValueKey('chat-menu'),
+                              dimension: 44,
+                              child: GlassSurface(
+                                tier: GlassTier.chrome,
+                                // B1：顶栏去色块，键只剩图标和按下反馈。
+                                bare: true,
+                                circle: true,
+                                grouped: true,
+                                onTap: widget.onOpenDrawer,
+                                child: Tooltip(
+                                  message: chrome?.menuTooltip ?? l10n.chatChats,
+                                  child: Center(child: Icon(AppIcons.menu, size: 22, color: colors.onSurface)),
+                                ),
                               ),
                             ),
-                          ),
+                          // 模式切换器紧跟历史菜单：输入栏不再管导航。
+                          if (widget.mode case final mode?) ...[
+                            if (showsMenu) const SizedBox(width: 4),
+                            ConversationModeSwitcher(mode: mode, onSelect: widget.onModeSelected),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
                   Semantics(
                     button: widget.onTitleTap != null,

@@ -23,14 +23,23 @@ import '../../council/collab_models.dart';
 import '../../council/collab_orchestrator.dart';
 import '../../council/collab_store.dart';
 import '../../council/verdict_parser.dart';
+import '../../state/conversation_mode_state.dart';
+import '../../state/hosts_state.dart';
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
+import '../chat/conversation_mode_switcher.dart';
+import '../chat/model_brand_mark.dart';
+import '../chat/model_sheet.dart' show shortModelName;
 import '../providers/provider_brand_icon.dart';
 import '../shell/root_tab.dart';
 import '../theme/app_icons.dart';
 import '../collab/collab_members.dart';
 import '../collab/collab_kit.dart';
 import '../chat/render/markdown_body.dart';
+
+/// 进程级共享的议会编排器：切到团队/聊天不打断还在跑的席位，回来接着看。
+CollabOrchestrator? _shared;
+DshClient? _sharedClient;
 
 class CouncilPage extends ConsumerStatefulWidget {
   const CouncilPage({
@@ -39,6 +48,7 @@ class CouncilPage extends ConsumerStatefulWidget {
     this.runId,
     this.conversationId,
     this.createNew = true,
+    this.resumeLatest = false,
   });
 
   /// 测试注入用；生产为空，页面自己建实例。
@@ -53,6 +63,10 @@ class CouncilPage extends ConsumerStatefulWidget {
   /// 没给 [conversationId] / [runId] 时是否新建一条会话。
   final bool createNew;
 
+  /// 没有指定的会话时，先恢复最近一条议会（左上角模式切换走这条）；
+  /// 一条都没有才新建。
+  final bool resumeLatest;
+
   @override
   ConsumerState<CouncilPage> createState() => _CouncilPageState();
 }
@@ -66,10 +80,14 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   StreamSubscription<CollabRun>? _sub;
   CouncilConversation? _conversation;
   final _runs = <String, CollabRun>{};
+
+  /// 已经呈现过的回合：切回旧会话时不再重播每条消息的进场。
+  final _seenTurns = <String>{};
   bool _busy = false;
   bool _loading = true;
   String? _error;
   final _scroll = ScrollController();
+  late final String _hostKey = conversationHostKey(ref.read(activeHostProvider));
 
   @override
   void initState() {
@@ -83,8 +101,8 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     _inbox?.dispose();
     _draft.dispose();
     _scroll.dispose();
-    // 注入的编排器归测试管；自建的才在离开页面时关掉。
-    if (widget.orchestrator == null) unawaited(_orchestrator?.dispose() ?? Future<void>.value());
+    // v2：编排器和团队一样是连接级共享的。离开页面只取消自己的订阅——
+    // 还在跑的席位继续跑，回来重新订阅同一份事件即可；注入的实例归测试管。
     super.dispose();
   }
 
@@ -108,13 +126,21 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
         final runId = widget.runId;
         if (runId != null) conversation = await _conversationForRun(runId);
       }
+      if (conversation == null && widget.resumeLatest) {
+        conversation = ref.read(councilConversationsProvider.notifier).latest();
+      }
       conversation ??= widget.createNew ? await _createConversation() : null;
       if (!mounted) return;
-      setState(() {
-        _conversation = conversation;
-        _loading = false;
-      });
-      if (conversation != null) await _loadTurns(conversation);
+      setState(() => _conversation = conversation);
+      if (conversation != null) {
+        _remember(conversation);
+        _restoreDraft(conversation);
+        // 先把已发生的回合读进内存，再落 loading：进页面不会先闪一下
+        // 「记录不在了」，历史消息也不重播进场。
+        await _loadTurns(conversation);
+      }
+      if (!mounted) return;
+      setState(() => _loading = false);
     } on Object catch (error) {
       if (mounted) {
         setState(() {
@@ -125,6 +151,27 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     } finally {
       _watchApprovals();
     }
+  }
+
+  /// 记住这是议会「上次用的那条」：从聊天切回来时直接恢复它。
+  void _remember(CouncilConversation conversation) {
+    ref.read(conversationModeProvider.notifier).rememberCouncil(_hostKey, conversation.id);
+  }
+
+  void _restoreDraft(CouncilConversation conversation) {
+    final saved = ref.read(conversationModeProvider).draftOf(ConversationMode.council, _hostKey, conversation.id);
+    if (saved.isEmpty || _draft.text.isNotEmpty) return;
+    _draft.text = saved;
+    _draft.selection = TextSelection.collapsed(offset: saved.length);
+  }
+
+  /// 草稿按「模式 + 主机 + 会话」存：切走再切回来，没发的字还在。
+  void _saveDraft(String _) {
+    final conversation = _conversation;
+    if (conversation == null) return;
+    ref
+        .read(conversationModeProvider.notifier)
+        .saveDraft(ConversationMode.council, _hostKey, conversation.id, _draft.text);
   }
 
   /// 把已有运行的席位子会话登记进协作登记表（历史列表据此折叠）。
@@ -178,26 +225,24 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   }
 
   /// 新会话：默认沿用上次议会的成员配置，复制成独立的一份。
+  ///
+  /// 这里**不等模型目录**。目录要经 Host 的 `listModels()` 回来，网络慢、断线
+  /// 或刚启动时可能几十秒没有结果；以前 await 它，页面就一直转圈、副标题停在
+  /// 「0 位成员」。现在：有上次配置就直接用；没有就用已经缓存到的目录凑两位；
+  /// 连缓存都没有就先进一条空议会，成员在聊天里的初始化面板补。
   Future<CouncilConversation> _createConversation() async {
     final notifier = ref.read(councilConversationsProvider.notifier);
     final last = notifier.latest();
     if (last != null && last.seats.length >= 2) {
       return notifier.create(seats: last.seats, mode: last.mode, chairId: last.chairId);
     }
-    final ModelCatalog? catalog = await ref.read(modelCatalogProvider.future).catchError((_) => null);
+    final catalog = ref.read(currentModelCatalogProvider);
     final seats = <SeatSpec>[];
     if (catalog != null) {
       for (final group in catalog.groups) {
         for (final info in group.models) {
           if (seats.length >= 2) break;
-          seats.add(
-            SeatSpec(
-              id: 'seat${seats.length}',
-              provider: info.provider,
-              model: info.id,
-              label: info.name,
-            ),
-          );
+          seats.add(SeatSpec(id: 'seat${seats.length}', provider: info.provider, model: info.id, label: info.name));
         }
         if (seats.length >= 2) break;
       }
@@ -209,46 +254,57 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   Future<void> _loadTurns(CouncilConversation conversation) async {
     final orchestrator = _orchestrator;
     if (orchestrator == null) return;
+    var live = false;
     for (final turn in conversation.turns) {
-      final run = await orchestrator.store.load(turn.runId);
-      if (run != null && mounted) setState(() => _runs[run.id] = run);
+      _seenTurns.add(turn.runId);
+      // snapshot 先看内存：切回来时还在跑的席位、流式正文都在。
+      final run = await orchestrator.snapshot(turn.runId);
+      if (run == null) continue;
+      if (!run.phase.isTerminal) live = true;
+      if (mounted) setState(() => _runs[run.id] = run);
     }
+    // 页面退出前发起的任务还在跑：回来时输入栏仍是停止态，不能重复提交。
+    if (live && mounted) setState(() => _busy = true);
     final unfinished = conversation.turns.where((turn) => turn.running);
     for (final turn in unfinished) {
       unawaited(orchestrator.resume(turn.runId));
     }
   }
 
+  /// 连接级共享：同一个引擎连接上复用同一个编排器，重连后重建。
+  ///
+  /// 页面来去只影响订阅；正在跑的 run 由编排器继续驱动，runId 不变，
+  /// 也不会因为重新进页面再驱动一次（[CollabOrchestrator.resume] 有守卫）。
   Future<CollabOrchestrator> _ensureOrchestrator() async {
-    final existing = _orchestrator ?? widget.orchestrator;
-    if (existing != null) {
-      _orchestrator = existing;
-      return existing;
-    }
+    final injected = widget.orchestrator;
+    if (injected != null) return _orchestrator = injected;
     final conn = ref.read(readListLiveConnectionProvider);
     if (conn == null) throw StateError('还没有连上引擎');
     _client = conn.client;
-    final orchestrator = CollabOrchestrator(
+    final shared = _shared;
+    if (shared != null && identical(_sharedClient, conn.client)) return _orchestrator = shared;
+    // 共享实例活得比页面久，回调里不能抓页面自己的 ref。
+    final container = ProviderScope.containerOf(context, listen: false);
+    final created = CollabOrchestrator(
       driver: DshCollabDriver(conn.client),
       store: CollabStore(await ref.read(councilRootProvider)()),
-      onSession: (info) {
-        unawaited(
-          ref
-              .read(collabSessionBookProvider.notifier)
-              .register(
-                CollabSessionOwner(
-                  sessionId: info.sessionId,
-                  kind: CollabSessionKind.council,
-                  ownerId: info.ownerId,
-                  label: info.label,
-                  parentLabel: info.parentLabel,
-                ),
-              ),
-        );
-      },
+      // 返回 Future：编排器发消息前会等它落盘，内部会话不会先在历史里闪一下。
+      onSession: (info) => container
+          .read(collabSessionBookProvider.notifier)
+          .register(
+            CollabSessionOwner(
+              sessionId: info.sessionId,
+              kind: CollabSessionKind.council,
+              ownerId: info.ownerId,
+              label: info.label,
+              parentLabel: info.parentLabel,
+            ),
+          ),
     );
-    _orchestrator = orchestrator;
-    return orchestrator;
+    if (shared != null) unawaited(shared.dispose());
+    _shared = created;
+    _sharedClient = conn.client;
+    return _orchestrator = created;
   }
 
   void _listen() {
@@ -257,6 +313,9 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     if (orchestrator == null) return;
     _sub = orchestrator.events.listen((run) {
       if (!mounted) return;
+      // 编排器是连接级共享的：别的议会会话的事件不能进这一页。
+      final conversation = _conversation;
+      if (conversation != null && !conversation.turns.any((turn) => turn.runId == run.id)) return;
       setState(() {
         _runs[run.id] = run;
         if (run.phase.isTerminal) _busy = false;
@@ -331,6 +390,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       _error = null;
     });
     _draft.clear();
+    ref.read(conversationModeProvider.notifier).clearDraft(ConversationMode.council, _hostKey, conversation.id);
     try {
       // 下一轮沿用上一轮各席位的子会话：模型自己记得上文。
       final seeds = <String, String>{};
@@ -472,8 +532,11 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
     setState(() {
       _conversation = conversation;
       _runs.clear();
+      _seenTurns.clear();
       _error = null;
     });
+    _remember(conversation);
+    _restoreDraft(conversation);
   }
 
   // ---------------------------------------------------------------------------
@@ -490,11 +553,11 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
           children: [
             CollabHeader(
               title: conversation?.displayTitle ?? '议会',
-              subtitle: [
-                _modeLabel(conversation?.mode ?? CollabMode.quick),
-                '${conversation?.seats.length ?? 0} 位成员',
-              ].join(' · '),
+              subtitle: _subtitle(conversation),
+              statusColor: _busy ? theme.colorScheme.primary : null,
               badge: CollabModeBadge(label: '议会', color: theme.colorScheme.primary),
+              mode: ConversationMode.council,
+              onModeSelected: (mode) => switchConversationMode(context, ref, mode, from: ConversationMode.council),
               onTitleTap: _rename,
               actions: [
                 IconButton(
@@ -526,10 +589,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
             ),
             if (_inbox?.pending.isNotEmpty ?? false)
               for (final approval in _inbox!.pending)
-                CollabApprovalBanner(
-                  approval: approval,
-                  onDecide: (decision) => _respond(approval.eventId, decision),
-                ),
+                CollabApprovalBanner(approval: approval, onDecide: (decision) => _respond(approval.eventId, decision)),
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
@@ -537,26 +597,67 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
                   ? _empty(conversation)
                   : _messages(conversation),
             ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  _error!,
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
-                ),
-              ),
+            if (_error case final message?) _errorRow(message),
             CollabComposer(
               controller: _draft,
               busy: _busy,
               hint: '向议会提问，成员会各自作答',
               onSend: _send,
               onStop: _stop,
+              onChanged: _saveDraft,
               enabled: conversation != null,
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// 副标题：模式 + 成员数；正在跑时换成真实进度（几席已答、主席是否在综合）。
+  String _subtitle(CouncilConversation? conversation) {
+    final seats = conversation?.seats.length ?? 0;
+    final mode = _modeLabel(conversation?.mode ?? CollabMode.quick);
+    final run = _latestRun(conversation);
+    if (run == null || run.phase.isTerminal) return '$mode · $seats 位成员';
+    final done = run.answeredCount;
+    final phase = switch (run.phase) {
+      CollabPhase.queued || CollabPhase.round1 => '$done/$seats 位已作答',
+      CollabPhase.reviewing => '$done/$seats 位已答 · 互相审议中',
+      CollabPhase.verifying => '$done/$seats 位已答 · 校验补漏中',
+      CollabPhase.synthesizing => '主席综合中',
+      _ => '$done/$seats 位已作答',
+    };
+    return '$mode · $seats 位成员 · $phase';
+  }
+
+  CollabRun? _latestRun(CouncilConversation? conversation) {
+    final turn = conversation?.turns.lastOrNull;
+    return turn == null ? null : _runs[turn.runId];
+  }
+
+  /// 出错时一行红字 + 重试：不把页面卡在转圈上。
+  Widget _errorRow(String message) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(message, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
+          ),
+          TextButton(key: const ValueKey('council-retry'), onPressed: _retry, child: const Text('重试')),
+        ],
+      ),
+    );
+  }
+
+  void _retry() {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    unawaited(_boot());
   }
 
   Widget _empty(CouncilConversation? conversation) {
@@ -579,11 +680,20 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
               style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 14),
-            OutlinedButton.icon(
+            FilledButton.tonalIcon(
+              key: const ValueKey('council-onboarding-add'),
               onPressed: conversation == null ? null : _openMembers,
-              icon: const Icon(AppIcons.team, size: 18),
-              label: const Text('管理成员'),
+              icon: const Icon(AppIcons.add, size: 18),
+              label: Text(conversation == null || conversation.seats.length < 2 ? '添加成员' : '管理成员'),
             ),
+            if (conversation != null && conversation.seats.length < 2) ...[
+              const SizedBox(height: 8),
+              Text(
+                '模型目录还没读完也没关系：成员抽屉会单独加载，读完就能挑。',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.outline),
+              ),
+            ],
           ],
         ),
       ),
@@ -593,35 +703,41 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
   Widget _messages(CouncilConversation conversation) {
     final children = <Widget>[];
     for (final turn in conversation.turns) {
-      children.add(CollabUserBubble(key: ValueKey('q-${turn.runId}'), text: turn.question));
+      final animate = !_seenTurns.contains(turn.runId);
+      _seenTurns.add(turn.runId);
+      children.add(CollabUserBubble(key: ValueKey('q-${turn.runId}'), text: turn.question, animate: animate));
       final run = _runs[turn.runId];
       if (run == null) {
         children.add(
-          CollabSystemNote(
-            key: ValueKey('missing-${turn.runId}'),
-            text: turn.running ? '这一轮正在恢复…' : '这一轮的记录已经不在了',
-          ),
+          CollabSystemNote(key: ValueKey('missing-${turn.runId}'), text: turn.running ? '这一轮正在恢复…' : '这一轮的记录已经不在了'),
         );
         continue;
       }
       // 各席位独立作答：一位一条，绝不混在一条消息里。
       for (final seat in run.spec.seats) {
         final state = run.seatOf(seat.id);
-        final (status, color) = seatStatus(run, seat, Theme.of(context).colorScheme);
-        final text = state.best ?? '';
+        final activity = run.activity[seat.id];
+        final live = activity?.isActive ?? false;
+        final (status, color) = live
+            ? (activity!.label, Theme.of(context).colorScheme.primary)
+            : seatStatus(run, seat, Theme.of(context).colorScheme);
+        final text = (live && (activity?.text.trim().isNotEmpty ?? false)) ? activity!.text : (state.best ?? '');
+        final waiting = state.status == SeatStatus.pending && !live;
         children.add(
           CollabMessage(
             key: ValueKey('seat-${run.id}-${seat.id}'),
             brand: brandOf(seat.provider, seat.model),
             name: seat.displayName,
-            text: text.isEmpty ? (state.status == SeatStatus.pending ? '等待作答' : '（没有产出内容）') : text,
+            model: '${brandLabel(brandOf(seat.provider, seat.model))} · ${shortModelName(seat.model)}',
+            text: text.isEmpty ? (waiting ? '等待作答' : '') : text,
             status: status,
             statusColor: color,
             failed: state.status == SeatStatus.failed || state.status == SeatStatus.timedOut,
-            streaming: state.status == SeatStatus.running,
+            streaming: live || state.status == SeatStatus.running,
             trailing: seat.id == run.spec.chairId
                 ? CollabModeBadge(label: '主席', color: Theme.of(context).colorScheme.primary)
                 : null,
+            animate: animate,
           ),
         );
       }
@@ -635,11 +751,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
         children.add(const CollabSystemNote(text: '这一轮已取消'));
       }
     }
-    return ListView(
-      controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-      children: children,
-    );
+    return ListView(controller: _scroll, padding: const EdgeInsets.fromLTRB(12, 4, 12, 12), children: children);
   }
 
   Widget _verdictCard(CollabRun run, String verdict) {
@@ -689,10 +801,7 @@ class _CouncilPageState extends ConsumerState<CouncilPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (parsed.conclusion case final conclusion?) MarkdownBody(text: conclusion, selectable: false),
-        if (parsed.confidence case final confidence?) ...[
-          const SizedBox(height: 8),
-          _confidenceRow(theme, confidence),
-        ],
+        if (parsed.confidence case final confidence?) ...[const SizedBox(height: 8), _confidenceRow(theme, confidence)],
         if (parsed.consensus.isNotEmpty) _verdictSection(theme, '共识', parsed.consensus, theme.colorScheme.primary),
         if (parsed.disagreement.isNotEmpty)
           _verdictSection(theme, '分歧', parsed.disagreement, theme.colorScheme.tertiary),
@@ -763,17 +872,14 @@ String _modeLabel(CollabMode mode) => switch (mode) {
 
 /// 裁决首句：历史列表的副标题（与通知用同一套裁剪）。
 String collabNotifierLead(CollabRun run) {
-    final verdict = run.verdict;
-    if (verdict == null || verdict.trim().isEmpty) {
-      return run.phase == CollabPhase.failed ? '没能完成' : '议会';
-    }
-    for (final raw in verdict.split('\n')) {
-      final line = raw
-          .replaceAll(RegExp(r'^#+\s*'), '')
-          .replaceAll(RegExp(r'[*_`>]'), '')
-          .trim();
-      if (line.isEmpty || line.startsWith('结论') && line.length <= 4) continue;
-      return line.length <= 60 ? line : '${line.substring(0, 60)}…';
-    }
+  final verdict = run.verdict;
+  if (verdict == null || verdict.trim().isEmpty) {
+    return run.phase == CollabPhase.failed ? '没能完成' : '议会';
+  }
+  for (final raw in verdict.split('\n')) {
+    final line = raw.replaceAll(RegExp(r'^#+\s*'), '').replaceAll(RegExp(r'[*_`>]'), '').trim();
+    if (line.isEmpty || line.startsWith('结论') && line.length <= 4) continue;
+    return line.length <= 60 ? line : '${line.substring(0, 60)}…';
+  }
   return '议会';
 }

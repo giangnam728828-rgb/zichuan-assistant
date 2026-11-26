@@ -133,6 +133,8 @@ void main() {
         CouncilPage(orchestrator: orchestrator, runId: runId, conversationId: conversationId),
         overrides: [
           modelCatalogProvider.overrideWith((ref) async => _catalog()),
+        // 目录已缓存：新建会话按它凑两位成员（真机上点进来时通常也已经有缓存）。
+        currentModelCatalogProvider.overrideWithValue(_catalog()),
           readListLiveConnectionProvider.overrideWith((ref) => null),
           collabSessionRootProvider.overrideWithValue(() async => dir),
           councilStoreProvider.overrideWith((ref) async => conversations),

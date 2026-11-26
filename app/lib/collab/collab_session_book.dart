@@ -106,6 +106,11 @@ final class CollabSessionBook {
 /// 内存里的登记表；[build] 先给空表，随后异步把盘上的合并进来。
 class CollabSessionBookNotifier extends Notifier<Map<String, CollabSessionOwner>> {
   CollabSessionBook? _book;
+  Completer<void>? _ready;
+
+  /// 盘上的登记表读完（或读失败）之后完成。历史列表等它，避免内部会话
+  /// 先冒出来、随后才被过滤掉的闪现。
+  Future<void> get ready => (_ready ??= Completer<void>()).future;
 
   @override
   Map<String, CollabSessionOwner> build() {
@@ -122,11 +127,15 @@ class CollabSessionBookNotifier extends Notifier<Map<String, CollabSessionOwner>
   Future<void> _restore() async {
     try {
       final loaded = await (await _open()).load();
-      if (loaded.isEmpty) return;
-      // 已登记过的（本次运行刚建的新会话）优先。
-      state = {...loaded, ...state};
+      if (loaded.isNotEmpty) {
+        // 已登记过的（本次运行刚建的新会话）优先。
+        state = {...loaded, ...state};
+      }
     } on Object {
       // 读不出来不算错：只是折叠不了历史列表里的旧会话。
+    } finally {
+      final ready = _ready;
+      if (ready != null && !ready.isCompleted) ready.complete();
     }
   }
 

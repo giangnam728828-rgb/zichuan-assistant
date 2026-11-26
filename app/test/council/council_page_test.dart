@@ -4,6 +4,7 @@
 // 编排器与登记表都换成内存实现：widget 测试跑在 fake async 里，真实文件 IO
 // 会让「等运行结束」永远等不到；落盘另有一条纯 Dart 测试覆盖。
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dsh_client/dsh_client.dart';
@@ -47,8 +48,7 @@ final class _MemRunStore extends CollabStore {
   Future<CollabRun?> load(String id) async => runs[id];
 
   @override
-  Future<List<CollabRun>> list() async => runs.values.toList()
-    ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  Future<List<CollabRun>> list() async => runs.values.toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
   /// 裁决正文本来会落一份 Markdown：内存仓库里没有磁盘，跳过。
   @override
@@ -122,12 +122,15 @@ Future<void> _pump(
   _MemConversationStore store, {
   String? conversationId,
   String? runId,
+  bool resumeLatest = false,
 }) async {
   await tester.pumpWidget(
     testApp(
-      CouncilPage(orchestrator: orchestrator, conversationId: conversationId, runId: runId),
+      CouncilPage(orchestrator: orchestrator, conversationId: conversationId, runId: runId, resumeLatest: resumeLatest),
       overrides: [
         modelCatalogProvider.overrideWith((ref) async => _catalog()),
+        // 目录已缓存：新建会话按它凑两位成员（真机上点进来时通常也已经有缓存）。
+        currentModelCatalogProvider.overrideWithValue(_catalog()),
         readListLiveConnectionProvider.overrideWith((ref) => null),
         councilStoreProvider.overrideWith((ref) async => store),
       ],
@@ -158,6 +161,30 @@ void main() {
     expect(find.byKey(const ValueKey('council-members')), findsOneWidget);
   });
 
+  testWidgets('模型目录一直不回来也能进议会：不转圈、直接给添加成员', (tester) async {
+    // 目录请求挂住（Host 慢 / 断线）：以前这里会永远转圈、副标题停在「0 位成员」。
+    final orchestrator = CollabOrchestrator(driver: _Driver(), store: runs);
+    addTearDown(orchestrator.dispose);
+    await tester.pumpWidget(
+      testApp(
+        CouncilPage(orchestrator: orchestrator),
+        overrides: [
+          modelCatalogProvider.overrideWith((ref) => Completer<ModelCatalog?>().future),
+          readListLiveConnectionProvider.overrideWith((ref) => null),
+          councilStoreProvider.overrideWith((ref) async => conversations),
+        ],
+      ),
+    );
+    await _settle(tester);
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.textContaining('0 位成员'), findsOneWidget);
+    expect(find.text('议会已就绪'), findsOneWidget);
+    expect(find.byKey(const ValueKey('council-onboarding-add')), findsOneWidget);
+    // 还能正常输入（输入栏没有因为「没成员」被禁用）。
+    expect(find.byType(TextField), findsOneWidget);
+  });
+
   testWidgets('发一个问题：用户气泡、各席位分别作答、主席裁决各自成块', (tester) async {
     final driver = _Driver();
     final orchestrator = CollabOrchestrator(driver: driver, store: runs);
@@ -166,7 +193,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField), '这个方案要不要上线？');
     await tester.pump();
-    await tester.tap(find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '发送'));
+    await tester.tap(find.byKey(const ValueKey('composer-send')));
     await _waitForTurns(tester, conversations, runs);
 
     // 我的问题在消息流里。
@@ -212,13 +239,13 @@ void main() {
 
     await tester.enterText(find.byType(TextField), '第一问');
     await tester.pump();
-    await tester.tap(find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '发送'));
+    await tester.tap(find.byKey(const ValueKey('composer-send')));
     await _waitForTurns(tester, conversations, runs);
     expect(driver.opened, hasLength(2));
 
     await tester.enterText(find.byType(TextField), '第二问');
     await tester.pump();
-    await tester.tap(find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '发送'));
+    await tester.tap(find.byKey(const ValueKey('composer-send')));
     await _waitForTurns(tester, conversations, runs);
 
     // 没有再开新会话：第二轮续在同一个席位会话里。
@@ -235,7 +262,7 @@ void main() {
     await _pump(tester, orchestrator, conversations);
     await tester.enterText(find.byType(TextField), '历史里的那一问');
     await tester.pump();
-    await tester.tap(find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '发送'));
+    await tester.tap(find.byKey(const ValueKey('composer-send')));
     await _waitForTurns(tester, conversations, runs);
     final id = conversations.conversations.keys.single;
 
@@ -246,6 +273,24 @@ void main() {
     expect(find.textContaining('历史里的那一问'), findsWidgets);
     expect(find.textContaining('2 位成员'), findsOneWidget);
     expect(conversations.conversations, hasLength(1));
+  });
+
+  testWidgets('切换模式回来：恢复最近一条议会，不新建', (tester) async {
+    final orchestrator = CollabOrchestrator(driver: _Driver(), store: runs);
+    addTearDown(orchestrator.dispose);
+    await _pump(tester, orchestrator, conversations);
+    await tester.enterText(find.byType(TextField), '切走之前的那一问');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('composer-send')));
+    await _waitForTurns(tester, conversations, runs);
+    final id = conversations.conversations.keys.single;
+
+    await tester.pumpWidget(const SizedBox());
+    await _pump(tester, orchestrator, conversations, resumeLatest: true);
+
+    expect(conversations.conversations.keys, [id]);
+    expect(find.textContaining('切走之前的那一问'), findsWidgets);
+    expect(find.textContaining('2 位成员'), findsOneWidget);
   });
 
   test('会话记录可序列化：落盘再读回来，成员与回合都在', () async {

@@ -58,7 +58,6 @@ class Composer extends StatefulWidget {
     this.leading,
     this.modePill,
     this.modelKey,
-    this.councilKey,
     this.tray,
     this.hasAttachments = false,
     this.onSendOptions,
@@ -165,9 +164,6 @@ class Composer extends StatefulWidget {
   /// 顶栏不再放模型名（B5），选择入口跟着输入栏走。
   final Widget? modelKey;
 
-  /// 控制行的议会键（C 线入口）：多个模型一起答，主席综合。
-  final Widget? councilKey;
-
   /// 连一张完整的卡片都放不下时（横屏叠着键盘、分屏），把上留白与行距
   /// 各收紧一点：文字才落得到状态栏之下，对话也还露得出来。
   /// 由页面按 [tightFor] 算好传进来——卡片自己的 context 已经看不到键盘。
@@ -191,8 +187,7 @@ class Composer extends StatefulWidget {
   /// 键盘进出时输入栏不跳。
   static bool tightFor(BuildContext pageContext) {
     final media = MediaQuery.of(pageContext);
-    final available =
-        media.size.height - media.viewInsets.bottom - media.viewPadding.top - media.viewPadding.bottom;
+    final available = media.size.height - media.viewInsets.bottom - media.viewPadding.top - media.viewPadding.bottom;
     return available < 132;
   }
 
@@ -517,25 +512,21 @@ class _ComposerState extends State<Composer> {
               },
             );
             // 两行：上面输入，下面控制行。控制行左边是 ＋ 与模式胶囊，
-            // 右边是上下文环、协作、模型、通话、语音 / 发送；中间的空位留给长标题。
+            // 右边是上下文环、模型、通话、语音 / 发送；中间的空位留给长标题。
+            // v2 起协作入口在左上角，输入栏不再有协作键。
             final row = LayoutBuilder(
               builder: (context, constraints) {
-                // 320dp 叠 1.3 倍字号时这一行放不下全部键（协作键加入后就会
-                // 顶出去）。上下文环只是「用量」的快捷入口，先收它；协作、
-                // 模型、通话都是主入口，一个都不藏。
+                // 320dp 叠 1.3 倍字号时这一行放不下全部键。上下文环只是
+                // 「用量」的快捷入口，先收它；模型、通话都是主入口，不藏。
                 final roomy = constraints.maxWidth >= 320 || dictating;
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     if (leadingKey != null) ...[leadingKey, const SizedBox(width: _keyGap)],
                     Expanded(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: widget.modePill ?? const SizedBox.shrink(),
-                      ),
+                      child: Align(alignment: Alignment.centerLeft, child: widget.modePill ?? const SizedBox.shrink()),
                     ),
                     if (accessory != null && roomy) ...[accessory, const SizedBox(width: 2)],
-                    if (widget.councilKey case final key?) ...[key, const SizedBox(width: _keyGap)],
                     if (widget.modelKey case final key?) ...[key, const SizedBox(width: _keyGap)],
                     if (!dictating && widget.onCall != null) ...[
                       _CallKey(onTap: widget.onCall!),
@@ -699,9 +690,7 @@ class _ThinkingEdgeState extends State<_ThinkingEdge> with SingleTickerProviderS
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppShape.float),
             border: Border.all(color: accent.withValues(alpha: 0.18 + 0.42 * t), width: 1.5),
-            boxShadow: [
-              BoxShadow(color: accent.withValues(alpha: 0.10 * t), blurRadius: 18, spreadRadius: 1),
-            ],
+            boxShadow: [BoxShadow(color: accent.withValues(alpha: 0.10 * t), blurRadius: 18, spreadRadius: 1)],
           ),
           child: child,
         );
@@ -783,9 +772,7 @@ class _CallKey extends StatelessWidget {
           child: InkWell(
             customBorder: const CircleBorder(),
             onTap: onTap,
-            child: Center(
-              child: Icon(AppIcons.call, size: 20, color: colors.onSurface.withValues(alpha: 0.78)),
-            ),
+            child: Center(child: Icon(AppIcons.call, size: 20, color: colors.onSurface.withValues(alpha: 0.78))),
           ),
         ),
       ),

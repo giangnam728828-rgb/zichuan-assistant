@@ -35,6 +35,7 @@ import '../../state/attachments.dart';
 import '../../state/balance_state.dart';
 import '../../state/chat_error_text.dart';
 import '../../state/chat_state.dart';
+import '../../state/conversation_mode_state.dart';
 import '../../state/commands_state.dart';
 import '../../state/compose_inbox.dart';
 import '../../state/composer_insert.dart';
@@ -96,7 +97,7 @@ import 'balance_widgets.dart';
 import 'chat_header.dart';
 import 'chat_list.dart';
 import 'composer.dart';
-import '../council/collab_entry.dart';
+import 'conversation_mode_switcher.dart';
 import 'composer_toast.dart';
 import 'dock/chat_dock.dart';
 import 'dock/dock_stack.dart';
@@ -1995,6 +1996,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                         // 不再占一格写模型名，标题拿回整行宽度。子代理对话
                         // 本来就没有模型 chip：它的模型由上级路由。
                         trailing: null,
+                        // v2：左上角模式切换器紧跟 ≡，子代理对话不参与模式切换。
+                        mode: isChild ? null : ConversationMode.chat,
+                        onModeSelected: isChild
+                            ? null
+                            : (mode) => switchConversationMode(context, ref, mode, from: ConversationMode.chat),
                       ),
                     ),
                   ),
@@ -2283,18 +2289,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                     // B2：控制行左边的模式胶囊（新对话管预设与权限，
                                     // 已有会话管权限）。
                                     modePill: ComposerModePill(sessionId: sessionId),
-                                    // C 线入口：协作（议会 / 团队）。
-                                    councilKey: isChild
-                                        ? null
-                                        : IconButton(
-                                            key: const ValueKey('composer-collab'),
-                                            tooltip: '协作',
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-                                            style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                                            icon: const Icon(Icons.hub_outlined, size: 20),
-                                            onPressed: () => showCollabSheet(context),
-                                          ),
+                                    // v2：协作入口搬到左上角，输入栏不再放协作键。
                                     // B5：模型键跟着输入栏，显示当前模型是哪一家。
                                     modelKey: isChild
                                         ? null
@@ -2351,11 +2346,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
   /// 生成模式的胶囊（「图像 · 3:4 · 2 张」）；没在生成时 null。
   Widget? _composerPills(GenerateParams? generate) {
     if (generate == null) return null;
-    return GenerateCapsule(
-      params: generate,
-      onTap: () => _openGenerateSheet(generate),
-      onExit: _exitGenerate,
-    );
+    return GenerateCapsule(params: generate, onTap: () => _openGenerateSheet(generate), onExit: _exitGenerate);
   }
 
   /// 「自动允许中」/「完全权限」 beside the activity strip while a reply generates.

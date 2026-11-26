@@ -37,6 +37,68 @@ enum SeatRole {
 }
 
 /// 一次运行走到哪一步。终态：[done]、[cancelled]、[failed]。
+/// 一个执行单元此刻的阶段。
+enum CollabActivityPhase {
+  /// 刚开始 / 模型在想（含只收到 reasoning 增量）。
+  thinking,
+
+  /// 正在调工具（[CollabActivity.detail] 是真实工具名）。
+  tool,
+
+  /// 正在写正文（[CollabActivity.text] 是已经收到的部分）。
+  replying,
+
+  /// 这一轮结束。
+  done,
+
+  /// 失败 / 超时 / 中断。
+  failed,
+}
+
+/// 一位成员此刻的执行状态（不落盘）。
+final class CollabActivity {
+  const CollabActivity({
+    required this.phase,
+    this.detail = '',
+    this.text = '',
+    this.attemptId = '',
+    this.at,
+  });
+
+  final CollabActivityPhase phase;
+
+  /// 工具名之类的补充说明。
+  final String detail;
+
+  /// 已经收到的正文（只来自流式增量）。
+  final String text;
+
+  /// Host 的 attemptId：换了一次重试就换一个，用来丢弃旧请求的尾巴。
+  final String attemptId;
+  final DateTime? at;
+
+  bool get isActive => phase != CollabActivityPhase.done && phase != CollabActivityPhase.failed;
+
+  /// 界面上的那一句话。
+  String get label => switch (phase) {
+    CollabActivityPhase.thinking => '正在思考…',
+    CollabActivityPhase.tool => detail.isEmpty ? '正在用工具…' : '正在用 $detail…',
+    CollabActivityPhase.replying => '正在回答…',
+    CollabActivityPhase.done => '已完成',
+    CollabActivityPhase.failed => '这一轮没跑完',
+  };
+
+  CollabActivity copyWith({CollabActivityPhase? phase, String? detail, String? text, String? attemptId, DateTime? at}) {
+    return CollabActivity(
+      phase: phase ?? this.phase,
+      detail: detail ?? this.detail,
+      text: text ?? this.text,
+      attemptId: attemptId ?? this.attemptId,
+      at: at ?? this.at,
+    );
+  }
+}
+
 enum CollabPhase {
   /// 已提交，尚未开始第一轮。
   queued,
@@ -335,6 +397,7 @@ final class CollabRun {
     this.failure,
     this.callsUsed = 0,
     this.cancelRequested = false,
+    this.activity = const {},
     required this.createdAt,
     required this.updatedAt,
     this.rev = 0,
@@ -384,6 +447,9 @@ final class CollabRun {
 
   /// 用户已请求取消；每个步骤开始前检查。
   final bool cancelRequested;
+
+  /// 各席位此刻的真实执行过程（seatId → 状态）。只在本进程有意义，不落盘。
+  final Map<String, CollabActivity> activity;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -411,6 +477,7 @@ final class CollabRun {
     String? failure,
     int? callsUsed,
     bool? cancelRequested,
+    Map<String, CollabActivity>? activity,
     DateTime? updatedAt,
     int? rev,
   }) => CollabRun(
@@ -422,6 +489,7 @@ final class CollabRun {
     failure: failure ?? this.failure,
     callsUsed: callsUsed ?? this.callsUsed,
     cancelRequested: cancelRequested ?? this.cancelRequested,
+    activity: activity ?? this.activity,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     rev: rev ?? this.rev,

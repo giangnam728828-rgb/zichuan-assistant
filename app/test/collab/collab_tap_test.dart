@@ -13,6 +13,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../chat/support/harness.dart' show testApp;
+
 void main() {
   late Directory dir;
 
@@ -28,22 +30,19 @@ void main() {
   Future<ValueNotifier<bool?>> pumpOpener(WidgetTester tester, String sessionId) async {
     final handled = ValueNotifier<bool?>(null);
     await tester.pumpWidget(
-      ProviderScope(
+      testApp(
+        Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => handled.value = openCollabSession(context, host: HostRef.local, sessionId: sessionId),
+              child: const Text('open'),
+            ),
+          ),
+        ),
         overrides: [
           collabSessionRootProvider.overrideWithValue(() async => dir),
           readListLiveConnectionProvider.overrideWith((ref) => null),
         ],
-        child: MaterialApp(
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: TextButton(
-                onPressed: () =>
-                    handled.value = openCollabSession(context, host: HostRef.local, sessionId: sessionId),
-                child: const Text('open'),
-              ),
-            ),
-          ),
-        ),
       ),
     );
     return handled;
@@ -81,12 +80,7 @@ void main() {
     final handled = await pumpOpener(tester, 'sess-mate');
     await register(
       tester,
-      const CollabSessionOwner(
-        sessionId: 'sess-mate',
-        kind: CollabSessionKind.team,
-        ownerId: 'team-3',
-        label: '阿蓝',
-      ),
+      const CollabSessionOwner(sessionId: 'sess-mate', kind: CollabSessionKind.team, ownerId: 'team-3', label: '阿蓝'),
     );
 
     await tester.tap(find.text('open'));
