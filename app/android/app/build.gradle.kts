@@ -139,11 +139,13 @@ android {
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
-                // All three schemes: AGP drops v1 for minSdk 24+, but some installers and
-                // security scanners on Chinese ROMs still read the JAR signature.
+                // v1 + v2，**不开 v3**：vivo（OriginOS/Funtouch）的安装器遇到带 v3
+                // 的包会报「套件似乎无效 / 安装组件欠缺开发者证书」，哪怕 v1/v2 都在。
+                // v3 只用于密钥轮换，我们不需要；Android 8+ 有 v1/v2 就能装。
+                // 不要在没有 vivo 真机复验的情况下重新打开 v3（docs/release.md「签名」）。
                 enableV1Signing = true
                 enableV2Signing = true
-                enableV3Signing = true
+                enableV3Signing = false
             }
         }
     }

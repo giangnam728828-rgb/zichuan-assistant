@@ -91,10 +91,21 @@ jobs:
         bash -x build-apk.sh
 
     - name: Verify signature
+      # vivo 的安装器不认 v3：带 v3 的包会提示「套件似乎无效 / 欠缺开发者证书」。
+      # 这里把「v1 + v2 在、v3 不在」变成硬性门槛，避免以后又被 AGP 默认值带回去。
       run: |
         APK=$(ls dist/zichuan-assistant-*.apk | head -1)
         echo "APK: $APK ($(du -h "$APK" | cut -f1))"
-        "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" | grep 'SHA-256'
+        AS="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+        "$AS" verify --verbose --min-sdk-version 21 --print-certs "$APK" > /tmp/verify.txt
+        grep 'SHA-256' /tmp/verify.txt
+        grep -q 'Verified using v1 scheme (JAR signing): true' /tmp/verify.txt
+        grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/verify.txt
+        if grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' /tmp/verify.txt; then
+          echo "v3 signature present: vivo rejects it (套件似乎无效)" >&2
+          exit 1
+        fi
+        echo "OK: v1 + v2, no v3"
 
     - name: Upload APK
       uses: actions/upload-artifact@v4

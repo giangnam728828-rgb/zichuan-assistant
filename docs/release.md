@@ -93,7 +93,7 @@ versionCode = (年 - 2026) × 10^8 + MMDDhhmm      时钟固定按 UTC+8
    ```
 
    提示的触发条件见 `docs/design/star-prompt.md`；使用时长从装上这个包算起。
-3. **确认签名**：对要发布的 arm64 APK 执行 `apksigner verify -v --min-sdk-version 21 --print-certs`。v1、v2、v3 三种签名都要是 `true`（v1 给仍读 JAR 签名的安装器和安全扫描；不加 `--min-sdk-version` 时 apksigner 按 minSdk 26 不查 v1），证书主题不得含 `CN=Android Debug`，证书 SHA-256 必须与上一版一致。验证失败时不要生成或上传 `dist/`、`update.json`。
+3. **确认签名**：对要发布的 arm64 APK 执行 `apksigner verify -v --min-sdk-version 21 --print-certs`。必须是 **v1、v2 为 `true`、v3 为 `false`**（v1 给仍读 JAR 签名的安装器和安全扫描；不加 `--min-sdk-version` 时 apksigner 按 minSdk 26 不查 v1）。**不能带 v3**：vivo（OriginOS/Funtouch）的安装器遇到带 v3 的包会报「套件似乎无效 / 安装组件欠缺开发者证书」，v1/v2 都在也没用（2026-11 在 vivo 真机上确认）。v3 只用于密钥轮换，本项目不用。证书主题不得含 `CN=Android Debug`，证书 SHA-256 必须与上一版一致。验证失败时不要生成或上传 `dist/`、`update.json`。CI 的 `Verify signature` 步骤已经按这个门槛卡住（`enableV3Signing = false`）。
 4. **生成资产**（改名、算校验和、写 `update.json`）。默认只收录 arm64；版本名取 pubspec，构建号用 `aapt2` 从 APK 里读。版本名不匹配或构建号还是占位的 `1` 时脚本直接报错：
 
    ```sh
