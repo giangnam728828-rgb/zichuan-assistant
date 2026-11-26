@@ -24,5 +24,9 @@ prefers/
 runtime/out/
 runtime/assets/runtime/rootfs-*.tar.xz
 
-# Keystore (keep in repo, but ignore properties)
+# Signing material: never commit the keystore or its passwords.
+keystore/*.jks
+keystore/*.keystore
 keystore/keystore.properties
+*.jks
+*.keystore

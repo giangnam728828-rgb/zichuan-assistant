@@ -349,14 +349,36 @@ AE 只留约 3 个月，想长期保留就定期把输出存下来。
 
 ## 签名
 
-Android 只接受和已装版本**同一签名**的覆盖安装。`build.gradle.kts` 从 `app/android/key.properties` 读取发布签名；配置缺失时回落到打包机器的 `~/.android/debug.keystore`，仅供本地构建。正式发版必须先配置发布密钥。
+Android 只接受和已装版本**同一签名**的覆盖安装。签名材料（keystore 与口令）**不进仓库**：CI 从 GitHub Secrets 还原，本地构建从仓库外的路径读环境变量。
 
-### 厂商安装器的限制：vivo 不认 v3
+> **安全状态（2026-11）**：`keystore/zichuan-release.jks` 与明文口令曾随公开仓库提交，私钥应视为已泄露。已从工作树移除并改走 Secrets，但 Git 历史仍可回溯。**不要直接换钥**：换钥会让已安装用户无法覆盖更新，必须先做迁移方案（APK v3 密钥轮换或换包名）。
 
-- **症状**：APK 已签名、`apksigner verify` 全部通过，但 vivo（OriginOS / Funtouch）安装时报「套件似乎无效，无法安装应用程序」，副标题「安装组件欠缺开发者证书」。
-- **原因**：包里带 APK Signature Scheme v3 块（签名块 ID `0xf05368c0`）。2026-11 在 vivo 真机上用 2.0.0 预览包确认：v1（`META-INF/CERT.SF`、`CERT.RSA`）和 v2 都在，仍被拒；把 v3 去掉后，同一把钥匙签的包可以安装。
-- **做法**：`enableV1Signing = true`、`enableV2Signing = true`、`enableV3Signing = false`。v3 只用于密钥轮换，本项目不需要；Android 8+ 有 v1/v2 就够。
-- **守门**：CI 的 `Verify signature` 用 `apksigner verify --verbose --min-sdk-version 21` 断言 v1/v2 为 `true`、v3 为 `false`，不满足直接失败。不要在 vivo 真机复验前重新打开 v3。
+CI 需要的四个 Secrets（`Settings → Secrets and variables → Actions`）：
+
+| Secret | 内容 |
+|---|---|
+| `KEYSTORE_BASE64` | `base64 -w0 zichuan-release.jks` 的输出 |
+| `KEYSTORE_PASSWORD` | keystore 口令 |
+| `KEYSTORE_ALIAS` | `zichuan` |
+| `KEY_PASSWORD` | key 口令 |
+
+本地构建把 keystore 放在仓库外：
+
+```sh
+export KEYSTORE=~/.keys/zichuan-release.jks
+export KEYSTORE_PASSWORD='…' KEYSTORE_ALIAS=zichuan KEY_PASSWORD='…'
+bash build-apk.sh
+```
+
+`build-apk.sh` 会核对证书 SHA-256（`05d1…5057`），不一致直接失败。
+
+### 厂商安装器：vivo 报「套件似乎无效 / 欠缺开发人员证书」
+
+- **症状**：APK 签名完整、`apksigner verify` 全绿，vivo（OriginOS / Funtouch）仍拒绝，提示「安装组件欠缺开发人员证书」。
+- **已排除**：签名方案组合（带 v3、只留 v1+v2 都试过，报错相同）、证书指纹（各版本一致）、包完整性、安全拦截（可无视风险安装）。
+- **未定论**：**「vivo 不认 v3」没有被证实**。关掉 v3 的包（45749064451、45763947479）同样装不上，不要再把关 v3 当成修复。
+- **保持现状**：`enableV1Signing = true`、`enableV2Signing = true`、`enableV3Signing = false`；CI 继续断言这个组合，它至少消掉了一个变量。
+- **下一步**：需要 `adb install` 的真实错误码（`INSTALL_PARSE_FAILED_*` / `INSTALL_FAILED_*`）才能定位。
 
 做法：生成一把发布密钥，只在发版机器上用，并离线备份（丢了等于以后再也发不了更新，所有用户都得卸载重装）。
 
@@ -364,7 +386,7 @@ Android 只接受和已装版本**同一签名**的覆盖安装。`build.gradle.
 keytool -genkeypair -v -keystore /home/you/keys/dsh-release.jks -keyalg RSA -keysize 4096 -validity 36500 -alias dsh
 ```
 
-`app/android/key.properties`（**加进 .gitignore，不要提交**）：
+`keystore/keystore.properties`（**已加入 .gitignore，只在本地存在**，CI 用 Secrets 代替）：
 
 ```properties
 storeFile=/home/you/keys/dsh-release.jks

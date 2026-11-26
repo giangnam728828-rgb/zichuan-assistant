@@ -139,10 +139,9 @@ android {
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
-                // v1 + v2，**不开 v3**：vivo（OriginOS/Funtouch）的安装器遇到带 v3
-                // 的包会报「套件似乎无效 / 安装组件欠缺开发者证书」，哪怕 v1/v2 都在。
-                // v3 只用于密钥轮换，我们不需要；Android 8+ 有 v1/v2 就能装。
-                // 不要在没有 vivo 真机复验的情况下重新打开 v3（docs/release.md「签名」）。
+                // v1 + v2，不开 v3。这个组合在 vivo 上仍然装不上（「套件似乎无效 /
+                // 安装组件欠缺开发人员证书」），所以它不是修复，只是把变量收窄到「没有 v3」。
+                // 根因未定：别再拿开关 v3 当结论（docs/release.md「签名」）。
                 enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = false

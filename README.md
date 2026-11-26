@@ -16,22 +16,29 @@
 - **minSdk**：26 | **targetSdk**：28
 - **协议**：AGPL-3.0（见 `LICENSE`）
 
-## 固定签名（重要）
+## 签名（重要）
 
-本仓库使用固定的 release keystore：`keystore/zichuan-release.jks`（别名 `zichuan`，RSA 2048，有效期 10000 天）。
+APK 用固定的 release 证书签名，**新版本可直接覆盖安装，不需要先卸载旧版**。签名材料（`.jks` 与密码）**不进仓库**。
 
+- **CI**：从仓库 Secrets 读取 `KEYSTORE_BASE64` / `KEYSTORE_PASSWORD` / `KEYSTORE_ALIAS` / `KEY_PASSWORD`，构建时临时还原，随 runner 销毁。
+- **本地**：把 keystore 放在仓库外，用环境变量传入，密码不落盘：
+
+```bash
+export KEYSTORE=~/.keys/zichuan-release.jks
+export KEYSTORE_PASSWORD='…'
+export KEYSTORE_ALIAS=zichuan
+export KEY_PASSWORD='…'
+bash build-apk.sh
 ```
-证书 SHA-256: 05:D1:26:5D:87:0C:5B:72:E5:3C:8A:74:5D:BE:8F:E1:2E:DB:79:1E:A1:7F:7B:DA:F4:02:34:90:4C:4D:50:57
-证书 SHA-1  : 63:10:A4:48:38:D0:36:48:39:B3:D9:5D:E2:7E:4F:3F:1C:71:EE:53
-有效期至    : 2054-04-07
-```
 
-只要用这把 key 签名，**新版本可以直接覆盖安装，不需要先卸载旧版本**。
+`build-apk.sh` 会校验证书指纹，不等于下列值就直接失败：
 
-验证签名一致性：
 ```bash
 apksigner verify --print-certs dist/zichuan-assistant-*.apk | grep SHA-256
+# 05:D1:26:5D:87:0C:5B:72:E5:3C:8A:74:5D:BE:8F:E1:2E:DB:79:1E:A1:7F:7B:DA:F4:02:34:90:4C:4D:50:57
 ```
+
+> **历史提示**：该 keystore 在 2026-11 之前曾随公开仓库提交，私钥应视为已泄露。为不破坏已安装用户的覆盖升级，暂不轮换；轮换需走 APK v3 密钥轮换或换包名迁移，不能直接换钥重签。
 
 ## 本地构建
 
