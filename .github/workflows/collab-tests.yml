@@ -3,6 +3,21 @@ name: Collab tests
 # 只跑「协作聊天改造」这一批测试：上下文检索、输入栏遮挡几何、面板定位、
 # 顺序回答、会话切换。既有 Android 构建流程不动（android.yml）。
 on:
+  push:
+    branches: [ ui-chuan-shui ]
+    paths:
+      - 'app/lib/collab/**'
+      - 'app/lib/council/**'
+      - 'app/lib/team/**'
+      - 'app/lib/ui/collab/**'
+      - 'app/lib/ui/council/**'
+      - 'app/lib/ui/team/**'
+      - 'app/lib/ui/chat/shared/**'
+      - 'app/lib/state/conversation_mode_state.dart'
+      - 'app/test/collab/**'
+      - 'app/test/council/**'
+      - 'app/test/chat/conversation_mode_switcher_test.dart'
+      - '.github/workflows/collab-tests.yml'
   workflow_dispatch:
 
 jobs:
