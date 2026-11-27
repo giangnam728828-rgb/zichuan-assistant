@@ -17,6 +17,7 @@
 // [DshCollabDriver]（包 DshClient）实现，测试里由 Fake 实现。
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dsh_client/dsh_client.dart';
 
@@ -51,7 +52,13 @@ abstract interface class CollabSessionDriver {
   /// 在会话里发一条消息，等这一轮结束，返回终稿。
   ///
   /// [timeout] 到点后放弃等待（内部负责取消订阅），由调用方决定怎么记。
-  Future<TurnOutcome> runTurn(String sessionId, String text, {Duration? timeout});
+  /// [attachments] 与正文一起发给这一位（同一轮的多位成员共享同一份来源）。
+  Future<TurnOutcome> runTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  });
 
   /// 尽量停下会话里正在跑的一轮（取消时用）。
   Future<void> cancel(String sessionId);
@@ -88,7 +95,12 @@ final class CollabTurnDone extends CollabTurnEvent {
 abstract interface class CollabStreamingDriver {
   /// 在会话里发一条消息，边跑边吐 [CollabTurnEvent]；最后一条是
   /// [CollabTurnDone]。订阅取消等于放弃等待（不保证停下远端）。
-  Stream<CollabTurnEvent> streamTurn(String sessionId, String text, {Duration? timeout});
+  Stream<CollabTurnEvent> streamTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  });
 }
 
 class _Cancelled implements Exception {}
@@ -160,7 +172,11 @@ final class CollabOrchestrator {
   ///
   /// [seedSessions] 是上一轮各席位的子会话 id：带上的话这一轮直接续在同一个
   /// 会话里问，模型自己记得上文（多轮议会靠它，不用把历史塞进提示词）。
-  Future<CollabRun> submit(CouncilSpec spec, {Map<String, String> seedSessions = const {}}) async {
+  Future<CollabRun> submit(
+    CouncilSpec spec, {
+    Map<String, String> seedSessions = const {},
+    List<CollabAttachment> attachments = const [],
+  }) async {
     _validate(spec);
     final now = _clock();
     final run = CollabRun(
@@ -173,6 +189,7 @@ final class CollabOrchestrator {
     );
     await _store.save(run);
     _latest[run.id] = run;
+    if (attachments.isNotEmpty) _runAttachments[run.id] = List.unmodifiable(attachments);
     if (!_disposed && !_events.isClosed) _events.add(run);
     _driveLater(run.id);
     return run;
@@ -471,6 +488,9 @@ final class CollabOrchestrator {
   }
 
   /// 跑一个席位的一轮：先落盘「running」（先写盘再执行），超时/失败重试一次。
+  /// 本次 run 的附件（只在席位第一次收到消息时投递，避免同会话重复上传）。
+  final _runAttachments = <String, List<CollabAttachment>>{};
+
   Future<TurnOutcome> _runSeat(String runId, SeatSpec seat, String prompt) async {
     var attempts = 0;
     var last = const TurnOutcome(kind: TurnKind.failed, error: '没有结果');
@@ -529,6 +549,8 @@ final class CollabOrchestrator {
           sessionId: sessionId,
           text: prompt,
           timeout: before.spec.seatTimeout,
+          // 新开的会话才带附件：同一席位后面的修订轮次已经在上下文里了。
+          attachments: state.sessionId == null ? (_runAttachments[runId] ?? const []) : const [],
           onActivity: (activity) => _setSeatActivity(runId, seat.id, activity),
         );
         last = outcome;
@@ -733,8 +755,59 @@ final class DshCollabDriver implements CollabSessionDriver, CollabStreamingDrive
     return created.sessionId;
   }
 
+  /// 附件落地缓存：同一会话里同名的文件只上传一次（方案 S6：只落地一次）。
+  final _stagedFiles = <String, Map<String, String>>{};
+
+  /// 把附件变成 prompt 需要的三样东西：内联图片、文件 receipt、工作区路径。
+  Future<({List<PromptImage> images, List<String> receipts, List<String> paths})> _stageAttachments(
+    String sessionId,
+    List<CollabAttachment> attachments,
+  ) async {
+    final images = <PromptImage>[];
+    final receipts = <String>[];
+    final paths = <String>[];
+    for (final attachment in attachments) {
+      if (attachment.isImage) {
+        images.add(PromptImage.fromBytes(attachment.bytes, mediaType: attachment.mediaType!, name: attachment.name));
+        continue;
+      }
+      final cacheKey = '$sessionId\u0000${attachment.name}\u0000${attachment.size}';
+      final cached = _stagedFiles[sessionId]?[cacheKey];
+      if (cached != null) {
+        if (cached.startsWith('receipt:')) {
+          receipts.add(cached.substring(8));
+        } else {
+          paths.add(cached.substring(5));
+        }
+        continue;
+      }
+      if (client.supportsEndpoint('fileUploads/upload')) {
+        final receipt = await client.uploadFile(sessionId, attachment.bytes, name: attachment.name);
+        (_stagedFiles[sessionId] ??= {})[cacheKey] = 'receipt:${receipt.receiptId}';
+        receipts.add(receipt.receiptId);
+      } else {
+        final file = await client.uploadWorkspaceFile(sessionId, attachment.bytes, name: attachment.name);
+        (_stagedFiles[sessionId] ??= {})[cacheKey] = 'path:${file.path}';
+        paths.add(file.path);
+      }
+    }
+    return (images: images, receipts: receipts, paths: paths);
+  }
+
+  /// 正文 + 工作区文件路径提示（与普通聊天的行为一致）。
+  String _contentWithPaths(String text, List<String> paths) {
+    if (paths.isEmpty) return text;
+    final list = paths.map((path) => '- ${jsonEncode(path)}').join('\n');
+    return [if (text.isNotEmpty) text, '以下文件已经放进工作区，可以用读文件工具打开：\n$list'].join('\n\n');
+  }
+
   @override
-  Future<TurnOutcome> runTurn(String sessionId, String text, {Duration? timeout}) async {
+  Future<TurnOutcome> runTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  }) async {
     final completer = Completer<TurnOutcome>();
     var answer = '';
     var tokensIn = 0;
@@ -798,7 +871,33 @@ final class DshCollabDriver implements CollabSessionDriver, CollabStreamingDrive
         await Future<void>.delayed(const Duration(milliseconds: 100));
         if (completer.isCompleted) break;
       }
-      await client.prompt(sessionId, text);
+      final staged = await _stageAttachments(sessionId, attachments);
+      try {
+        await client.prompt(
+          sessionId,
+          _contentWithPaths(text, staged.paths),
+          images: staged.images,
+          fileReceiptIds: staged.receipts,
+        );
+      } on DshRemoteException catch (error) {
+        // 纯文本模型拒图：把图片改投成工作区文件，消息仍然送到，由工具去读。
+        if (staged.images.isEmpty || error.details['reason'] != 'MODEL_DOES_NOT_SUPPORT_IMAGES') rethrow;
+        final fallback = await _stageAttachments(sessionId, [
+          for (final attachment in attachments)
+            if (!attachment.isImage) attachment,
+        ]);
+        final uploaded = <String>[];
+        for (final attachment in attachments) {
+          if (!attachment.isImage) continue;
+          final file = await client.uploadWorkspaceFile(sessionId, attachment.bytes, name: attachment.name);
+          uploaded.add(file.path);
+        }
+        await client.prompt(
+          sessionId,
+          _contentWithPaths(text, [...fallback.paths, ...uploaded]),
+          fileReceiptIds: fallback.receipts,
+        );
+      }
       return await completer.future.timeout(timeout ?? const Duration(seconds: 90));
     } finally {
       await subscription.cancel();
@@ -806,7 +905,12 @@ final class DshCollabDriver implements CollabSessionDriver, CollabStreamingDrive
   }
 
   @override
-  Stream<CollabTurnEvent> streamTurn(String sessionId, String text, {Duration? timeout}) {
+  Stream<CollabTurnEvent> streamTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  }) {
     late final StreamController<CollabTurnEvent> controller;
     StreamSubscription<DshEvent>? subscription;
     Timer? timer;
@@ -908,7 +1012,32 @@ final class DshCollabDriver implements CollabSessionDriver, CollabStreamingDrive
           }
           if (finished) return;
           emit(const CollabTurnStage('thinking'));
-          await client.prompt(sessionId, text);
+          final staged = await _stageAttachments(sessionId, attachments);
+          try {
+            await client.prompt(
+              sessionId,
+              _contentWithPaths(text, staged.paths),
+              images: staged.images,
+              fileReceiptIds: staged.receipts,
+            );
+          } on DshRemoteException catch (error) {
+            if (staged.images.isEmpty || error.details['reason'] != 'MODEL_DOES_NOT_SUPPORT_IMAGES') rethrow;
+            final fallback = await _stageAttachments(sessionId, [
+              for (final attachment in attachments)
+                if (!attachment.isImage) attachment,
+            ]);
+            final uploaded = <String>[];
+            for (final attachment in attachments) {
+              if (!attachment.isImage) continue;
+              final file = await client.uploadWorkspaceFile(sessionId, attachment.bytes, name: attachment.name);
+              uploaded.add(file.path);
+            }
+            await client.prompt(
+              sessionId,
+              _contentWithPaths(text, [...fallback.paths, ...uploaded]),
+              fileReceiptIds: fallback.receipts,
+            );
+          }
         } on Object catch (e) {
           finish(TurnOutcome(kind: TurnKind.failed, error: '$e'));
         }

@@ -233,6 +233,8 @@ class ConversationComposer extends StatefulWidget {
     this.onChanged,
     this.enabled = true,
     this.sendable = true,
+    this.tray,
+    this.hasAttachments = false,
   });
 
   final TextEditingController controller;
@@ -246,6 +248,10 @@ class ConversationComposer extends StatefulWidget {
 
   /// 输入栏照常可用，但发送键不亮（例如成员不足）。
   final bool sendable;
+
+  /// 已选但未发送的附件托盘（议会/团队复用普通聊天那一块）。
+  final Widget? tray;
+  final bool hasAttachments;
 
   @override
   State<ConversationComposer> createState() => _ConversationComposerState();
@@ -291,6 +297,8 @@ class _ConversationComposerState extends State<ConversationComposer> {
       onStop: widget.onStop ?? () {},
       placeholder: widget.hint,
       leading: widget.leading,
+      tray: widget.tray,
+      hasAttachments: widget.hasAttachments,
       maxLines: 6,
     );
   }

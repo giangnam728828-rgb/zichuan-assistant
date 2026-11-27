@@ -20,12 +20,13 @@ Future<TurnOutcome> runTurnObserved({
   required String text,
   required Duration timeout,
   required void Function(CollabActivity activity) onActivity,
+  List<CollabAttachment> attachments = const [],
   Duration throttle = const Duration(milliseconds: 90),
 }) async {
   final now = DateTime.now();
   final streaming = driver is CollabStreamingDriver ? driver as CollabStreamingDriver : null;
   if (streaming == null) {
-    final outcome = await driver.runTurn(sessionId, text, timeout: timeout);
+    final outcome = await driver.runTurn(sessionId, text, timeout: timeout, attachments: attachments);
     onActivity(
       CollabActivity(
         phase: outcome.isCompleted ? CollabActivityPhase.done : CollabActivityPhase.failed,
@@ -58,7 +59,7 @@ Future<TurnOutcome> runTurnObserved({
   }
 
   final sub = streaming
-      .streamTurn(sessionId, text, timeout: timeout)
+      .streamTurn(sessionId, text, timeout: timeout, attachments: attachments)
       .listen(
         (event) {
           switch (event) {

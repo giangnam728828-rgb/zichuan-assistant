@@ -11,6 +11,7 @@
 // 三条硬规则沿用议会：先写盘再执行、并发有上限、失败重试一次。
 
 import 'dart:async';
+import 'dart:convert';
 
 import '../collab/collab_activity.dart';
 import '../collab/collab_session_book.dart';
@@ -18,6 +19,7 @@ import '../council/collab_models.dart';
 import '../council/collab_orchestrator.dart';
 import 'team_models.dart';
 import 'team_store.dart';
+import 'team_tasks.dart';
 
 /// 一次团队会话（群聊）的编排器。
 final class TeamOrchestrator {
@@ -99,8 +101,15 @@ final class TeamOrchestrator {
   /// 已被取消的团队：在飞的队友看到它就收手，不再落结果。
   final _aborted = <String>{};
 
+  /// 取消发生的时刻：新消息只清除「它开始之前」的取消，
+  /// 不会把刚按下的停止又悄悄打开。
+  final _abortedAt = <String, DateTime>{};
+
   /// 正在跑一轮的团队（定时唤醒看到它在跑就跳过这次）。
   final _active = <String>{};
+
+  /// 正在执行任务图的团队：防止同一张图被重复驱动。
+  final _runActive = <String>{};
 
   /// 每个团队的定时唤醒。
   final _wakeTimers = <String, Timer>{};
@@ -226,11 +235,20 @@ final class TeamOrchestrator {
   /// 最多再转两手，防互相推诿的死循环。
   ///
   /// 返回这一轮全部答完之后的快照；过程中每一次变化都会从 [events] 发出。
-  Future<TeamState> send(String teamId, String text) {
+  Future<TeamState> send(String teamId, String text, {List<CollabAttachment> attachments = const []}) {
     final body = text.trim();
-    if (body.isEmpty) throw ArgumentError('消息不能为空');
+    // 只发附件也允许（S6）；群聊里显示「（附件）」占位。
+    if (body.isEmpty && attachments.isEmpty) throw ArgumentError('消息不能为空');
+    final startedAt = _clock();
     return _serial(teamId, () async {
+      // 这次发送开始之后按下的停止，不能被当成上一轮的旧标记清掉。
+      if (_abortedAt[teamId] case final at? when !at.isBefore(startedAt)) {
+        final stopped = _latest[teamId] ?? await load(teamId);
+        if (stopped != null) return stopped;
+        throw StateError('团队不存在：$teamId');
+      }
       _aborted.remove(teamId);
+      _abortedAt.remove(teamId);
       final targets = <String>[];
       final after = await _update(teamId, (current) {
         final parsed = parseMentions(current.teammates, body);
@@ -246,14 +264,38 @@ final class TeamOrchestrator {
         return current.copyWith(
           messages: [
             ...current.messages,
-            TeamMsg(id: _msgId(), role: TeamMsgRole.user, text: parsed.text, at: _clock()),
+            TeamMsg(
+              id: _msgId(),
+              role: TeamMsgRole.user,
+              text: parsed.text.isEmpty ? '（附件）' : parsed.text,
+              at: _clock(),
+            ),
           ],
         );
       });
       if (targets.isEmpty) return after;
       _active.add(teamId);
       try {
-        await _drive(teamId, targets);
+        final lead = after.lead;
+        // 有主管且这一条就是发给主管的：先让他出任务图（S8）。
+        // 出不来就退回群聊分派：他刚才那段回答已经落进群里，接着 @ 人跑。
+        final planning = lead != null && targets.length == 1 && targets.first == lead.id;
+        if (!planning) {
+          await _drive(teamId, targets, attachments: attachments);
+          return _latest[teamId] ?? after;
+        }
+        final planned = await _planAndRun(teamId, after, lead, attachments);
+        if (planned) return _latest[teamId] ?? after;
+        final latest = _latest[teamId] ?? after;
+        final answer = _lastMateAnswer(latest, lead.id);
+        final mentioned = answer == null
+            ? const <Teammate>[]
+            : parseAssignments(latest.teammates, answer, exceptId: lead.id);
+        final next = [
+          for (final mate in mentioned)
+            if (mate.id != lead.id) mate.id,
+        ];
+        if (next.isNotEmpty) await _drive(teamId, next, attachments: attachments);
       } finally {
         _active.remove(teamId);
       }
@@ -269,6 +311,8 @@ final class TeamOrchestrator {
     if (minutes != null && (minutes < 1 || minutes > 24 * 60)) {
       throw ArgumentError('间隔要在 1 分钟到 24 小时之间');
     }
+    // 先停表再改配置：关掉唤醒时不能等落盘完才停，那一拍足够再催一次。
+    _wakeTimers.remove(teamId)?.cancel();
     final state = await _update(teamId, (current) {
       return current.copyWith(
         wakeMinutes: minutes,
@@ -290,6 +334,8 @@ final class TeamOrchestrator {
     final state = await load(teamId);
     if (state == null || state.wakeMinutes == null) return;
     if (_active.contains(teamId) || _aborted.contains(teamId)) return;
+    // 读取与发送之间可能刚被关掉：再问一次内存里最新的一份。
+    if (_latest[teamId]?.wakeMinutes == null) return;
     try {
       await send(teamId, state.wakePrompt);
     } catch (_) {
@@ -308,7 +354,13 @@ final class TeamOrchestrator {
   ///
   /// 同一个人在一次 [send] 里只跑一轮（[seen] 记着），所以 A→B→A 的推诿
   /// 会在第三跳停下；[depth] 再兜一层底。
-  Future<void> _drive(String teamId, List<String> mateIds, {int depth = 0, Set<String>? seen}) async {
+  Future<void> _drive(
+    String teamId,
+    List<String> mateIds, {
+    int depth = 0,
+    Set<String>? seen,
+    List<CollabAttachment> attachments = const [],
+  }) async {
     final visited = seen ?? <String>{};
     final pending = [
       for (final id in mateIds)
@@ -318,7 +370,7 @@ final class TeamOrchestrator {
     visited.addAll(pending);
     final answers = <String, ({String text, String? toId})>{};
     await _each(pending, (mateId) async {
-      final answer = await _runMate(teamId, mateId);
+      final answer = await _runMate(teamId, mateId, attachments);
       if (answer != null) answers[mateId] = answer;
     });
     if (depth >= 2 || _aborted.contains(teamId) || answers.isEmpty) return;
@@ -344,25 +396,461 @@ final class TeamOrchestrator {
       }
     }
     if (next.isEmpty) return;
-    await _drive(teamId, next, depth: depth + 1, seen: visited);
+    await _drive(teamId, next, depth: depth + 1, seen: visited, attachments: attachments);
   }
 
   /// 停掉这一轮：置标志 + 尽力停掉在飞的子会话，群里留一句提示。
   Future<void> cancel(String teamId) async {
+    _abortedAt[teamId] = _clock();
     final first = _aborted.add(teamId);
     for (final sessionId in _inflight[teamId]?.toList() ?? const <String>[]) {
       unawaited(_driver.cancel(sessionId).catchError((_) {}));
     }
     if (!first) return;
     await _update(teamId, (current) {
+      final run = current.run;
       return current.copyWith(
         running: const [],
+        // 任务图一起停：没完成的任务标取消，已完成的成果保留。
+        run: run == null
+            ? null
+            : run.copyWith(
+                status: TeamRunStatus.cancelled,
+                tasks: [
+                  for (final task in run.tasks)
+                    if (task.isOpen) task.copyWith(status: TeamTaskStatus.cancelled) else task,
+                ],
+              ),
         messages: [
           ...current.messages,
           TeamMsg(id: _msgId(), role: TeamMsgRole.system, text: '已停止这一轮。', at: _clock()),
         ],
       );
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // S8：任务图（主管规划 → 依赖调度 → 审核 → 汇总）
+
+  /// 让主管出计划。返回 true 表示这一轮已经按任务图处理（不管成败），
+  /// false 表示没有拿到可用计划，调用方退回群聊分派。
+  Future<bool> _planAndRun(String teamId, TeamState state, Teammate lead, List<CollabAttachment> attachments) async {
+    final reply = await _runMateTurn(
+      teamId,
+      state,
+      lead,
+      attachments,
+      promptOverride: _planPrompt(state, lead),
+      append: false,
+    );
+    if (reply == null) return false;
+    final plan = parseTeamPlan(reply.text);
+    if (plan == null) {
+      // 不是计划：把这段当普通回答落进群聊，可能它本身就是答案。
+      await _appendAnswer(teamId, lead, reply.text);
+      return false;
+    }
+    final idOfName = {for (final mate in state.teammates) mate.name.toLowerCase(): mate.id};
+    final bound = bindPlan(plan, idOfName: idOfName);
+    if (bound.tasks == null) {
+      await _appendSystem(teamId, '主管的计划没能执行：${bound.problem}。改按群聊分派继续。');
+      return false;
+    }
+    final now = _clock();
+    final run = TeamRun(
+      id: 'run${now.microsecondsSinceEpoch.toRadixString(36)}',
+      sessionId: teamId,
+      status: plan.tasks.isEmpty ? TeamRunStatus.done : TeamRunStatus.running,
+      supervisorId: lead.id,
+      tasks: bound.tasks!,
+      goal: _lastUserText(state),
+      summary: plan.summary,
+      createdAt: now,
+      updatedAt: now,
+    );
+    await _update(teamId, (current) => current.copyWith(run: run));
+    if (_aborted.contains(teamId)) {
+      await _markRunCancelled(teamId, run.id);
+      return true;
+    }
+    if (plan.tasks.isEmpty) {
+      // 不拆分：主管给的 summary 就是最终答复。
+      final answer = plan.summary.isEmpty ? reply.text.trim() : plan.summary;
+      if (answer.isNotEmpty) await _appendAnswer(teamId, lead, answer);
+      return true;
+    }
+    await _executeRun(teamId, run);
+    return true;
+  }
+
+  String _planPrompt(TeamState state, Teammate lead) {
+    final members = [
+      for (final mate in state.teammates)
+        if (mate.id != lead.id) '${mate.name}${mate.brief.trim().isEmpty ? '' : '（${mate.brief.trim()}）'}',
+    ];
+    return [
+      '你是团队的主管。把用户这件事拆成任务图，交给队友执行；能一个人做完就不要拆。',
+      if (members.isNotEmpty) '可用的队友：${members.join('、')}。',
+      '规则：每个任务一个负责人，负责人必须写队友的名字；deps 填依赖的任务编号，没有依赖就写 []；',
+      '任务不要比队友多；不要写你准备怎么做，直接给结构。',
+      '只输出一个 JSON 代码块，不要别的文字：',
+      '{"tasks":[{"id":"t1","title":"任务标题","owner":"队友名字","deps":[],"input":"具体要他做什么"}],"summary":"不需要拆分时，这里直接给最终答复，否则留空"}',
+    ].join('\n');
+  }
+
+  String _taskPrompt(TeamState state, TeamRun run, TeamTask task) {
+    final buffer = StringBuffer()
+      ..writeln('你是团队里的「${state.mate(task.ownerId)?.name ?? '队友'}」。')
+      ..writeln('团队的总目标：${run.goal.isEmpty ? '（见群聊）' : run.goal}')
+      ..writeln()
+      ..writeln('你负责的任务「${task.title}」：')
+      ..writeln(task.input.trim().isEmpty ? task.title : task.input.trim());
+    if (task.review.trim().isNotEmpty && task.attempts > 0) {
+      buffer
+        ..writeln()
+        ..writeln('【主管的返工意见】')
+        ..writeln(task.review.trim());
+    }
+    final upstream = [
+      for (final other in run.tasks)
+        if (task.deps.contains(other.id) && other.result.trim().isNotEmpty)
+          '「${other.title}」的结果：${_clip(other.result)}',
+    ];
+    if (upstream.isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln('【上游任务的结果】')
+        ..writeln(upstream.join('\n'));
+    }
+    buffer
+      ..writeln()
+      ..writeln('只完成这一个任务，直接给结果；不要复述这段说明，不要 @ 别人。');
+    return buffer.toString();
+  }
+
+  Future<void> _executeRun(String teamId, TeamRun run) async {
+    if (!_runActive.add(teamId)) return;
+    try {
+      if (_aborted.contains(teamId)) {
+        await _markRunCancelled(teamId, run.id);
+        return;
+      }
+      await _runReadyRound(teamId, run.id);
+      await _reviewAndSummarize(teamId, run.id);
+    } finally {
+      _runActive.remove(teamId);
+    }
+  }
+
+  /// 跑掉所有依赖已满足的任务；每个成员同一时间只拿一个。
+  Future<void> _runReadyRound(String teamId, String runId) async {
+    var guard = 0;
+    while (guard++ < 24) {
+      if (_aborted.contains(teamId) || _disposed) return;
+      final state = await load(teamId);
+      final run = state?.run;
+      if (state == null || run == null || run.id != runId) return;
+      if (run.status == TeamRunStatus.cancelled || run.status == TeamRunStatus.done) return;
+      final settled = settleBlocked(run.tasks);
+      if (!_sameTaskStatuses(settled, run.tasks)) {
+        await _update(teamId, (current) => current.copyWith(run: current.run?.copyWith(tasks: settled)));
+      }
+      final ready = readyTasks(settled);
+      if (ready.isEmpty) return;
+      final byOwner = <String, TeamTask>{};
+      for (final task in ready) {
+        byOwner.putIfAbsent(task.ownerId, () => task);
+      }
+      await _eachAll(byOwner.keys.toList(), (ownerId) => _runTask(teamId, runId, byOwner[ownerId]!));
+    }
+  }
+
+  Future<void> _runTask(String teamId, String runId, TeamTask task) async {
+    final state = await load(teamId);
+    final run = state?.run;
+    if (state == null || run == null || run.id != runId || _aborted.contains(teamId)) return;
+    final mate = state.mate(task.ownerId);
+    if (mate == null) {
+      await _update(
+        teamId,
+        (current) => current.copyWith(
+          run: current.run?.withTask(task.id, (t) => t.copyWith(status: TeamTaskStatus.failed, review: '负责人已经不在团队里')),
+        ),
+      );
+      return;
+    }
+    // 先写盘再执行：进程被杀后知道这个任务曾经开跑。
+    await _update(
+      teamId,
+      (current) => current.copyWith(
+        run: current.run?.withTask(
+          task.id,
+          (t) => t.copyWith(status: TeamTaskStatus.running, attempts: t.attempts + 1),
+        ),
+      ),
+    );
+    final current = await load(teamId);
+    if (current == null) return;
+    final live = current.run?.task(task.id) ?? task;
+    final reply = await _runMateTurn(
+      teamId,
+      current,
+      mate,
+      const [],
+      promptOverride: _taskPrompt(current, current.run ?? run, live),
+    );
+    if (reply == null) {
+      await _update(
+        teamId,
+        (current) => current.copyWith(
+          run: current.run?.withTask(task.id, (t) => t.copyWith(status: TeamTaskStatus.failed, review: '执行失败')),
+        ),
+      );
+      return;
+    }
+    await _update(
+      teamId,
+      (current) => current.copyWith(
+        run: current.run?.withTask(
+          task.id,
+          (t) => t.copyWith(status: TeamTaskStatus.done, result: reply.text, review: ''),
+        ),
+      ),
+    );
+  }
+
+  /// 审核 → 需要时返工（单任务最多两次）→ 汇总。
+  Future<void> _reviewAndSummarize(String teamId, String runId) async {
+    for (var round = 0; round < 3; round++) {
+      final state = await load(teamId);
+      final run = state?.run;
+      if (state == null || run == null || run.id != runId) return;
+      if (run.status == TeamRunStatus.cancelled) return;
+      final done = [
+        for (final task in run.tasks)
+          if (task.status == TeamTaskStatus.done) task,
+      ];
+      final unfinished = [
+        for (final task in run.tasks)
+          if (task.status != TeamTaskStatus.done) task,
+      ];
+      if (done.isEmpty) {
+        await _update(
+          teamId,
+          (current) => current.copyWith(
+            run: current.run?.copyWith(status: TeamRunStatus.failed, note: '没有任何任务完成'),
+          ),
+        );
+        return;
+      }
+      await _update(teamId, (current) => current.copyWith(run: current.run?.copyWith(status: TeamRunStatus.reviewing)));
+      final decisions = await _review(teamId, state, run, done);
+      var revised = false;
+      await _update(teamId, (current) {
+        final live = current.run;
+        if (live == null) return current;
+        var tasks = live.tasks;
+        for (final task in tasks) {
+          final decision = decisions[task.id];
+          if (decision == null) continue;
+          final (verdict, note) = decision;
+          if (verdict == 'revise' && task.attempts <= 2) {
+            revised = true;
+            tasks = [
+              for (final t in tasks)
+                if (t.id == task.id) t.copyWith(status: TeamTaskStatus.pending, review: note) else t,
+            ];
+          } else {
+            tasks = [
+              for (final t in tasks)
+                if (t.id == task.id) t.copyWith(review: note) else t,
+            ];
+          }
+        }
+        return current.copyWith(
+          run: live.copyWith(tasks: tasks, status: revised ? TeamRunStatus.running : TeamRunStatus.summarizing),
+        );
+      });
+      if (!revised) {
+        await _summarize(teamId, runId, note: unfinished.isEmpty ? '' : '有 ${unfinished.length} 个任务没有完成');
+        return;
+      }
+      await _runReadyRound(teamId, runId);
+    }
+    await _summarize(teamId, runId, note: '达到返工上限，用已有结果汇总');
+  }
+
+  /// 主管审核；解析不出来就当作全部通过，不让格式问题卡住交付。
+  Future<Map<String, (String, String)>> _review(
+    String teamId,
+    TeamState state,
+    TeamRun run,
+    List<TeamTask> done,
+  ) async {
+    final lead = state.mate(run.supervisorId);
+    if (lead == null) return const {};
+    final listing = [for (final task in done) '任务 ${task.id}「${task.title}」：\n${_clipLong(task.result, 1200)}']
+        .join('\n\n');
+    final prompt = [
+      '你是团队的主管，审核队友交回的结果。',
+      '总目标：${run.goal}',
+      '',
+      listing,
+      '',
+      '只输出一个 JSON 代码块：',
+      '{"reviews":[{"taskId":"t1","verdict":"pass","note":"一句话结论"}]}',
+      'verdict 只能是 pass 或 revise；revise 表示这份结果没完成任务、需要返工。不要因为措辞不好就退回。',
+    ].join('\n');
+    final reply = await _runMateTurn(teamId, state, lead, const [], promptOverride: prompt, append: false);
+    if (reply == null) return const {};
+    return _parseReviews(reply.text);
+  }
+
+  Map<String, (String, String)> _parseReviews(String raw) {
+    final text = raw.trim();
+    final start = text.indexOf('{');
+    final end = text.lastIndexOf('}');
+    if (start < 0 || end <= start) return const {};
+    Object? decoded;
+    try {
+      decoded = jsonDecode(text.substring(start, end + 1));
+    } on FormatException {
+      return const {};
+    }
+    if (decoded is! Map || decoded['reviews'] is! List) return const {};
+    final out = <String, (String, String)>{};
+    for (final item in decoded['reviews'] as List) {
+      if (item is! Map) continue;
+      final id = item['taskId'] as String? ?? item['id'] as String?;
+      if (id == null) continue;
+      final verdict = (item['verdict'] as String? ?? 'pass').toLowerCase() == 'revise' ? 'revise' : 'pass';
+      out[id] = (verdict, (item['note'] as String? ?? '').trim());
+    }
+    return out;
+  }
+
+  Future<void> _summarize(String teamId, String runId, {String note = ''}) async {
+    final state = await load(teamId);
+    final run = state?.run;
+    if (state == null || run == null || run.id != runId) return;
+    if (run.status == TeamRunStatus.cancelled || _aborted.contains(teamId)) return;
+    final lead = state.mate(run.supervisorId);
+    String summary = '';
+    if (lead != null) {
+      final results = [
+        for (final task in run.tasks)
+          if (task.result.trim().isNotEmpty) '「${task.title}」：\n${_clipLong(task.result, 1500)}',
+      ].join('\n\n');
+      final prompt = [
+        '你是团队的主管。把下面这些结果汇总成一条给用户的完整答复。',
+        '总目标：${run.goal}',
+        if (note.isNotEmpty) '注意：$note',
+        '',
+        results.isEmpty ? '（没有可用的任务结果）' : results,
+        '',
+        '直接写答复本身；不要 JSON，不要提任务编号，不要罗列过程。用户只想要结论。',
+      ].join('\n');
+      final reply = await _runMateTurn(teamId, state, lead, const [], promptOverride: prompt, append: false);
+      summary = reply?.text.trim() ?? '';
+    }
+    if (summary.isEmpty) {
+      summary = [
+        for (final task in run.tasks)
+          if (task.result.trim().isNotEmpty) task.result.trim(),
+      ].join('\n\n');
+    }
+    final finalNote = note.isEmpty ? '' : note;
+    await _update(
+      teamId,
+      (current) => current.copyWith(
+        run: current.run?.copyWith(
+          status: summary.isEmpty ? TeamRunStatus.failed : TeamRunStatus.done,
+          summary: summary,
+          note: finalNote,
+        ),
+      ),
+    );
+    if (summary.isNotEmpty && lead != null) await _appendAnswer(teamId, lead, summary);
+    if (summary.isEmpty) await _appendSystem(teamId, '这次没有拿到可汇总的结果。');
+  }
+
+  Future<void> _markRunCancelled(String teamId, String runId) async {
+    await _update(teamId, (current) {
+      final run = current.run;
+      if (run == null || run.id != runId) return current;
+      return current.copyWith(
+        run: run.copyWith(
+          status: TeamRunStatus.cancelled,
+          tasks: [
+            for (final task in run.tasks)
+              if (task.isOpen) task.copyWith(status: TeamTaskStatus.cancelled) else task,
+          ],
+        ),
+      );
+    });
+  }
+
+  /// 应用被杀/引擎断开后继续：已完成的跳过，中断的重新排队。
+  Future<TeamState?> resumeRun(String teamId) async {
+    final state = await load(teamId);
+    final run = state?.run;
+    if (state == null || run == null || run.isTerminal) return state;
+    if (_runActive.contains(teamId) || _active.contains(teamId)) return state;
+    final reset = [
+      for (final task in run.tasks)
+        if (task.status == TeamTaskStatus.running) task.copyWith(status: TeamTaskStatus.pending) else task,
+    ];
+    final next = run.copyWith(
+      status: TeamRunStatus.running,
+      tasks: settleBlocked(reset),
+      note: '',
+      updatedAt: _clock(),
+    );
+    final updated = await _update(teamId, (current) => current.copyWith(run: next));
+    unawaited(_executeRun(teamId, next));
+    return updated;
+  }
+
+  Future<void> _appendSystem(String teamId, String text) => _update(teamId, (current) {
+    return current.copyWith(
+      messages: [
+        ...current.messages,
+        TeamMsg(id: _msgId(), role: TeamMsgRole.system, text: text, at: _clock()),
+      ],
+    );
+  });
+
+  String? _lastMateAnswer(TeamState state, String mateId) {
+    for (final message in state.messages.reversed) {
+      if (message.teammateId == mateId && message.role == TeamMsgRole.teammate) return message.text;
+    }
+    return null;
+  }
+
+  static String _lastUserText(TeamState state) {
+    for (final message in state.messages.reversed) {
+      if (message.role == TeamMsgRole.user) return message.text;
+    }
+    return '';
+  }
+
+  static bool _sameTaskStatuses(List<TeamTask> a, List<TeamTask> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id || a[i].status != b[i].status) return false;
+    }
+    return true;
+  }
+
+  static String _clipLong(String text, int limit) {
+    final one = text.trim();
+    return one.length <= limit ? one : '${one.substring(0, limit)}…';
+  }
+
+  /// 任务图执行不设并发上限：同一成员一次只拿一个，实际并发等于成员数。
+  Future<void> _eachAll(List<String> ids, Future<void> Function(String id) task) async {
+    if (ids.isEmpty) return;
+    await Future.wait([for (final id in ids) task(id)]);
   }
 
   // ---------------------------------------------------------------------------
@@ -417,13 +905,17 @@ final class TeamOrchestrator {
   /// 跑一位队友的一轮；成功返回它说的正文和「移交给了谁」。
   ///
   /// 可写的队友排队跑（同一团队一把写锁），只读顾问可以并行——他们不动文件。
-  Future<({String text, String? toId})?> _runMate(String teamId, String mateId) async {
+  Future<({String text, String? toId})?> _runMate(
+    String teamId,
+    String mateId,
+    List<CollabAttachment> attachments,
+  ) async {
     try {
       final state = await load(teamId);
       final mate = state?.mate(mateId);
       final gated = mate != null && !mate.readOnly && (state?.exclusiveWrite ?? true);
-      if (!gated) return await _runMateOnce(teamId, mateId);
-      return await _withWriteGate(teamId, () => _runMateOnce(teamId, mateId));
+      if (!gated) return await _runMateOnce(teamId, mateId, attachments);
+      return await _withWriteGate(teamId, () => _runMateOnce(teamId, mateId, attachments));
     } catch (_) {
       // 落盘失败等内部错误不该拖垮其他队友；这个队友这一轮没结果就是没结果。
       return null;
@@ -445,21 +937,16 @@ final class TeamOrchestrator {
     });
   }
 
-  Future<({String text, String? toId})?> _runMateOnce(String teamId, String mateId) async {
+  Future<({String text, String? toId})?> _runMateOnce(
+    String teamId,
+    String mateId,
+    List<CollabAttachment> attachments,
+  ) async {
     final snapshot = await load(teamId);
     if (snapshot == null || _aborted.contains(teamId)) return null;
     final mate = snapshot.mate(mateId);
     if (mate == null) return null;
-
-    // 开跑前记下「谁在跑」，跑完（含失败/取消）擦掉：页面据此显示进度。
-    // 只记在内存里：它描述的是这一刻这个进程里的事，落盘没有意义；而每多
-    // 排一次写盘，并发的两位队友就会被错开，看着像「关掉互斥也还是串行」。
-    _setRunning(teamId, mateId, on: true);
-    try {
-      return await _runMateTurn(teamId, snapshot, mate);
-    } finally {
-      _setRunning(teamId, mateId, on: false);
-    }
+    return _runMateTurn(teamId, snapshot, mate, attachments);
   }
 
   /// 「谁在跑」：内存 + 广播，不排队写盘。结束时顺手擦掉这一位的实时过程。
@@ -479,14 +966,53 @@ final class TeamOrchestrator {
   void _setActivity(String teamId, String mateId, CollabActivity activity) {
     final current = _latest[teamId];
     if (current == null) return;
+    // 已经收工的回合迟到的事件不再写回去：那一行进度得跟着人一起消失。
+    if (!current.running.contains(mateId)) return;
     final next = current.copyWith(activity: {...current.activity, mateId: activity});
     _latest[teamId] = next;
     _emit(next);
   }
 
   /// 一位队友的一轮正文：开会话、问、落答案或失败，失败重试一次。
-  Future<({String text, String? toId})?> _runMateTurn(String teamId, TeamState snapshot, Teammate mate) async {
-    final prompt = _prompt(snapshot, mate);
+  Future<({String text, String? toId})?> _runMateTurn(
+    String teamId,
+    TeamState snapshot,
+    Teammate mate,
+    List<CollabAttachment> attachments, {
+
+    /// 任务图执行时用任务专属说明；空则用群聊上下文。
+    String? promptOverride,
+
+    /// 规划/审核/汇总这类内部调用不把原文写进群聊。
+    bool append = true,
+  }) async {
+    // 「谁在跑」和实时过程只在这里记账：群聊回合和任务图的规划/执行/审核/
+    // 汇总都走这个入口，页面上谁在动一目了然；跑完（含失败、取消）一起擦掉，
+    // 不留一条「还在动」的残影。
+    _setRunning(teamId, mate.id, on: true);
+    try {
+      return await _runMateTurnBody(
+        teamId,
+        snapshot,
+        mate,
+        attachments,
+        promptOverride: promptOverride,
+        append: append,
+      );
+    } finally {
+      _setRunning(teamId, mate.id, on: false);
+    }
+  }
+
+  Future<({String text, String? toId})?> _runMateTurnBody(
+    String teamId,
+    TeamState snapshot,
+    Teammate mate,
+    List<CollabAttachment> attachments, {
+    String? promptOverride,
+    bool append = true,
+  }) async {
+    final prompt = promptOverride ?? _prompt(snapshot, mate);
     var sessionId = snapshot.sessions[mate.id];
     String? lastError;
     for (var attempt = 1; attempt <= 2; attempt++) {
@@ -529,6 +1055,8 @@ final class TeamOrchestrator {
           sessionId: sid,
           text: prompt,
           timeout: turnTimeout,
+          // 附件只在这一位第一次拿到消息时投递，后续轮次已经在会话上下文里。
+          attachments: snapshot.sessions[mate.id] == null ? attachments : const [],
           onActivity: (activity) => _setActivity(teamId, mate.id, activity),
         );
         if (_aborted.contains(teamId)) return null;
@@ -536,7 +1064,7 @@ final class TeamOrchestrator {
         if (outcome.isCompleted && text.isNotEmpty) {
           final parsed = parseHandoff(snapshot.teammates, text);
           final body = parsed.text.isEmpty && parsed.toId != null ? '（这件事交给下一位）' : parsed.text;
-          await _appendAnswer(teamId, mate, body, handoffTo: parsed.toId);
+          if (append) await _appendAnswer(teamId, mate, body, handoffTo: parsed.toId);
           return (text: body, toId: parsed.toId);
         }
         lastError = _reasonOf(outcome);
@@ -549,7 +1077,7 @@ final class TeamOrchestrator {
       if (attempt >= 2) break;
       await _pause(_retryDelay(lastError));
     }
-    await _appendFailure(teamId, mate, lastError ?? '调用失败');
+    if (append) await _appendFailure(teamId, mate, lastError ?? '调用失败');
     return null;
   }
 

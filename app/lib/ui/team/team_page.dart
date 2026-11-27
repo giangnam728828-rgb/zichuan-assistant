@@ -17,6 +17,7 @@ import 'dart:io';
 
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../collab/collab_approval_banner.dart';
@@ -25,14 +26,18 @@ import '../../collab/collab_export.dart';
 import '../../collab/collab_session_book.dart';
 import '../../council/collab_models.dart';
 import '../../council/collab_orchestrator.dart';
+import '../../state/attachments.dart';
 import '../../state/conversation_mode_state.dart';
 import '../../state/hosts_state.dart';
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
 import '../../team/team_models.dart';
+import '../../team/team_tasks.dart';
 import '../../team/team_store.dart';
 import '../../team/team_orchestrator.dart';
 import '../chat/model_brand_mark.dart';
+import '../chat/widgets/attachments.dart';
+import '../chat/widgets/plus_panel.dart';
 import '../chat/shared/conversation_mode_host.dart';
 import '../chat/shared/conversation_workspace.dart';
 import '../chat/model_sheet.dart' show shortModelName;
@@ -40,6 +45,7 @@ import '../shell/root_tab.dart';
 import '../theme/app_icons.dart';
 import '../theme/edge_fade.dart';
 import '../collab/collab_kit.dart';
+import 'team_run_card.dart';
 import '../collab/collab_members.dart';
 import '../../collab/collab_conversations.dart' show collabHistoryProvider, teamRootProvider, teamStoreProvider;
 
@@ -100,6 +106,9 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
   /// S7：最后一次收到真实事件的时间；副标题据此显示「已等待 N 秒」。
   DateTime _lastBeatAt = DateTime.now();
   Timer? _waitTicker;
+
+  /// 已选、未发送的附件（S6：与普通聊天同一套选择与预算）。
+  List<DraftAttachment> _drafts = const [];
 
   /// 已经呈现过的消息：切回旧团队时不再重播每条消息的进场。
   final _seenMessages = <String>{};
@@ -422,10 +431,77 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
   // ---------------------------------------------------------------------------
   // 群聊
 
+  /// 选附件（S6）：与普通聊天同一套选择器、上限与预算。
+  Future<void> _attach() async {
+    final room = maxAttachments - _drafts.length;
+    if (room <= 0) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('一条消息最多 $maxAttachments 个附件')));
+      return;
+    }
+    final choice = await showPlusPanel(context, files: true);
+    if (!mounted || choice is! AttachChoice) return;
+    final picker = ref.read(attachmentPickerProvider);
+    final PickedAttachments picked;
+    try {
+      picked = switch (choice.source) {
+        AttachSource.gallery => PickedAttachments(await picker.pickImages(limit: room)),
+        AttachSource.camera => PickedAttachments([?await picker.takePhoto()]),
+        AttachSource.files => await picker.pickFiles(limit: room, heldBytes: totalAttachmentBytes(_drafts)),
+      };
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            error.code.contains('denied') || error.code.contains('permission') ? '没有相册或文件的访问权限' : '附件没能读出来：$error',
+          ),
+        ),
+      );
+      return;
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('附件没能读出来：$error')));
+      return;
+    }
+    _addDrafts(picked.attachments, problem: picked.problem);
+  }
+
+  void _addDrafts(List<DraftAttachment> picked, {String? problem}) {
+    final room = maxAttachments - _drafts.length;
+    var heldBytes = totalAttachmentBytes(_drafts);
+    final ok = <DraftAttachment>[];
+    for (final attachment in picked) {
+      final reason = attachmentProblem(attachment) ?? attachmentBudgetProblem(heldBytes, attachment);
+      if (reason != null) {
+        problem ??= reason;
+      } else if (ok.length < room) {
+        ok.add(attachment);
+        heldBytes += attachment.size;
+      } else {
+        problem ??= '一条消息最多 $maxAttachments 个附件';
+      }
+    }
+    if (ok.isNotEmpty) setState(() => _drafts = [..._drafts, ...ok]);
+    if (problem != null && mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(problem)));
+    }
+  }
+
+  void _removeDraft(DraftAttachment attachment) {
+    setState(
+      () => _drafts = [
+        for (final a in _drafts)
+          if (a != attachment) a,
+      ],
+    );
+  }
+
   Future<void> _send() async {
     final team = _team;
     final text = _draft.text.trim();
-    if (team == null || text.isEmpty || _busy || team.running.isNotEmpty) return;
+    final sending = _drafts;
+    // S6：只有附件、没有正文也允许发送。
+    if (team == null || (text.isEmpty && sending.isEmpty) || _busy || team.running.isNotEmpty) return;
     if (team.teammates.length < 2) {
       setState(() => _error = '团队至少需要两位队友，先去成员管理里加两位。');
       return;
@@ -436,6 +512,7 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       return;
     }
     _draft.clear();
+    setState(() => _drafts = const []);
     ref.read(conversationModeProvider.notifier).clearDraft(ConversationMode.team, _hostKey, team.id);
     _lastBeatAt = DateTime.now();
     setState(() {
@@ -444,23 +521,46 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     });
     _armWaitTicker();
     try {
-      await orchestrator.send(team.id, text);
+      await orchestrator.send(
+        team.id,
+        text,
+        attachments: [for (final a in sending) CollabAttachment(name: a.name, bytes: a.bytes, mediaType: a.mediaType)],
+      );
     } on Object catch (error) {
       if (mounted) {
         setState(() {
           _error = '$error';
           _busy = false;
         });
-        // 发送失败：把话放回输入框，草稿也一起还原。
+        // 发送失败：把话与附件都放回输入框，不丢字、不丢文件。
         if (_draft.text.isEmpty) {
           _draft.text = text;
           _draft.selection = TextSelection.collapsed(offset: text.length);
           _saveDraft(text);
         }
+        if (_drafts.isEmpty) setState(() => _drafts = sending);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
       _invalidateHistory();
+    }
+  }
+
+  /// 应用被杀/引擎断开后从落盘的任务图继续：已完成的不会重跑。
+  Future<void> _resumeRun(TeamState team) async {
+    final orchestrator = _orchestrator;
+    if (orchestrator == null) {
+      setState(() => _error = '还没连上引擎，稍等一下再继续。');
+      return;
+    }
+    setState(() => _busy = true);
+    _lastBeatAt = DateTime.now();
+    try {
+      await orchestrator.resumeRun(team.id);
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -777,10 +877,13 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
         onStop: _stop,
         onChanged: _saveDraft,
         enabled: team != null,
-        sendable: (team?.teammates.length ?? 0) >= 2,
-        leading: team == null || team.teammates.isEmpty
-            ? null
-            : PopupMenuButton<Teammate>(
+        sendable: (team?.teammates.length ?? 0) >= 2 || _drafts.isNotEmpty,
+        leading: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AttachButton(onPressed: team == null || _busy ? null : _attach),
+            if (team != null && team.teammates.isNotEmpty)
+              PopupMenuButton<Teammate>(
                 key: const ValueKey('team-mention'),
                 tooltip: '点名',
                 icon: const Icon(AppIcons.mention, size: 20),
@@ -789,6 +892,10 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
                   for (final mate in team.teammates) PopupMenuItem(value: mate, child: Text(mate.name)),
                 ],
               ),
+          ],
+        ),
+        hasAttachments: _drafts.isNotEmpty,
+        tray: _drafts.isEmpty ? null : ComposerTray(items: _drafts, onRemove: _removeDraft),
       ),
     );
   }
@@ -890,11 +997,21 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
                     key: ValueKey('team-timeline-${team.id}'),
                     reverse: true,
                     padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                    itemCount: messages.length + live.length,
+                    // reverse 列表的最后一项在最上面：任务图卡放那儿，历史消息在下面。
+                    itemCount: messages.length + live.length + (team.run == null ? 0 : 1),
                     itemBuilder: (context, index) {
                       if (index < live.length) {
                         final entry = live[index];
                         return _liveBubble(team, entry.id, entry.activity);
+                      }
+                      if (team.run case final run? when index == messages.length + live.length) {
+                        return TeamRunCard(
+                          team: team,
+                          run: run,
+                          busy: _busy,
+                          onResume: () => unawaited(_resumeRun(team)),
+                          onCancel: _stop,
+                        );
                       }
                       return _bubble(team, messages[messages.length - 1 - (index - live.length)]);
                     },

@@ -17,6 +17,7 @@ import 'dart:async';
 
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../collab/collab_approval_banner.dart';
@@ -31,8 +32,11 @@ import '../../council/verdict_parser.dart';
 import '../../state/conversation_mode_state.dart';
 import '../../state/hosts_state.dart';
 import '../../state/models_state.dart';
+import '../../state/attachments.dart';
 import '../../state/read_list_identity.dart';
 import '../chat/model_brand_mark.dart';
+import '../chat/widgets/attachments.dart';
+import '../chat/widgets/plus_panel.dart';
 import '../chat/shared/conversation_mode_host.dart';
 import '../chat/shared/conversation_workspace.dart';
 import '../chat/model_sheet.dart' show shortModelName;
@@ -114,6 +118,9 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
   DateTime _lastBeatAt = DateTime.now();
   Timer? _waitTicker;
   final _scroll = ScrollController();
+
+  /// 已选、未发送的附件（S6：与普通聊天同一套选择与预算）。
+  List<DraftAttachment> _drafts = const [];
 
   /// 输入栏在列内，消息区不需要底部渐隐。
   final _noBottomFade = ValueNotifier<double>(0);
@@ -579,10 +586,77 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
   // ---------------------------------------------------------------------------
   // 发言
 
+  /// 选附件（S6）：与普通聊天同一套选择器、上限与预算。
+  Future<void> _attach() async {
+    final room = maxAttachments - _drafts.length;
+    if (room <= 0) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('一条消息最多 $maxAttachments 个附件')));
+      return;
+    }
+    final choice = await showPlusPanel(context, files: true);
+    if (!mounted || choice is! AttachChoice) return;
+    final picker = ref.read(attachmentPickerProvider);
+    final PickedAttachments picked;
+    try {
+      picked = switch (choice.source) {
+        AttachSource.gallery => PickedAttachments(await picker.pickImages(limit: room)),
+        AttachSource.camera => PickedAttachments([?await picker.takePhoto()]),
+        AttachSource.files => await picker.pickFiles(limit: room, heldBytes: totalAttachmentBytes(_drafts)),
+      };
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            error.code.contains('denied') || error.code.contains('permission') ? '没有相册或文件的访问权限' : '附件没能读出来：$error',
+          ),
+        ),
+      );
+      return;
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('附件没能读出来：$error')));
+      return;
+    }
+    _addDrafts(picked.attachments, problem: picked.problem);
+  }
+
+  void _addDrafts(List<DraftAttachment> picked, {String? problem}) {
+    final room = maxAttachments - _drafts.length;
+    var heldBytes = totalAttachmentBytes(_drafts);
+    final ok = <DraftAttachment>[];
+    for (final attachment in picked) {
+      final reason = attachmentProblem(attachment) ?? attachmentBudgetProblem(heldBytes, attachment);
+      if (reason != null) {
+        problem ??= reason;
+      } else if (ok.length < room) {
+        ok.add(attachment);
+        heldBytes += attachment.size;
+      } else {
+        problem ??= '一条消息最多 $maxAttachments 个附件';
+      }
+    }
+    if (ok.isNotEmpty) setState(() => _drafts = [..._drafts, ...ok]);
+    if (problem != null && mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(problem)));
+    }
+  }
+
+  void _removeDraft(DraftAttachment attachment) {
+    setState(
+      () => _drafts = [
+        for (final a in _drafts)
+          if (a != attachment) a,
+      ],
+    );
+  }
+
   Future<void> _send() async {
     final conversation = _conversation;
     final question = _draft.text.trim();
-    if (conversation == null || question.isEmpty || _busy) return;
+    final sending = _drafts;
+    // S6：只有附件、没有正文也允许发送。
+    if (conversation == null || (question.isEmpty && sending.isEmpty) || _busy) return;
     if (conversation.seats.length < 2) {
       setState(() => _error = '议会至少需要 2 位成员，先去成员管理里加两位。');
       return;
@@ -599,6 +673,7 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       _pendingQuestion = question;
     });
     _draft.clear();
+    setState(() => _drafts = const []);
     ref.read(conversationModeProvider.notifier).clearDraft(ConversationMode.council, _hostKey, conversation.id);
     try {
       // 下一轮沿用上一轮各席位的子会话：模型自己记得上文。
@@ -615,14 +690,18 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
         if (seeds.isNotEmpty) break;
       }
       final spec = CouncilSpec(
-        question: question,
+        question: question.isEmpty ? '（附件）' : question,
         seats: conversation.seats,
         mode: conversation.mode,
         chairId: conversation.chairId,
         // 预计调用 + 2 次重试余量。
         budgetCalls: (conversation.seats.length * (conversation.mode == CollabMode.deliberative ? 2 : 1)) + 3,
       );
-      final run = await orchestrator.submit(spec, seedSessions: seeds);
+      final run = await orchestrator.submit(
+        spec,
+        seedSessions: seeds,
+        attachments: [for (final a in sending) CollabAttachment(name: a.name, bytes: a.bytes, mediaType: a.mediaType)],
+      );
       _listen();
       final turn = CouncilTurn(runId: run.id, question: question, at: DateTime.now(), phase: run.phase.name);
       final next = conversation.copyWith(
@@ -645,12 +724,13 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
           _busy = false;
           _pendingQuestion = null;
         });
-        // 发送失败：问题放回输入框，不丢字。
+        // 发送失败：问题与附件都放回输入框，不丢字、不丢文件。
         if (_draft.text.isEmpty) {
           _draft.text = question;
           _draft.selection = TextSelection.collapsed(offset: question.length);
           _saveDraft(question);
         }
+        if (_drafts.isEmpty) setState(() => _drafts = sending);
       }
     }
   }
@@ -794,7 +874,10 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
         onStop: _stop,
         onChanged: _saveDraft,
         enabled: conversation != null,
-        sendable: (conversation?.seats.length ?? 0) >= 2,
+        sendable: (conversation?.seats.length ?? 0) >= 2 || _drafts.isNotEmpty,
+        leading: AttachButton(onPressed: conversation == null || _busy ? null : _attach),
+        hasAttachments: _drafts.isNotEmpty,
+        tray: _drafts.isEmpty ? null : ComposerTray(items: _drafts, onRemove: _removeDraft),
       ),
     );
   }

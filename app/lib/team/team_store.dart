@@ -16,12 +16,31 @@ class TeamStore {
 
   File _file(String id) => File('${root.path}/$id.json');
 
+  /// 并发写同一个团队时，临时文件必须各自独立：固定 `.tmp` 名会出现
+  /// 「A 刚 rename 走，B 再去 rename 就找不到文件」的竞态。
+  static int _tmpSeq = 0;
+
   Future<void> save(TeamState state) async {
     await root.create(recursive: true);
-    final tmp = File('${root.path}/${state.id}.json.tmp');
-    await tmp.writeAsString(jsonEncode(state.toJson()), flush: true);
-    await tmp.rename(_file(state.id).path);
+    final seq = _tmpSeq++;
+    final tmp = File('${root.path}/${state.id}.json.$pid.$seq.tmp');
+    try {
+      await tmp.writeAsString(jsonEncode(state.toJson()), flush: true);
+      await tmp.rename(_file(state.id).path);
+    } on Object {
+      // 临时文件写失败或已被替换：不影响盘上已有的完整快照。
+      if (await tmp.exists()) {
+        try {
+          await tmp.delete();
+        } on Object {
+          // 删除失败也不必让上层失败。
+        }
+      }
+      rethrow;
+    }
   }
+
+  static final pid = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
 
   Future<TeamState?> load(String id) async {
     final file = _file(id);
@@ -56,9 +75,16 @@ class TeamStore {
 
   /// 删掉一个团队：会话、Markdown 导出都删，别的团队不动。
   Future<void> delete(String id) async {
-    for (final name in ['$id.json', '$id.json.tmp', '$id.md']) {
+    for (final name in ['$id.json', '$id.md']) {
       final file = File('${root.path}/$name');
       if (await file.exists()) await file.delete();
+    }
+    if (!await root.exists()) return;
+    // 写盘中途留下的临时文件按名字前缀清：`<id>.json.<pid>.<seq>.tmp`。
+    await for (final entity in root.list()) {
+      if (entity is! File) continue;
+      final name = entity.path.split(Platform.pathSeparator).last;
+      if (name.startsWith('$id.json.') && name.endsWith('.tmp')) await entity.delete();
     }
   }
 

@@ -5,6 +5,7 @@
 // 恢复时沿用，不重建）。
 
 import '../council/collab_models.dart';
+import 'team_tasks.dart';
 
 /// 一个队友：名字、角色说明、所用模型。
 final class Teammate {
@@ -94,10 +95,7 @@ final class TeamMsg {
 
   factory TeamMsg.fromJson(Map<String, Object?> json) => TeamMsg(
     id: json['id'] as String? ?? '',
-    role: TeamMsgRole.values.firstWhere(
-      (r) => r.name == json['role'],
-      orElse: () => TeamMsgRole.system,
-    ),
+    role: TeamMsgRole.values.firstWhere((r) => r.name == json['role'], orElse: () => TeamMsgRole.system),
     teammateId: json['teammateId'] as String?,
     text: json['text'] as String? ?? '',
     at: DateTime.tryParse(json['at'] as String? ?? '') ?? DateTime.now(),
@@ -141,6 +139,7 @@ final class TeamState {
     this.exclusiveWrite = true,
     this.running = const [],
     this.activity = const {},
+    this.run,
     required this.createdAt,
     required this.updatedAt,
     this.rev = 0,
@@ -156,12 +155,9 @@ final class TeamState {
       for (final t in (json['teammates'] as List? ?? const []))
         if (t is Map) Teammate.fromJson(t.cast<String, Object?>()),
     ],
-    sessions: {
-      for (final e in (json['sessions'] as Map? ?? const {}).entries) '${e.key}': e.value as String?,
-    },
+    sessions: {for (final e in (json['sessions'] as Map? ?? const {}).entries) '${e.key}': e.value as String?},
     cursors: {
-      for (final e in (json['cursors'] as Map? ?? const {}).entries)
-        '${e.key}': (e.value as num?)?.toInt() ?? 0,
+      for (final e in (json['cursors'] as Map? ?? const {}).entries) '${e.key}': (e.value as num?)?.toInt() ?? 0,
     },
     messages: [
       for (final m in (json['messages'] as List? ?? const []))
@@ -175,6 +171,7 @@ final class TeamState {
       for (final id in (json['running'] as List? ?? const []))
         if (id is String && id.isNotEmpty) id,
     ],
+    run: json['run'] is Map ? TeamRun.fromJson((json['run'] as Map).cast<String, Object?>()) : null,
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
     updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? DateTime.now(),
     rev: (json['rev'] as num?)?.toInt() ?? 0,
@@ -209,6 +206,9 @@ final class TeamState {
 
   /// 各队友此刻的真实执行过程（teammateId → 状态）。只在本进程有意义，不落盘。
   final Map<String, CollabActivity> activity;
+
+  /// 最近一次任务图（S8）：主管拆分、执行、审核与汇总都记在这里，随会话落盘。
+  final TeamRun? run;
 
   /// 正在跑的队友 id（按开始顺序）。每次开始/结束都落盘，重开页面还能
   /// 看到「谁在做」；进程重启后由编排器清掉（那已经不是在跑了）。
@@ -262,6 +262,8 @@ final class TeamState {
     bool? exclusiveWrite,
     List<String>? running,
     Map<String, CollabActivity>? activity,
+    TeamRun? run,
+    bool clearRun = false,
     DateTime? updatedAt,
     int? rev,
   }) => TeamState(
@@ -277,6 +279,7 @@ final class TeamState {
     exclusiveWrite: exclusiveWrite ?? this.exclusiveWrite,
     running: running ?? this.running,
     activity: activity ?? this.activity,
+    run: clearRun ? null : (run ?? this.run),
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     rev: rev ?? this.rev,
@@ -294,6 +297,7 @@ final class TeamState {
     if (wakePrompt != defaultWakePrompt) 'wakePrompt': wakePrompt,
     if (!exclusiveWrite) 'exclusiveWrite': false,
     if (running.isNotEmpty) 'running': running,
+    if (run case final run?) 'run': run.toJson(),
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
     'rev': rev,
@@ -424,10 +428,7 @@ List<Teammate> parseAssignments(List<Teammate> mates, String text, {String? exce
   final out = <Teammate>[];
   for (final mate in mates) {
     if (mate.id == exceptId) continue;
-    final pattern = RegExp(
-      '@${RegExp.escape(mate.name)}(?![\\w\\u4e00-\\u9fa5])',
-      caseSensitive: false,
-    );
+    final pattern = RegExp('@${RegExp.escape(mate.name)}(?![\\w\\u4e00-\\u9fa5])', caseSensitive: false);
     if (pattern.hasMatch(text)) out.add(mate);
   }
   return out;

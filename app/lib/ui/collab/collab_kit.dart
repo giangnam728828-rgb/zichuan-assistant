@@ -134,6 +134,8 @@ class CollabComposer extends StatelessWidget {
     this.onChanged,
     this.enabled = true,
     this.sendable = true,
+    this.tray,
+    this.hasAttachments = false,
   });
 
   final TextEditingController controller;
@@ -148,6 +150,12 @@ class CollabComposer extends StatelessWidget {
   /// 成员不足时输入栏照常，只让发送键不亮。
   final bool sendable;
 
+  /// 已选但未发送的附件托盘（与普通聊天同一块）。
+  final Widget? tray;
+
+  /// 有附件时发送键在正文为空时也亮（S6：只发附件也允许）。
+  final bool hasAttachments;
+
   @override
   Widget build(BuildContext context) {
     return ConversationComposer(
@@ -160,6 +168,8 @@ class CollabComposer extends StatelessWidget {
       onChanged: onChanged,
       enabled: enabled,
       sendable: sendable,
+      tray: tray,
+      hasAttachments: hasAttachments,
     );
   }
 }

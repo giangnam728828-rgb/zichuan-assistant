@@ -5,6 +5,25 @@
 // 「先写盘再执行」：任何一步开始前，run 的最新状态都已存好，进程被杀
 // 后从盘上的 phase 与各席位状态继续，已经答过的席位不会重复提问。
 
+import 'dart:typed_data';
+
+/// 随一条消息一起发出的附件（议会/团队与普通聊天共用同一套选择与预算规则）。
+///
+/// 只带发送需要的最小字段：图片用 base64 内联，文件先上传拿 receipt 或落到
+/// 工作区；具体怎么交给引擎由驱动决定，编排层不关心。
+final class CollabAttachment {
+  const CollabAttachment({required this.name, required this.bytes, this.mediaType});
+
+  final String name;
+  final Uint8List bytes;
+
+  /// 图片的 MIME；文件为 null。
+  final String? mediaType;
+
+  bool get isImage => mediaType != null;
+  int get size => bytes.length;
+}
+
 /// 议会/团队的运行方式。
 enum CollabMode {
   /// 民主：各席位并行作答，主席计票汇总。
@@ -57,13 +76,7 @@ enum CollabActivityPhase {
 
 /// 一位成员此刻的执行状态（不落盘）。
 final class CollabActivity {
-  const CollabActivity({
-    required this.phase,
-    this.detail = '',
-    this.text = '',
-    this.attemptId = '',
-    this.at,
-  });
+  const CollabActivity({required this.phase, this.detail = '', this.text = '', this.attemptId = '', this.at});
 
   final CollabActivityPhase phase;
 
@@ -169,10 +182,7 @@ final class SeatSpec {
     id: json['id'] as String? ?? '',
     provider: json['provider'] as String? ?? '',
     model: json['model'] as String? ?? '',
-    role: SeatRole.values.firstWhere(
-      (r) => r.name == json['role'],
-      orElse: () => SeatRole.none,
-    ),
+    role: SeatRole.values.firstWhere((r) => r.name == json['role'], orElse: () => SeatRole.none),
     reasoningEffort: json['reasoningEffort'] as String?,
     label: json['label'] as String?,
     agentPreset: json['agentPreset'] as String?,
@@ -243,10 +253,7 @@ final class CouncilSpec {
       for (final s in (json['seats'] as List? ?? const []))
         if (s is Map) SeatSpec.fromJson(s.cast<String, Object?>()),
     ],
-    mode: CollabMode.values.firstWhere(
-      (m) => m.name == json['mode'],
-      orElse: () => CollabMode.quick,
-    ),
+    mode: CollabMode.values.firstWhere((m) => m.name == json['mode'], orElse: () => CollabMode.quick),
     chairId: json['chairId'] as String?,
     maxConcurrency: (json['maxConcurrency'] as num?)?.toInt() ?? 3,
     seatTimeout: Duration(milliseconds: (json['seatTimeoutMs'] as num?)?.toInt() ?? 90000),
@@ -286,10 +293,7 @@ final class CouncilSpec {
   };
 
   /// 主席席位（chairId 匹配不到时退回第一个）。
-  SeatSpec get chair => seats.firstWhere(
-    (s) => s.id == chairId,
-    orElse: () => seats.first,
-  );
+  SeatSpec get chair => seats.firstWhere((s) => s.id == chairId, orElse: () => seats.first);
 
   Map<String, Object?> toJson() => {
     'question': question,
@@ -318,10 +322,7 @@ final class SeatState {
 
   factory SeatState.fromJson(Map<String, Object?> json) => SeatState(
     sessionId: json['sessionId'] as String?,
-    status: SeatStatus.values.firstWhere(
-      (s) => s.name == json['status'],
-      orElse: () => SeatStatus.pending,
-    ),
+    status: SeatStatus.values.firstWhere((s) => s.name == json['status'], orElse: () => SeatStatus.pending),
     answer: json['answer'] as String?,
     revised: json['revised'] as String?,
     tokensIn: (json['tokensIn'] as num?)?.toInt() ?? 0,
@@ -413,10 +414,7 @@ final class CollabRun {
     return CollabRun(
       id: json['id'] as String? ?? '',
       spec: CouncilSpec.fromJson((json['spec'] as Map? ?? const {}).cast<String, Object?>()),
-      phase: CollabPhase.values.firstWhere(
-        (p) => p.name == json['phase'],
-        orElse: () => CollabPhase.queued,
-      ),
+      phase: CollabPhase.values.firstWhere((p) => p.name == json['phase'], orElse: () => CollabPhase.queued),
       seats: seats,
       verdict: json['verdict'] as String?,
       failure: json['failure'] as String?,
@@ -496,8 +494,7 @@ final class CollabRun {
   );
 
   /// 换掉某一席的状态（其余不动）。
-  CollabRun withSeat(String seatId, SeatState state) =>
-      copyWith(seats: {...seats, seatId: state});
+  CollabRun withSeat(String seatId, SeatState state) => copyWith(seats: {...seats, seatId: state});
 
   Map<String, Object?> toJson() => {
     'id': id,
