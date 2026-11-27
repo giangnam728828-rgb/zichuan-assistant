@@ -70,17 +70,15 @@ class ChatHeader extends ConsumerStatefulWidget {
     this.onCompanion,
     this.scrolledUnder,
     this.mode,
-    this.onModeSelected,
     this.moreOverride,
   });
 
   final String title;
   final HeaderStatus status;
 
-  /// 左上角的聊天模式（总方案 v2）。空则不画切换器（子代理对话、测试里
-  /// 只关心标题栏的场合）。
+  /// 会话类型徽标（S5）：只显示类型，不响应点击。空则不画（子代理对话、
+  /// 测试里只关心标题栏的场合）。类型切换入口在「新对话」。
   final ConversationMode? mode;
-  final ValueChanged<ConversationMode>? onModeSelected;
 
   /// 替换默认的 ⋯ 菜单（议会/团队用它放成员管理、导出等动作）。
   final Widget? moreOverride;
@@ -293,15 +291,15 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                     ),
                     null => const SizedBox.shrink(),
                   },
-                  // v4 右侧操作区：[模式按钮] [新对话] [⋯]。模式按钮在新对话
-                  // 之前；窄屏自动缩成图标 + 小箭头（44dp 触控不变）。
+                  // v4 右侧操作区：[类型徽标] [新对话] [⋯]。类型创建后不改
+                  // （S5/D2），所以徽标只读，新对话才是类型入口。
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (widget.mode case final mode?)
                         Padding(
                           padding: const EdgeInsets.only(left: headerPieceGap),
-                          child: ConversationModeSwitcher(mode: mode, onSelect: widget.onModeSelected),
+                          child: ConversationModeSwitcher(mode: mode),
                         ),
                       SmoothSize(
                         duration: AppMotion.of(context, AppMotion.quick),

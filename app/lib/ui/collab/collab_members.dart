@@ -60,11 +60,7 @@ List<ReasoningEffort> effortsOf(ModelCatalog? catalog, String provider, String m
 }
 
 /// 挑一个模型（成员换模型 / 加成员共用）。确认后才回调。
-Future<ModelSelection?> pickCollabModel(
-  BuildContext context, {
-  ModelSelection? current,
-  String title = '选择模型',
-}) async {
+Future<ModelSelection?> pickCollabModel(BuildContext context, {ModelSelection? current, String title = '选择模型'}) async {
   final picked = await showModalBottomSheet<ModelSelection>(
     context: context,
     isScrollControlled: true,
@@ -135,9 +131,7 @@ class _ModelPickListState extends State<_ModelPickList> {
             group: group,
             models: [
               for (final model in group.models)
-                if (query.isEmpty ||
-                    model.name.toLowerCase().contains(query) ||
-                    model.id.toLowerCase().contains(query))
+                if (query.isEmpty || model.name.toLowerCase().contains(query) || model.id.toLowerCase().contains(query))
                   model,
             ],
           ),
@@ -155,10 +149,7 @@ class _ModelPickListState extends State<_ModelPickList> {
               isDense: true,
               filled: true,
               fillColor: theme.colorScheme.surfaceContainerHighest,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             ),
             onChanged: (value) => setState(() => _query = value),
@@ -185,9 +176,7 @@ class _ModelPickListState extends State<_ModelPickList> {
                           padding: const EdgeInsets.fromLTRB(6, 10, 6, 4),
                           child: Text(
                             entry.group.name,
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
+                            style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                           ),
                         ),
                       for (final model in entry.models)
@@ -213,12 +202,7 @@ class _ModelPickListState extends State<_ModelPickList> {
 }
 
 class _ModelPickRow extends StatelessWidget {
-  const _ModelPickRow({
-    required this.model,
-    required this.providerName,
-    required this.selected,
-    required this.onTap,
-  });
+  const _ModelPickRow({required this.model, required this.providerName, required this.selected, required this.onTap});
 
   final ModelInfo model;
   final String providerName;
@@ -289,12 +273,7 @@ Future<void> showCouncilMembersSheet(
 }
 
 class _CouncilMembersSheet extends ConsumerStatefulWidget {
-  const _CouncilMembersSheet({
-    required this.seats,
-    required this.mode,
-    required this.chairId,
-    required this.onSave,
-  });
+  const _CouncilMembersSheet({required this.seats, required this.mode, required this.chairId, required this.onSave});
 
   final List<SeatSpec> seats;
   final CollabMode mode;
@@ -333,7 +312,10 @@ class _CouncilMembersSheetState extends ConsumerState<_CouncilMembersSheet> {
   void _remove(String id) {
     if (_seats.length <= 2) return;
     setState(() {
-      _seats = [for (final s in _seats) if (s.id != id) s];
+      _seats = [
+        for (final s in _seats)
+          if (s.id != id) s,
+      ];
       if (_chairId == id) _chairId = _seats.first.id;
     });
     unawaited(_commit());
@@ -343,6 +325,10 @@ class _CouncilMembersSheetState extends ConsumerState<_CouncilMembersSheet> {
     if (_seats.length >= 6) return;
     final picked = await pickCollabModel(context, title: '添加议会成员');
     if (picked == null || !mounted) return;
+    // S9：默认不允许同一个模型重复占位。重复的席位往往给出相同的答案，
+    // 让用户确认一次；坚持要用也可以，不强制改配置。
+    if (!await _confirmDuplicate(provider: picked.provider, model: picked.model)) return;
+    if (!mounted) return;
     final catalog = ref.read(modelCatalogProvider).value;
     setState(() {
       _seats = [
@@ -359,6 +345,39 @@ class _CouncilMembersSheetState extends ConsumerState<_CouncilMembersSheet> {
     unawaited(_commit());
   }
 
+  /// 席位去重（S9）：同一个 provider + model 只提示一次，不硬拦。
+  Future<bool> _confirmDuplicate({required String provider, required String model, String? exceptId}) async {
+    final clash = [
+      for (final seat in _seats)
+        if (seat.id != exceptId && seat.provider == provider && seat.model == model) seat,
+    ];
+    if (clash.isEmpty) return true;
+    if (!mounted) return false;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('这个模型已经在议会里'),
+        content: Text(
+          '「${clash.first.displayName}」用的也是这个模型。两个席位答案往往一样，'
+          '浪费一次调用；建议换一家服务商或换一个模型。',
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey('council-duplicate-change'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('换一个'),
+          ),
+          TextButton(
+            key: const ValueKey('council-duplicate-keep'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('仍然使用'),
+          ),
+        ],
+      ),
+    );
+    return go == true;
+  }
+
   Future<void> _changeModel(SeatSpec seat) async {
     final picked = await pickCollabModel(
       context,
@@ -366,6 +385,8 @@ class _CouncilMembersSheetState extends ConsumerState<_CouncilMembersSheet> {
       title: '更换模型',
     );
     if (picked == null || !mounted) return;
+    if (!await _confirmDuplicate(provider: picked.provider, model: picked.model, exceptId: seat.id)) return;
+    if (!mounted) return;
     final catalog = ref.read(modelCatalogProvider).value;
     _update(
       seat.copyWith(
@@ -449,14 +470,11 @@ class _CouncilMembersSheetState extends ConsumerState<_CouncilMembersSheet> {
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
-                    child: Text(
-                      switch (_mode) {
-                        CollabMode.quick => '各席位并行作答，主席直接综合。',
-                        CollabMode.deliberative => '第一轮后互看匿名答案修订一轮，成本约 2 倍。',
-                        CollabMode.evidence => '权威席位先答，其余成员只做校验与补漏。',
-                      },
-                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                    ),
+                    child: Text(switch (_mode) {
+                      CollabMode.quick => '各席位并行作答，主席直接综合。',
+                      CollabMode.deliberative => '第一轮后互看匿名答案修订一轮，成本约 2 倍。',
+                      CollabMode.evidence => '权威席位先答，其余成员只做校验与补漏。',
+                    }, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                   ),
                 ],
               ),
@@ -538,10 +556,7 @@ class _SeatRowState extends State<_SeatRow> {
                               style: theme.textTheme.bodyMedium,
                             ),
                           ),
-                          if (widget.isChair) ...[
-                            const SizedBox(width: 6),
-                            _Tag('主席', colors.primary),
-                          ],
+                          if (widget.isChair) ...[const SizedBox(width: 6), _Tag('主席', colors.primary)],
                           if (seat.role != SeatRole.none) ...[
                             const SizedBox(width: 6),
                             _Tag(seat.role.label, colors.onSurfaceVariant),
@@ -593,8 +608,7 @@ class _SeatRowState extends State<_SeatRow> {
                       underline: const SizedBox.shrink(),
                       style: theme.textTheme.labelMedium,
                       items: [
-                        for (final role in SeatRole.values)
-                          DropdownMenuItem(value: role, child: Text(role.label)),
+                        for (final role in SeatRole.values) DropdownMenuItem(value: role, child: Text(role.label)),
                       ],
                       onChanged: (role) {
                         if (role != null) widget.onChanged(seat.copyWith(role: role));
@@ -608,25 +622,14 @@ class _SeatRowState extends State<_SeatRow> {
                         items: [
                           const DropdownMenuItem(value: '', child: Text('默认思考')),
                           for (final effort in efforts)
-                            DropdownMenuItem(
-                              value: effort.id,
-                              child: Text(effortLabel(effort.id, effort.name)),
-                            ),
+                            DropdownMenuItem(value: effort.id, child: Text(effortLabel(effort.id, effort.name))),
                         ],
                         onChanged: (value) {
                           if (value == null) return;
-                          widget.onChanged(
-                            seat.copyWith(
-                              reasoningEffort: value.isEmpty ? null : value,
-                            ),
-                          );
+                          widget.onChanged(seat.copyWith(reasoningEffort: value.isEmpty ? null : value));
                         },
                       ),
-                    if (!widget.isChair)
-                      TextButton(
-                        onPressed: widget.onChair,
-                        child: const Text('设为主席'),
-                      ),
+                    if (!widget.isChair) TextButton(onPressed: widget.onChair, child: const Text('设为主席')),
                     if (widget.canRemove)
                       TextButton(
                         onPressed: widget.onRemove,
@@ -654,14 +657,8 @@ class _Tag extends StatelessWidget {
     final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: theme.textTheme.labelSmall?.copyWith(color: color, height: 1.3),
-      ),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)),
+      child: Text(label, style: theme.textTheme.labelSmall?.copyWith(color: color, height: 1.3)),
     );
   }
 }
@@ -713,7 +710,10 @@ class _TeamMembersSheetState extends ConsumerState<_TeamMembersSheet> {
 
   void _remove(String id) {
     setState(() {
-      _mates = [for (final m in _mates) if (m.id != id) m];
+      _mates = [
+        for (final m in _mates)
+          if (m.id != id) m,
+      ];
       if (_leadId == id) _leadId = null;
     });
     unawaited(_commit());
@@ -921,14 +921,8 @@ class _MateRowState extends State<_MateRow> {
                               style: theme.textTheme.bodyMedium,
                             ),
                           ),
-                          if (widget.isLead) ...[
-                            const SizedBox(width: 6),
-                            _Tag('主管', colors.primary),
-                          ],
-                          if (mate.readOnly) ...[
-                            const SizedBox(width: 6),
-                            _Tag('只读', colors.onSurfaceVariant),
-                          ],
+                          if (widget.isLead) ...[const SizedBox(width: 6), _Tag('主管', colors.primary)],
+                          if (mate.readOnly) ...[const SizedBox(width: 6), _Tag('只读', colors.onSurfaceVariant)],
                         ],
                       ),
                       Text(
@@ -1002,16 +996,11 @@ class _MateRowState extends State<_MateRow> {
                     items: [
                       const DropdownMenuItem(value: '', child: Text('默认思考')),
                       for (final effort in efforts)
-                        DropdownMenuItem(
-                          value: effort.id,
-                          child: Text(effortLabel(effort.id, effort.name)),
-                        ),
+                        DropdownMenuItem(value: effort.id, child: Text(effortLabel(effort.id, effort.name))),
                     ],
                     onChanged: (value) {
                       if (value == null) return;
-                      widget.onChanged(
-                        mate.copyWith(reasoningEffort: value.isEmpty ? null : value),
-                      );
+                      widget.onChanged(mate.copyWith(reasoningEffort: value.isEmpty ? null : value));
                     },
                   ),
                 if (!widget.isLead)

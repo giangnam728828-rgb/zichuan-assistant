@@ -97,6 +97,10 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
   bool _busy = false;
   String? _error;
 
+  /// S7：最后一次收到真实事件的时间；副标题据此显示「已等待 N 秒」。
+  DateTime _lastBeatAt = DateTime.now();
+  Timer? _waitTicker;
+
   /// 已经呈现过的消息：切回旧团队时不再重播每条消息的进场。
   final _seenMessages = <String>{};
 
@@ -116,6 +120,7 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       timer.cancel();
     }
     _timers.clear();
+    _waitTicker?.cancel();
     _sub?.cancel();
     _inbox?.dispose();
     _draft.dispose();
@@ -311,8 +316,10 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     _sub = orchestrator.events.listen((state) {
       final current = _team;
       if (!mounted || current == null || current.id != state.id) return;
+      _lastBeatAt = DateTime.now();
       setState(() => _team = state);
       _invalidateHistory();
+      _armWaitTicker();
     });
   }
 
@@ -430,10 +437,12 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     }
     _draft.clear();
     ref.read(conversationModeProvider.notifier).clearDraft(ConversationMode.team, _hostKey, team.id);
+    _lastBeatAt = DateTime.now();
     setState(() {
       _busy = true;
       _error = null;
     });
+    _armWaitTicker();
     try {
       await orchestrator.send(team.id, text);
     } on Object catch (error) {
@@ -784,17 +793,37 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     );
   }
 
+  /// 运行中每秒刷新副标题里的等待秒数；没有队友在跑就停。
+  void _armWaitTicker() {
+    final running = _busy || (_team?.running.isNotEmpty ?? false);
+    if (!running) {
+      _waitTicker?.cancel();
+      _waitTicker = null;
+      return;
+    }
+    _waitTicker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (!_busy && (_team?.running.isEmpty ?? true)) {
+        _waitTicker?.cancel();
+        _waitTicker = null;
+        return;
+      }
+      _publishHeader(_team);
+    });
+  }
+
   /// 把标题/状态/菜单动作发布给统一顶栏（帧后写，避免构建中通知）。
   void _publishHeader(TeamState? team) {
     final notifier = widget.header;
     if (notifier == null) return;
+    final running = team?.running.isNotEmpty ?? false;
+    final waited = DateTime.now().difference(_lastBeatAt).inSeconds;
     final info = CollabHeaderInfo(
       title: team?.displayTitle ?? '团队',
-      subtitle: [
-        '${team?.teammates.length ?? 0} 位队友',
-        if (team?.lead case final lead?) '主管 ${lead.name}',
-      ].join(' · '),
-      busy: _busy || (team?.running.isNotEmpty ?? false),
+      subtitle:
+          ['${team?.teammates.length ?? 0} 位队友', if (team?.lead case final lead?) '主管 ${lead.name}'].join(' · ') +
+          (running && waited >= 8 ? ' · 已等待 $waited 秒' : ''),
+      busy: _busy || running,
       onTitleTap: team == null ? null : _rename,
       onNew: _newTeam,
       actions: [

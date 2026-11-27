@@ -1,14 +1,16 @@
-// 顶栏右侧的模式入口（总方案 v4）。
+// 会话类型的选择器（总方案 v4 / V4.2 · S5 D2）。
 //
-// 三段式切换器已经删除：顶栏只摆一枚「当前模式」按钮（图标 + 名字 + 小箭头），
-// 点开是一张纵向三项的轻量悬浮面板（聊天 / 议会 / 团队，各带一句用途说明）。
-// 面板从按钮附近展开，点外面 / 系统返回键都能关，不进底部弹层。
+// 类型只在「新建会话」时确定：已有会话不能在会话内换类型。因此顶栏那枚
+// 按钮是**只读徽标**（图标 + 名字，没有小箭头、不响应点击），真正的入口是
+// 右上角「新对话」——点开是一张纵向三项的轻量悬浮面板（聊天 / 议会 / 团队），
+// 选中当前类型就是再建一条同类会话，选中其他类型则新建该类型会话。
 //
-// 切换不再 push 独立页面：三种模式共用同一个 ChatScreen 工作区，这里只改
+// 新建不 push 独立页面：三种模式共用同一个 ChatScreen 工作区，只改
 // [conversationModeProvider] 的状态——
-// - 切到议会/团队：像点「新建对话」一样开一条全新会话（成员配置继承最近一条）；
-// - 切回普通聊天：回到原来的聊天会话，不动它；
-// - 点当前模式：不重复创建。
+// - 新建议会/团队：开一条全新会话（成员配置继承最近一条）；
+// - 新建普通聊天：回到未选中状态，原来的聊天会话留在历史里。
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,9 +23,11 @@ import '../theme/glass.dart';
 import '../theme/motion.dart';
 import '../theme/surfaces.dart';
 
-/// 一枚紧凑的「当前模式」按钮。窄屏 / 大字号只留图标 + 小箭头，触控区仍 44dp。
+/// 一枚紧凑的「会话类型」徽标。只显示，不切换：已有会话的类型在创建时就定了。
+///
+/// [onSelect] 保留给「新对话」打开的类型面板；徽标本身点击不做事。
 class ConversationModeSwitcher extends ConsumerWidget {
-  ConversationModeSwitcher({super.key, required this.mode, this.onSelect, this.forceCompact = false});
+  const ConversationModeSwitcher({super.key, required this.mode, this.onSelect, this.forceCompact = false});
 
   final ConversationMode mode;
 
@@ -32,8 +36,6 @@ class ConversationModeSwitcher extends ConsumerWidget {
 
   /// 测试或特殊版式里强制收起文字。
   final bool forceCompact;
-
-  final GlobalKey _anchor = GlobalKey();
 
   /// 窄屏 / 大字号只留图标，给标题让位（方案 2.2：先缩辅助文字，不缩触控区）。
   static bool compactFor(BuildContext context) {
@@ -60,34 +62,17 @@ class ConversationModeSwitcher extends ConsumerWidget {
     final colors = Theme.of(context).colorScheme;
     final tint = colors.primary;
 
-    void open() {
-      HapticFeedback.selectionClick();
-      showConversationModePanel(
-        context,
-        anchor: _anchor,
-        current: mode,
-        onSelect: (target) {
-          if (onSelect case final callback?) {
-            callback(target);
-          } else {
-            switchConversationMode(context, ref, target, from: mode);
-          }
-        },
-      );
-    }
-
+    // 类型在新建时确定（D2）：这枚徽标只显示当前会话是什么，点它不换类型。
     return Semantics(
-      button: true,
-      label: '聊天模式，当前${mode.label}',
+      label: '会话类型：${mode.label}，新建时选择',
+      excludeSemantics: false,
       child: GlassSurface(
         key: const ValueKey('mode-chip'),
         tier: GlassTier.chrome,
         bare: true,
         stadium: true,
         grouped: true,
-        onTap: open,
         child: SizedBox(
-          key: _anchor,
           height: 44,
           child: Padding(
             padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
@@ -103,16 +88,9 @@ class ConversationModeSwitcher extends ConsumerWidget {
                   Text(
                     mode.label,
                     maxLines: 1,
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.2,
-                      fontWeight: FontWeight.w600,
-                      color: tint,
-                    ),
+                    style: TextStyle(fontSize: 13, height: 1.2, fontWeight: FontWeight.w600, color: tint),
                   ),
                 ],
-                const SizedBox(width: 2),
-                Icon(AppIcons.expand, size: 12, color: tint.withValues(alpha: 0.7)),
               ],
             ),
           ),
@@ -122,13 +100,13 @@ class ConversationModeSwitcher extends ConsumerWidget {
   }
 }
 
-/// 从按钮附近展开的纵向选择面板。
+/// 从按钮附近展开的纵向选择面板。用于「新对话」时选会话类型。
 ///
 /// 走一条透明的 dialog 路由：点外面关、Android 返回键关，都是路由自带的；
 /// 过场只有淡入 + 轻微缩放 + 6dp 位移（约 200ms），系统减少动画时直接呈现。
 Future<void> showConversationModePanel(
   BuildContext context, {
-  required GlobalKey anchor,
+  GlobalKey? anchor,
   required ConversationMode current,
   required ValueChanged<ConversationMode> onSelect,
 }) {
@@ -136,22 +114,19 @@ Future<void> showConversationModePanel(
   final duration = reduced ? Duration.zero : const Duration(milliseconds: 200);
   // 按钮在屏幕上的位置：面板贴着它的下沿、右对齐。
   Rect? anchorRect;
-  if (anchor.currentContext case final anchorContext?) {
+  if (anchor?.currentContext case final anchorContext?) {
     final box = anchorContext.findRenderObject();
     if (box is RenderBox && box.hasSize) {
       final overlay = Navigator.of(context, rootNavigator: true).overlay!.context.findRenderObject();
       if (overlay is RenderBox) {
-        anchorRect = MatrixUtils.transformRect(
-          box.getTransformTo(overlay),
-          Offset.zero & box.size,
-        );
+        anchorRect = MatrixUtils.transformRect(box.getTransformTo(overlay), Offset.zero & box.size);
       }
     }
   }
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
-    barrierLabel: '关闭模式选择',
+    barrierLabel: '关闭类型选择',
     barrierColor: Colors.transparent,
     transitionDuration: duration,
     pageBuilder: (dialogContext, animation, secondary) => _ModePanel(
@@ -208,10 +183,27 @@ class _ModePanel extends StatelessWidget {
             child: SizedBox(
               width: _width,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
+                padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+                      child: Row(
+                        children: [
+                          Text(
+                            '新建会话',
+                            style: Theme.of(context).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '类型创建后不改',
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
                     for (final mode in ConversationMode.values)
                       _ModeOption(
                         key: ValueKey('mode-option-${mode.name}'),
@@ -286,7 +278,20 @@ class _ModeOption extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (selected) Icon(AppIcons.done, size: 16, color: colors.primary),
+                  if (selected)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: colors.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '当前',
+                        style: theme.textTheme.labelSmall?.copyWith(color: colors.primary, height: 1.2),
+                      ),
+                    )
+                  else
+                    Icon(AppIcons.newChat, size: 15, color: colors.onSurfaceVariant.withValues(alpha: 0.7)),
                 ],
               ),
             ),
@@ -295,6 +300,25 @@ class _ModeOption extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 「新对话」用：先选类型，再建会话。点外面返回 null。
+///
+/// D2：类型只在创建时确定一次，所以入口必须在这里而不是会话内的顶栏。
+Future<ConversationMode?> pickConversationType(BuildContext context, {required ConversationMode current}) {
+  final completer = Completer<ConversationMode?>();
+  unawaited(
+    showConversationModePanel(
+      context,
+      current: current,
+      onSelect: (mode) {
+        if (!completer.isCompleted) completer.complete(mode);
+      },
+    ).then((_) {
+      if (!completer.isCompleted) completer.complete(null);
+    }),
+  );
+  return completer.future;
 }
 
 /// 模式切换的唯一入口：只改状态，不再 push 任何整页路由（方案三）。

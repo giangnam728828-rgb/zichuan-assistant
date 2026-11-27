@@ -108,6 +108,11 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
   /// 不让用户盯着空输入框等。
   String? _pendingQuestion;
   String? _error;
+
+  /// S7：最后一次收到真实事件的时间。副标题据此显示「已等待 N 秒」，
+  /// 让长等待有可见的凭据，而不是一直转圈。
+  DateTime _lastBeatAt = DateTime.now();
+  Timer? _waitTicker;
   final _scroll = ScrollController();
 
   /// 输入栏在列内，消息区不需要底部渐隐。
@@ -128,6 +133,7 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     }
     _timers.clear();
     _sub?.cancel();
+    _waitTicker?.cancel();
     _inbox?.dispose();
     _draft.dispose();
     _scroll.dispose();
@@ -512,11 +518,13 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       // 编排器是连接级共享的：别的议会会话的事件不能进这一页。
       final conversation = _conversation;
       if (conversation != null && !conversation.turns.any((turn) => turn.runId == run.id)) return;
+      _lastBeatAt = DateTime.now();
       setState(() {
         _runs[run.id] = run;
         if (run.phase.isTerminal) _busy = false;
       });
       _syncTurn(run);
+      _armWaitTicker();
     });
   }
 
@@ -584,6 +592,7 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       setState(() => _error = '还没连上引擎，稍等一下再发。');
       return;
     }
+    _lastBeatAt = DateTime.now();
     setState(() {
       _busy = true;
       _error = null;
@@ -804,11 +813,7 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       actions: [
         CollabMenuAction(key: 'council-members', label: '管理成员', icon: AppIcons.team, onTap: _openMembers),
         CollabMenuAction(key: 'council-export', label: '导出 Markdown', onTap: _export),
-        CollabMenuAction(
-          key: 'council-history',
-          label: '历史议会',
-          onTap: () => switchTab(context, RootTab.history),
-        ),
+        CollabMenuAction(key: 'council-history', label: '历史议会', onTap: () => switchTab(context, RootTab.history)),
       ],
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -830,7 +835,27 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       CollabPhase.synthesizing => '主席综合中',
       _ => '$done/$seats 位已作答',
     };
-    return '$seats 位成员 · $phase';
+    final waited = DateTime.now().difference(_lastBeatAt).inSeconds;
+    return '$seats 位成员 · $phase${waited >= 8 ? ' · 已等待 $waited 秒' : ''}';
+  }
+
+  /// 运行中每秒刷新一次副标题里的等待秒数；结束就停。
+  void _armWaitTicker() {
+    final running = _latestRun(_conversation)?.phase.isTerminal == false;
+    if (!running) {
+      _waitTicker?.cancel();
+      _waitTicker = null;
+      return;
+    }
+    _waitTicker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (_latestRun(_conversation)?.phase.isTerminal ?? true) {
+        _waitTicker?.cancel();
+        _waitTicker = null;
+        return;
+      }
+      _publishHeader(_conversation);
+    });
   }
 
   CollabRun? _latestRun(CouncilConversation? conversation) {
@@ -1086,10 +1111,7 @@ class _RestoringNote extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Center(
-      child: Text(
-        '正在恢复上次的议会…',
-        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-      ),
+      child: Text('正在恢复上次的议会…', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
     );
   }
 }
