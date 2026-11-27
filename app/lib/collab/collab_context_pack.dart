@@ -208,9 +208,10 @@ final class CollabContextPack {
     for (final message in anchors) {
       if (remaining <= 0) break;
       final limit = remaining < anchorMaxChars ? remaining : anchorMaxChars;
-      final body = message.text.length > limit ? message.text.substring(0, limit) : message.text;
-      if (body.length != message.text.length) truncated = true;
-      remaining -= body.length;
+      final full = message.text.length;
+      final body = full > limit ? '${message.text.substring(0, limit)}…（后 ${full - limit} 字已省略）' : message.text;
+      if (full > limit) truncated = true;
+      remaining -= limit;
       keptAnchors.add(
         CollabContextMessage(id: message.id, text: body, role: message.role, at: message.at),
       );
@@ -223,9 +224,10 @@ final class CollabContextPack {
         dropped++;
         continue;
       }
-      final body = message.text.length > limit ? message.text.substring(0, limit) : message.text;
-      if (body.length != message.text.length) truncated = true;
-      remaining -= body.length;
+      final full = message.text.length;
+      final body = full > limit ? '${message.text.substring(0, limit)}…（后 ${full - limit} 字已省略）' : message.text;
+      if (full > limit) truncated = true;
+      remaining -= limit;
       keptRecent.insert(0, CollabContextMessage(id: message.id, text: body, role: message.role, at: message.at));
     }
     if (keptAnchors.isEmpty && keptRecent.isEmpty) return const CollabContextPack();

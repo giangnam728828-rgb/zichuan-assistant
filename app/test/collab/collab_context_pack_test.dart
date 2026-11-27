@@ -83,7 +83,8 @@ void main() {
         budget: 1200,
       );
       expect(pack.anchors, hasLength(1));
-      expect(pack.anchors.first.text.length, lessThanOrEqualTo(1200));
+      // 正文裁到预算，后面那句「已省略」是给人看的说明，不计入正文长度。
+      expect(pack.anchors.first.text.length, lessThanOrEqualTo(1200 + 32));
       expect(pack.truncated, isTrue);
       expect(pack.promptBlock, contains('字已省略'));
     });
