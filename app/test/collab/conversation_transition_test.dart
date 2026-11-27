@@ -101,19 +101,25 @@ void main() {
         ),
       );
       final animation = const AlwaysStoppedAnimation<double>(0.0);
+      const probe = ValueKey('mode-probe');
       await tester.pumpWidget(
         _host(
           disableAnimations: false,
           child: ConversationTransition.mode(
             context: captured,
             animation: animation,
-            child: const SizedBox(width: 40, height: 40),
+            child: const SizedBox(key: probe, width: 40, height: 40),
           ),
         ),
       );
-      // 模式切换里没有 Transform.translate：位移只由标签页那一层提供。
-      expect(find.byType(Transform), findsNothing);
-      expect(find.byType(FadeTransition), findsOneWidget);
+      // 只看这一段子树：MaterialApp/Scaffold 自己也有 Transform，全树找不到
+      // 并不能说明什么。模式切换里应当没有位移，只有一个淡入。
+      final transforms = find.descendant(
+        of: find.byType(FadeTransition),
+        matching: find.byType(Transform),
+      );
+      expect(transforms, findsNothing, reason: '模式切换不位移，位移只由标签页那一层提供');
+      expect(find.byKey(probe), findsOneWidget);
     });
   });
 }
