@@ -123,8 +123,6 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
   /// 时间线的滚动控制器：恢复会话后停在最新一轮，跟随规则由时间线管。
   final _scroll = ScrollController();
 
-  /// 没有输入栏实测高度时的底部渐隐（0 = 不渐隐）。
-  final _noBottomFade = ValueNotifier<double>(0);
   late final String _hostKey = conversationHostKey(ref.read(activeHostProvider));
 
   @override
@@ -144,7 +142,6 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     _inbox?.dispose();
     _draft.dispose();
     _scroll.dispose();
-    _noBottomFade.dispose();
     super.dispose();
   }
 
@@ -1075,7 +1072,6 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       key: ValueKey('team-timeline-${team.id}'),
       rows: rows,
       controller: _scroll,
-      composerHeight: ConversationComposerInset.maybeOf(context) ?? _noBottomFade,
       footer: active.length > 1
           // 旧数据里可能还有多位同时在跑：只留一句提示，不再让它们各占一个
           // 活动气泡（方案：同一时间只有一个活动成员的主聊天流）。

@@ -12,10 +12,10 @@
 // - 顶部/底部渐隐与普通聊天同一套 [EdgeFade]，不额外盖色；
 // - 空状态、系统提示、失败行都作为行传进来，列表不再关心业务。
 
-import 'dart:math' as math;
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../chat/shared/conversation_workspace.dart';
 import '../theme/edge_fade.dart';
 
 /// 一条时间线里的一行。
@@ -31,6 +31,9 @@ class CollabTimelineRow {
   /// 这一行后面额外的空隙（任务卡、裁决卡这类块状内容用）。
   final double bottomGap;
 }
+
+/// 没有输入栏时的常量高度（[EdgeFade] 只读 value）。
+const _staticZero = AlwaysStoppedAnimation<double>(0);
 
 class CollabTimeline extends StatefulWidget {
   const CollabTimeline({
@@ -51,7 +54,10 @@ class CollabTimeline extends StatefulWidget {
   /// 没有任何行时显示的内容（空会话引导）。
   final Widget? empty;
 
-  /// 输入栏实测高度。底部渐隐与留白都按它算；为空表示这一页没有输入栏。
+  /// 输入栏实测高度。底部渐隐与留白都按它算。
+  ///
+  /// 不传就自己从 [ConversationComposerInset] 读：时间线可用时才拿得到
+  /// 自己所在位置的 context，页面在 build 入口读到的还是外面那一层。
   final ValueListenable<double>? composerHeight;
 
   /// 顶部渐隐长度（与普通聊天一致：滚到顶栏下面时字自己淡掉）。
@@ -179,7 +185,8 @@ class CollabTimelineState extends State<CollabTimeline> {
     );
     // 底部渐隐按输入栏实测高度走（和普通聊天同一条规则）：滚到输入栏
     // 后面的字自己淡掉，而不是被一块色块盖住。
-    final bottom = widget.composerHeight ?? const AlwaysStoppedAnimation<double>(0);
+    final bottom =
+        widget.composerHeight ?? ConversationComposerInset.maybeOf(context) ?? _staticZero;
     return EdgeFade(top: widget.topFade, topHold: 0, bottom: bottom, child: list);
   }
 }

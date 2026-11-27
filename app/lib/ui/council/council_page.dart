@@ -131,8 +131,6 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
   /// 已选、未发送的附件（S6：与普通聊天同一套选择与预算）。
   List<DraftAttachment> _drafts = const [];
 
-  /// 输入栏在列内，消息区不需要底部渐隐。
-  final _noBottomFade = ValueNotifier<double>(0);
   late final String _hostKey = conversationHostKey(ref.read(activeHostProvider));
 
   @override
@@ -153,7 +151,6 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     _inbox?.dispose();
     _draft.dispose();
     _scroll.dispose();
-    _noBottomFade.dispose();
     // 编排器是连接级共享的。离开视图只取消自己的订阅——还在跑的席位继续跑，
     // 回来重新订阅同一份事件即可；注入的实例归测试管。
     super.dispose();
@@ -1165,7 +1162,6 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       key: ValueKey('council-timeline-${conversation.id}'),
       rows: rows,
       controller: _scroll,
-      composerHeight: ConversationComposerInset.maybeOf(context) ?? _noBottomFade,
     );
   }
 
