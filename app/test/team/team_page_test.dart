@@ -83,7 +83,12 @@ final class _Driver implements CollabSessionDriver {
   }
 
   @override
-  Future<TurnOutcome> runTurn(String sessionId, String text, {Duration? timeout}) async {
+  Future<TurnOutcome> runTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  }) async {
     final reply = replies[_labels[sessionId]] ?? '收到';
     return TurnOutcome(kind: TurnKind.completed, text: reply);
   }
@@ -147,12 +152,7 @@ Future<void> _pump(
       ModeViewHarness(
         header: header,
         newLabel: '新团队',
-        child: TeamModeView(
-          orchestrator: orchestrator,
-          teamId: teamId,
-          resumeLatest: resumeLatest,
-          header: header,
-        ),
+        child: TeamModeView(orchestrator: orchestrator, teamId: teamId, resumeLatest: resumeLatest, header: header),
       ),
       overrides: [
         modelCatalogProvider.overrideWith((ref) async => _catalog()),

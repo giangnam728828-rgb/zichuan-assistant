@@ -72,8 +72,12 @@ final class _IdleDriver implements CollabSessionDriver {
   Future<String> openSession(SeatSpec seat, {String? workspaceId}) async => 'sess-${seat.id}';
 
   @override
-  Future<TurnOutcome> runTurn(String sessionId, String text, {Duration? timeout}) async =>
-      const TurnOutcome(kind: TurnKind.completed, text: '好');
+  Future<TurnOutcome> runTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  }) async => const TurnOutcome(kind: TurnKind.completed, text: '好');
 
   @override
   Future<void> cancel(String sessionId) async {}
@@ -128,14 +132,21 @@ void main() {
     return orchestrator;
   }
 
-  Future<void> pump(WidgetTester tester, CollabOrchestrator orchestrator, {String? runId, String? conversationId}) async {
+  Future<void> pump(
+    WidgetTester tester,
+    CollabOrchestrator orchestrator, {
+    String? runId,
+    String? conversationId,
+  }) async {
     await tester.pumpWidget(
       testApp(
-        Scaffold(body: CouncilModeView(orchestrator: orchestrator, runId: runId, conversationId: conversationId)),
+        Scaffold(
+          body: CouncilModeView(orchestrator: orchestrator, runId: runId, conversationId: conversationId),
+        ),
         overrides: [
           modelCatalogProvider.overrideWith((ref) async => _catalog()),
-        // 目录已缓存：新建会话按它凑两位成员（真机上点进来时通常也已经有缓存）。
-        currentModelCatalogProvider.overrideWithValue(_catalog()),
+          // 目录已缓存：新建会话按它凑两位成员（真机上点进来时通常也已经有缓存）。
+          currentModelCatalogProvider.overrideWithValue(_catalog()),
           readListLiveConnectionProvider.overrideWith((ref) => null),
           collabSessionRootProvider.overrideWithValue(() async => dir),
           councilStoreProvider.overrideWith((ref) async => conversations),

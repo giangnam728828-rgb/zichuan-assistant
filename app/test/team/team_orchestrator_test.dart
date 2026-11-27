@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:dsh_app/council/collab_models.dart';
 import 'package:dsh_app/council/collab_orchestrator.dart';
@@ -36,6 +37,9 @@ final class FakeDriver implements CollabSessionDriver {
 
   final opened = <SeatSpec>[];
   final prompts = <String, List<String>>{};
+
+  /// sessionId → 每次调用带的附件（校验 S6 的投递时机）。
+  final got = <String, List<List<CollabAttachment>>>{};
   final cancelled = <String>[];
 
   final _seatOf = <String, String>{};
@@ -44,6 +48,9 @@ final class FakeDriver implements CollabSessionDriver {
   int _sessions = 0;
   int _running = 0;
   int peak = 0;
+
+  /// 此刻真的在跑的回合数：比 `opened` 更靠近「已经发出去、等着回话」。
+  int get inflight => _running;
 
   @override
   Future<String> openSession(SeatSpec seat, {String? workspaceId}) async {
@@ -54,7 +61,12 @@ final class FakeDriver implements CollabSessionDriver {
   }
 
   @override
-  Future<TurnOutcome> runTurn(String sessionId, String text, {Duration? timeout}) async {
+  Future<TurnOutcome> runTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  }) async {
     _running++;
     peak = math.max(peak, _running);
     try {
@@ -63,6 +75,7 @@ final class FakeDriver implements CollabSessionDriver {
       final count = (_calls[mateId] ?? 0) + 1;
       _calls[mateId] = count;
       prompts.putIfAbsent(mateId, () => []).add(text);
+      got.putIfAbsent(sessionId, () => []).add(attachments);
       switch (script.kind) {
         case FakeKind.ok:
           await Future<void>.delayed(script.delay);
@@ -96,6 +109,17 @@ Teammate mate(String id, String name, {String brief = ''}) =>
     Teammate(id: id, name: name, brief: brief, provider: 'prov', model: 'mod-$id');
 
 Directory tempDir() => Directory.systemTemp.createTempSync('team_orch');
+
+/// 等到 [predicate] 为真（最多 [timeout]）。
+///
+/// 首次落盘、开会话、记「谁在跑」这几拍在慢机器上会被挤开，固定睡眠断不住
+/// 时序；断言的是状态对不对，不是它多快到。
+Future<void> waitUntil(bool Function() predicate, {Duration timeout = const Duration(seconds: 3)}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!predicate() && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
 
 void main() {
   late Directory dir;
@@ -152,10 +176,7 @@ void main() {
 
     test('队友数量必须在 2 到 6 之间', () async {
       await expectLater(orch.create(teammates: [mate('m1', '阿蓝')]), throwsArgumentError);
-      await expectLater(
-        orch.create(teammates: [for (var i = 0; i < 7; i++) mate('m$i', '队友$i')]),
-        throwsArgumentError,
-      );
+      await expectLater(orch.create(teammates: [for (var i = 0; i < 7; i++) mate('m$i', '队友$i')]), throwsArgumentError);
     });
   });
 
@@ -237,7 +258,10 @@ void main() {
 
     test('自己的角色与别人的角色都写进提示词', () async {
       final team = await orch.create(
-        teammates: [mate('m1', '阿蓝', brief: '负责前端'), mate('m2', '阿橙', brief: '负责后端')],
+        teammates: [
+          mate('m1', '阿蓝', brief: '负责前端'),
+          mate('m2', '阿橙', brief: '负责后端'),
+        ],
       );
       await orch.send(team.id, '@阿蓝 开始吧');
       final prompt = driver.prompts['m1']!.single;
@@ -306,16 +330,17 @@ void main() {
       final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
 
       final sending = orch.send(team.id, '一起想个名字');
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      // 等第一位真的开跑再停：没跑到那一步就没有「在飞的会话」可停。
+      await waitUntil(() => driver.inflight > 0);
       await orch.cancel(team.id);
       await sending;
 
       final after = (await orch.load(team.id))!;
       expect(driver.cancelled, isNotEmpty);
-      expect(
-        [for (final msg in after.messages) if (msg.role == TeamMsgRole.system) msg.text],
-        contains('已停止这一轮。'),
-      );
+      expect([
+        for (final msg in after.messages)
+          if (msg.role == TeamMsgRole.system) msg.text,
+      ], contains('已停止这一轮。'));
       expect(after.messages.where((m) => m.role == TeamMsgRole.teammate), isEmpty);
     });
 
@@ -323,7 +348,8 @@ void main() {
       boot(scripts: {'m1': const Script(FakeKind.hang)});
       final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
       final sending = orch.send(team.id, '@阿蓝 先想');
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      // 首次落盘 + 开会话在慢机器上可能超过 30ms；给足窗口再断言。
+      await Future<void>.delayed(const Duration(milliseconds: 120));
       await orch.cancel(team.id);
       await sending;
 
@@ -357,10 +383,7 @@ void main() {
 
     test('改队友信息：重名直接报错', () async {
       final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
-      await expectLater(
-        orch.updateMate(team.id, mate('m2', '阿蓝')),
-        throwsArgumentError,
-      );
+      await expectLater(orch.updateMate(team.id, mate('m2', '阿蓝')), throwsArgumentError);
       final after = await orch.updateMate(team.id, mate('m2', '阿橙', brief: '负责后端'));
       expect(after.mate('m2')!.brief, '负责后端');
     });
@@ -463,10 +486,7 @@ void main() {
 
   group('主管', () {
     test('设了主管：不点名时只有主管接活', () async {
-      final team = await orch.create(
-        teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')],
-        leadId: 'm1',
-      );
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')], leadId: 'm1');
       expect(team.lead?.name, '阿蓝');
 
       final after = await orch.send(team.id, '这周做什么');
@@ -477,14 +497,13 @@ void main() {
     });
 
     test('主管在答复里 @ 人：被点名的人接着答一轮', () async {
-      boot(scripts: {
-        'm1': const Script(FakeKind.ok, text: '我先分一下：@阿橙 你去看接口'),
-        'm2': const Script(FakeKind.ok, text: '接口看过了，没问题'),
-      });
-      final team = await orch.create(
-        teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')],
-        leadId: 'm1',
+      boot(
+        scripts: {
+          'm1': const Script(FakeKind.ok, text: '我先分一下：@阿橙 你去看接口'),
+          'm2': const Script(FakeKind.ok, text: '接口看过了，没问题'),
+        },
       );
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')], leadId: 'm1');
       final after = await orch.send(team.id, '这周做什么');
 
       final replies = after.messages.where((m) => m.role == TeamMsgRole.teammate).toList();
@@ -494,22 +513,14 @@ void main() {
     });
 
     test('主管自己 @ 自己不会把自己再跑一遍', () async {
-      boot(scripts: {
-        'm1': const Script(FakeKind.ok, text: '我来做。@阿蓝 记一下'),
-      });
-      final team = await orch.create(
-        teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')],
-        leadId: 'm1',
-      );
+      boot(scripts: {'m1': const Script(FakeKind.ok, text: '我来做。@阿蓝 记一下')});
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')], leadId: 'm1');
       final after = await orch.send(team.id, '这周做什么');
       expect(after.messages.where((m) => m.role == TeamMsgRole.teammate).length, 1);
     });
 
     test('移除主管：主管位空出来，下一条回到全员作答', () async {
-      final team = await orch.create(
-        teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')],
-        leadId: 'm1',
-      );
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')], leadId: 'm1');
       final left = await orch.removeMate(team.id, 'm1');
       expect(left.lead, isNull);
       expect(left.messages.last.text, contains('主管一职空了出来'));
@@ -541,10 +552,12 @@ void main() {
 
   group('移交', () {
     test('答复末尾「移交 @名字」：落一张移交卡，下一位接着答', () async {
-      boot(scripts: {
-        'm1': const Script(FakeKind.ok, text: '前端我改完了。\n移交 @阿橙'),
-        'm2': const Script(FakeKind.ok, text: '收到，我来跑测试'),
-      });
+      boot(
+        scripts: {
+          'm1': const Script(FakeKind.ok, text: '前端我改完了。\n移交 @阿橙'),
+          'm2': const Script(FakeKind.ok, text: '收到，我来跑测试'),
+        },
+      );
       final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
       final after = await orch.send(team.id, '@阿蓝 改一下登录页');
 
@@ -560,9 +573,7 @@ void main() {
     });
 
     test('正文中间提到「交给阿橙」不算移交', () async {
-      boot(scripts: {
-        'm1': const Script(FakeKind.ok, text: '这块以前交给阿橙做过，你可以问他。\n还有别的问题吗'),
-      });
+      boot(scripts: {'m1': const Script(FakeKind.ok, text: '这块以前交给阿橙做过，你可以问他。\n还有别的问题吗')});
       final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
       final after = await orch.send(team.id, '@阿蓝 登录页谁熟');
 
@@ -579,10 +590,12 @@ void main() {
     });
 
     test('互相推诿：同一个人一轮只跑一次，不会无限循环', () async {
-      boot(scripts: {
-        'm1': const Script(FakeKind.ok, text: '我不太会。\n移交 @阿橙'),
-        'm2': const Script(FakeKind.ok, text: '我也不会。\n移交 @阿蓝'),
-      });
+      boot(
+        scripts: {
+          'm1': const Script(FakeKind.ok, text: '我不太会。\n移交 @阿橙'),
+          'm2': const Script(FakeKind.ok, text: '我也不会。\n移交 @阿蓝'),
+        },
+      );
       final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
       final after = await orch.send(team.id, '@阿蓝 你来');
 
@@ -631,13 +644,7 @@ void main() {
       final team = await orch.create(
         teammates: [
           mate('m1', '阿蓝'),
-          Teammate(
-            id: 'm2',
-            name: '阿橙',
-            provider: 'p',
-            model: 'm',
-            readOnly: true,
-          ),
+          Teammate(id: 'm2', name: '阿橙', provider: 'p', model: 'm', readOnly: true),
         ],
       );
       await orch.send(team.id, '一起看看这个方案');
@@ -648,10 +655,7 @@ void main() {
     });
 
     test('两位可写队友排队：同一时刻只有一个在飞', () async {
-      boot(scripts: {
-        'm1': const Script(FakeKind.ok),
-        'm2': const Script(FakeKind.ok),
-      });
+      boot(scripts: {'m1': const Script(FakeKind.ok), 'm2': const Script(FakeKind.ok)});
       final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
       await orch.send(team.id, '各改一个文件');
 
@@ -659,10 +663,13 @@ void main() {
     });
 
     test('关掉互斥：可写队友回到并发跑', () async {
-      boot(maxConcurrency: 3, scripts: {
-        'm1': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
-        'm2': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
-      });
+      boot(
+        maxConcurrency: 3,
+        scripts: {
+          'm1': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
+          'm2': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
+        },
+      );
       final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
       await orch.setExclusiveWrite(team.id, false);
       await orch.send(team.id, '各改一个文件');
@@ -671,11 +678,13 @@ void main() {
     });
 
     test('只读 + 可写可以并行：只读的不抢写锁', () async {
-      boot(scripts: {
-        'm1': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
-        'm2': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
-        'm3': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
-      });
+      boot(
+        scripts: {
+          'm1': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
+          'm2': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
+          'm3': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
+        },
+      );
       final team = await orch.create(
         teammates: [
           mate('m1', '阿蓝'),
@@ -749,10 +758,7 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 120));
       final after = (await orch.load(team.id))!;
-      expect(
-        after.messages.where((m) => m.role == TeamMsgRole.user).map((m) => m.text),
-        contains('进度如何'),
-      );
+      expect(after.messages.where((m) => m.role == TeamMsgRole.user).map((m) => m.text), contains('进度如何'));
     });
   });
 
@@ -762,9 +768,18 @@ void main() {
       final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
 
       final sending = orch.send(team.id, '@阿蓝 先想');
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      final during = (await orch.load(team.id))!;
-      expect(during.running, ['m1']);
+      // 落盘排在消息队列前面，慢机器上三十毫秒可能还没轮到「开跑」那一拍；
+      // 轮询到「有人在跑」为止，断言的是状态对不对，不是它多快到。
+      TeamState? during;
+      for (var i = 0; i < 100; i++) {
+        final state = await orch.load(team.id);
+        if (state != null && state.running.isNotEmpty) {
+          during = state;
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(during?.running, ['m1'], reason: 'prompts=${driver.prompts} opened=${driver.opened.length}');
 
       await orch.cancel(team.id);
       await sending;
@@ -794,6 +809,33 @@ void main() {
         updatedAt: DateTime(2026, 3, 1),
       );
       expect(TeamState.fromJson(state.toJson()).running, ['m2', 'm1']);
+    });
+  });
+
+  group('附件', () {
+    test('随这条消息投给被点名的队友，别人收不到', () async {
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      final file = CollabAttachment(name: 'brief.pdf', bytes: Uint8List.fromList(const [1, 2]));
+      final after = await orch.send(team.id, '@阿蓝 看下这个', attachments: [file]);
+
+      expect(after.messages.where((m) => m.role == TeamMsgRole.teammate), hasLength(1));
+      final batches = [for (final list in driver.got.values) ...list];
+      final withFiles = [
+        for (final batch in batches)
+          if (batch.isNotEmpty) batch,
+      ];
+      expect(withFiles, hasLength(1));
+      expect(withFiles.single.single.name, 'brief.pdf');
+    });
+
+    test('只有附件没有正文也发得出去，群里显示「（附件）」', () async {
+      final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
+      final image = CollabAttachment(name: 'a.png', bytes: Uint8List.fromList(const [9]), mediaType: 'image/png');
+      final after = await orch.send(team.id, '   ', attachments: [image]);
+
+      final mine = after.messages.where((m) => m.role == TeamMsgRole.user).toList();
+      expect(mine.single.text, '（附件）');
+      expect(driver.got.values.expand((list) => list).expand((batch) => batch).map((a) => a.name), contains('a.png'));
     });
   });
 }

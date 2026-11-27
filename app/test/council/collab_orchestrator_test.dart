@@ -6,6 +6,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:dsh_app/council/collab_models.dart';
 import 'package:dsh_app/council/collab_orchestrator.dart';
@@ -33,6 +34,9 @@ final class FakeDriver implements CollabSessionDriver {
   final prompts = <String, List<String>>{};
   final cancelled = <String>[];
   final seen = <String, int>{};
+
+  /// sessionId → 每次调用带的附件（校验 S6 的投递时机）。
+  final got = <String, List<List<CollabAttachment>>>{};
   final _sessionSeat = <String, String>{};
   int _counter = 0;
   int _running = 0;
@@ -47,7 +51,12 @@ final class FakeDriver implements CollabSessionDriver {
   }
 
   @override
-  Future<TurnOutcome> runTurn(String sessionId, String text, {Duration? timeout}) async {
+  Future<TurnOutcome> runTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  }) async {
     _running++;
     peak = math.max(peak, _running);
     try {
@@ -56,6 +65,7 @@ final class FakeDriver implements CollabSessionDriver {
       final count = (seen[seatId] ?? 0) + 1;
       seen[seatId] = count;
       prompts.putIfAbsent(sessionId, () => []).add(text);
+      got.putIfAbsent(sessionId, () => []).add(attachments);
       switch (script.kind) {
         case FakeKind.ok:
           await Future<void>.delayed(const Duration(milliseconds: 5));
@@ -348,5 +358,25 @@ void main() {
     // 未知字段不炸（向后兼容）
     final withUnknown = {...run.toJson(), 'futureField': 42};
     expect(CollabRun.fromJson(withUnknown).id, 'r1');
+  });
+
+  test('附件：随第一轮投给每个席位，主席综合那一步不重复上传', () async {
+    final driver = FakeDriver({});
+    final o = make(driver);
+    final image = CollabAttachment(name: 'q.png', bytes: Uint8List.fromList(const [1, 2, 3]), mediaType: 'image/png');
+    await o.submit(spec(seats: 2), attachments: [image]);
+    final done = await waitTerminal(o, 'run1');
+    expect(done.phase, CollabPhase.done);
+
+    final batches = [for (final list in driver.got.values) ...list];
+    final withFiles = [
+      for (final batch in batches)
+        if (batch.isNotEmpty) batch,
+    ];
+    // 两个席位各收到一次；同一份附件不重复上传。
+    expect(withFiles, hasLength(2));
+    expect(withFiles.every((batch) => batch.single.name == 'q.png' && batch.single.isImage), isTrue);
+    expect(batches.any((batch) => batch.isEmpty), isTrue, reason: '主席那一步不带附件');
+    await o.dispose();
   });
 }

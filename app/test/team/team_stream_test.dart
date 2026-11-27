@@ -21,12 +21,22 @@ final class _StreamingDriver implements CollabSessionDriver, CollabStreamingDriv
   Future<String> openSession(SeatSpec seat, {String? workspaceId}) async => 's-${seat.id}';
 
   @override
-  Future<TurnOutcome> runTurn(String sessionId, String text, {Duration? timeout}) async {
+  Future<TurnOutcome> runTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  }) async {
     throw StateError('流式驱动不应该走 runTurn');
   }
 
   @override
-  Stream<CollabTurnEvent> streamTurn(String sessionId, String text, {Duration? timeout}) async* {
+  Stream<CollabTurnEvent> streamTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  }) async* {
     yield const CollabTurnStage('thinking');
     await Future<void>.delayed(const Duration(milliseconds: 8));
     yield const CollabTurnText('先看了登录页，');
@@ -96,8 +106,12 @@ final class _PlainDriver implements CollabSessionDriver {
   Future<String> openSession(SeatSpec seat, {String? workspaceId}) async => 's-${seat.id}';
 
   @override
-  Future<TurnOutcome> runTurn(String sessionId, String text, {Duration? timeout}) async =>
-      const TurnOutcome(kind: TurnKind.completed, text: '在的');
+  Future<TurnOutcome> runTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  }) async => const TurnOutcome(kind: TurnKind.completed, text: '在的');
 
   @override
   Future<void> cancel(String sessionId) async {}

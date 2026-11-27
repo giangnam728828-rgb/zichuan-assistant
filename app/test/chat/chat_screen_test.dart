@@ -381,13 +381,19 @@ void main() {
     expect(find.text('每条消息最多 9 个附件'), findsOneWidget);
   });
 
-  testWidgets('new conversation header action clears the selection', (tester) async {
+  testWidgets('new conversation header action asks for a type, then clears the selection', (tester) async {
     await pumpScreen(tester, ChatHarness(session: 's1'));
     expect(find.byKey(const ValueKey('chat-new-chat')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('chat-new-chat')));
     await pumpFrames(tester);
+    // S5/D2：类型只在新建时选。点「新对话」先出类型面板，原来的会话不动。
+    expect(find.byKey(const ValueKey('mode-option-chat')), findsOneWidget);
+    expect(containerOf(tester).read(currentSessionProvider), 's1');
+    await tester.tap(find.byKey(const ValueKey('mode-option-chat')));
+    await pumpFrames(tester);
     expect(containerOf(tester).read(currentSessionProvider), isNull);
-    expect(find.byKey(const ValueKey('chat-new-chat')), findsNothing);
+    // 空态也留着这个入口：否则还没有会话时就建不了议会/团队。
+    expect(find.byKey(const ValueKey('chat-new-chat')), findsOneWidget);
   });
 
   testWidgets('while a reply generates, auto-approve sits beside the activity strip, not on a row of its own', (

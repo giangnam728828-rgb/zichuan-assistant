@@ -89,8 +89,12 @@ final class _Driver implements CollabSessionDriver {
   }
 
   @override
-  Future<TurnOutcome> runTurn(String sessionId, String text, {Duration? timeout}) async =>
-      const TurnOutcome(kind: TurnKind.completed, text: '我的看法是这样。');
+  Future<TurnOutcome> runTurn(
+    String sessionId,
+    String text, {
+    Duration? timeout,
+    List<CollabAttachment> attachments = const [],
+  }) async => const TurnOutcome(kind: TurnKind.completed, text: '我的看法是这样。');
 
   @override
   Future<void> cancel(String sessionId) async {}
