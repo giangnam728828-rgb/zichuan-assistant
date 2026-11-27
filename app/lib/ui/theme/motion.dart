@@ -7,6 +7,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 
+import '../../performance/motion_policy.dart';
+
 /// 动效 token。原则:**安静、短、跟手**。
 ///
 /// - 反馈类(按压、图标切换)≤ 160ms,快到"感觉不到在等";
@@ -167,19 +169,23 @@ abstract final class AppMotion {
   /// 弹层收起(作为 reverseCurve 使用:反向播放时先慢后快)。
   static const sheetFall = Curves.easeOutCubic;
 
-  /// 灵动档:设置 → 性能 → 灵动动效([AppMotionScope]),系统移除动画时一定是否。
+  /// 灵动档:设置 → 性能 → 灵动动效([AppMotionScope])。装饰档不允许时一定是否,
+  /// 包括系统移除动画、用户关掉动画、低端机与发热降级（V4.2 · S3）。
   ///
   /// 这一档只加位移、缩放和按压光晕这类便宜的效果,不加模糊和离屏层;关掉时界面
   /// 和没有这一档时完全一样。
   static bool fluid(BuildContext context) =>
-      !reduced(context) && (context.dependOnInheritedWidgetOfExactType<AppMotionScope>()?.fluid ?? false);
+      MotionPolicy.of(context).allows(MotionTier.decorative) &&
+      (context.dependOnInheritedWidgetOfExactType<AppMotionScope>()?.fluid ?? false);
 
   /// 灵动档下列表拉过头时回弹;否则交给平台默认(null)。别用在聊天列表和它里面的
   /// 滚动区:回弹不发 OverscrollNotification,`OverscrollForwarder` 会失效。
   static ScrollPhysics? scrollPhysics(BuildContext context) =>
       fluid(context) ? const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()) : null;
 
-  /// 系统是否要求减少动画。
+  /// 是否要减少动效。读的是 `MediaQuery.disableAnimations`——`MaterialApp.builder`
+  /// 已经把「系统移除动画」和「用户关动画」合并进去了（见 `_DshAppState.build`）。
+  /// 这里不用 `MotionPolicy.of`：它要在 build 外（动画结束回调、异步状态）也能调用。
   static bool reduced(BuildContext context) => MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 
   /// 按系统设置取时长:要求减少动画时返回 0。

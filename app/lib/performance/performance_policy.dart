@@ -1,3 +1,7 @@
+import 'motion_policy.dart';
+
+export 'motion_policy.dart';
+
 /// A default profile, not a benchmark score. Android owns the classification.
 enum DeviceTier { low, medium, high }
 
@@ -109,7 +113,7 @@ class PerformanceDefaults {
   const PerformanceDefaults({
     required this.lightweight,
     required this.blur,
-    required this.reduceMotion,
+    required this.motion,
     required this.fluidMotion,
     required this.tilt,
     required this.petEnabled,
@@ -127,16 +131,22 @@ class PerformanceDefaults {
     // 发热降级只降动效与后台驻留：模糊是一次静态采样，关掉它只会让输入栏、
     // 底栏忽然变成不透明白块（观感像 bug），省不下多少电。
     final light = snapshot.thermalLightweight || low;
-    // 动效只由「系统减少动画」和用户开关决定；性能档位只降装饰层（fluid/tilt/pet），
-    // 不能把页面转场、按钮反馈这些基本动效一起归零（V4.2 · S3）。
-    final reduceMotion = prefs.animations ?? false;
+    // 动效按三档给（V4.2 · S3）：
+    // - 低端机 / 发热只关装饰层；
+    // - 用户关「动画」关到标准档为止，状态动效（进度、加载）留着；
+    // - 系统的「移除动画」在 app.dart 里并入，优先级最高。
+    // 以前这里只有一个 bool，档位一降连转场和按压都归零，界面像坏了。
+    // `prefs.animations` 存的是「动效开关的值」（true = 开），不是「减少」。
+    final userMuted = prefs.animations == false;
+    final motion = MotionPolicy(systemReduced: false, userMuted: userMuted, lightweight: light);
     return PerformanceDefaults(
       lightweight: light,
       blur: prefs.blur ?? !low,
-      reduceMotion: reduceMotion,
-      fluidMotion: !reduceMotion && (prefs.fluid ?? !light),
+      motion: motion,
+      // 低端机 / 发热默认关装饰层，但用户在设置里显式打开要认。
+      fluidMotion: motion.allows(MotionTier.decorative) && (prefs.fluid ?? !light),
       // 陀螺仪光斑：低端机与减动效默认关（方案要求），用户可以单独打开。
-      tilt: !reduceMotion && (prefs.tilt ?? !light),
+      tilt: motion.allows(MotionTier.decorative) && (prefs.tilt ?? !light),
       petEnabled: !light,
       // 自动启动引擎与性能档位无关：低端机或发热降级时也该由系统拉起，
       // 否则冷启动必然停在「引擎未运行」（V4.2 · S1）。
@@ -147,7 +157,10 @@ class PerformanceDefaults {
 
   final bool lightweight;
   final bool blur;
-  final bool reduceMotion;
+
+  /// 三档动效策略。系统「移除动画」还没并入，调用方要用
+  /// `motion.withSystemReduced(...)` 或直接读 `MotionPolicy.of(context)`。
+  final MotionPolicy motion;
 
   /// 灵动档:动效没关,且用户选了或当前档位默认开(低端机、发热时默认关)。
   final bool fluidMotion;
@@ -158,12 +171,24 @@ class PerformanceDefaults {
   final bool autoStartLocal;
   final bool recommendRemote;
 
+  /// 用户是否关掉了标准档动效。派生值，不是原始开关：档位降级不再让它为真。
+  bool get reduceMotion => !motion.allows(MotionTier.standard);
+
   /// Reserved for 7b. No tier opts into extra background residency by default.
   bool get keepEngineInBackground => false;
 
   Map<String, Object?> toMap() => {
     'lightweight': lightweight,
     'blur': blur,
+    'motion': {
+      'systemReduced': motion.systemReduced,
+      'userMuted': motion.userMuted,
+      'lightweight': motion.lightweight,
+      'essential': motion.allows(MotionTier.essential),
+      'standard': motion.allows(MotionTier.standard),
+      'decorative': motion.allows(MotionTier.decorative),
+    },
+    // 兼容旧诊断字段：等于标准档是否被关。
     'reduceMotion': reduceMotion,
     'fluidMotion': fluidMotion,
     'petEnabledDefault': petEnabled,

@@ -73,9 +73,10 @@ String? unavailableReason(WidgetRef ref, SpotCondition? condition, L10n l10n) {
     SpotCondition.nativeUi => ref.watch(askAiAvailableProvider),
     SpotCondition.openChat => ref.watch(currentSessionProvider) != null,
     SpotCondition.workshopBuilt => ref.watch(workshopOriginProvider) != null,
-    SpotCondition.animationsOn =>
-      !ref.watch(performanceDefaultsProvider.select((d) => d.reduceMotion)) &&
-          !WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations,
+    // 灵动动效属于装饰档：低端机、发热、用户关动画、系统移除动画都不显示。
+    SpotCondition.animationsOn => ref.watch(
+      performanceDefaultsProvider.select((d) => d.motion.allows(MotionTier.decorative)),
+    ),
     // Unknown until the host answers; the page says so itself.
     SpotCondition.engineField => true,
   };

@@ -112,11 +112,11 @@ class PerformancePage extends ConsumerWidget {
               key: const ValueKey('performance-animations'),
               spot: Spots.animations,
               subtitle: l10n.performanceSystemMotion,
-              value: !defaults.reduceMotion,
+              value: defaults.motion.allows(MotionTier.standard),
               onChanged: (value) => unawaited(notifier.setAnimations(value)),
             ),
             // A finer choice inside animations: with them off there is nothing to choose.
-            if (!defaults.reduceMotion && !MediaQuery.disableAnimationsOf(context))
+            if (defaults.motion.allows(MotionTier.standard) && !MediaQuery.disableAnimationsOf(context))
               SettingsSwitchTile(
                 key: const ValueKey('performance-fluid'),
                 spot: Spots.fluidMotion,
@@ -125,7 +125,7 @@ class PerformancePage extends ConsumerWidget {
                 onChanged: (value) => unawaited(notifier.setFluid(value)),
               ),
             // 川水第 7 步：背景光斑跟着手机倾斜偏移（≤6dp）。低端机与减动效默认关。
-            if (!defaults.reduceMotion)
+            if (defaults.motion.allows(MotionTier.standard))
               SettingsSwitchTile(
                 key: const ValueKey('performance-tilt'),
                 spot: Spots.tilt,

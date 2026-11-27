@@ -670,7 +670,7 @@ final petScopedStateProvider = Provider.family<PetState, PetScope>((ref, scope) 
     size: prefs.size,
     bodyHeight: prefs.bodyHeight,
     quiet: prefs.quiet,
-    reduceMotion: ref.watch(performanceDefaultsProvider.select((p) => p.reduceMotion)),
+    reduceMotion: !ref.watch(performanceDefaultsProvider.select((p) => p.motion.allows(MotionTier.decorative))),
     canStop: signals.runs.any((r) => PetTarget(r.host, r.root) == petTarget(global, signals) && r.host == activeHost),
     hosts: ref.watch(petHostChoicesProvider),
   );

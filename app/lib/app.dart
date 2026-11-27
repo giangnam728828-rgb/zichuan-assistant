@@ -167,9 +167,13 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
         (appearance.source == AccentSource.wallpaper && ref.watch(wallpaperAccentProvider).isLoading);
     final locale = _resolveLocale();
     final performance = ref.watch(performanceDefaultsProvider);
-    final reduced =
-        performance.reduceMotion || WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations;
-    final fluid = performance.fluidMotion && !reduced;
+    // 系统「移除动画」是最高优先级，只在这里并入：PerformanceDefaults 是纯函数，
+    // 读不到无障碍设置，也不该在测试里假装读得到（V4.2 · S3）。
+    final motion = performance.motion.withSystemReduced(
+      WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations,
+    );
+    final reduced = motion.muted;
+    final fluid = performance.fluidMotion && motion.allows(MotionTier.decorative);
     FrameClock.instance.enabled = fluid;
     _themesFor(ref.watch(accentProvider), locale.languageCode == 'en', performance.blur, reduced, fluid);
     if (!waiting && !_settled) {
@@ -202,20 +206,25 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
         final media = MediaQuery.of(context);
         return MediaQuery(
           key: _layers,
-          data: media.copyWith(disableAnimations: media.disableAnimations || performance.reduceMotion),
-          child: AppMotionScope(
-            fluid: fluid,
-            child: ThemeRevealHost(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  LaunchUnder(
-                    child: Platform.operatingSystem == 'ohos'
-                        ? EasedKeyboardInset(child: MirroredSideInsets(child: child!))
-                        : MirroredSideInsets(child: child!),
-                  ),
-                  const LaunchLayer(),
-                ],
+          // Flutter 自己的路由 / 滚动 / 弹层只认这一个开关，所以把「系统 + 用户」
+          // 的意愿合并进去；三档策略另走 MotionPolicy，供 App 自己的动效分层判断。
+          data: media.copyWith(disableAnimations: media.disableAnimations || motion.muted),
+          child: MotionPolicyScope(
+            policy: motion,
+            child: AppMotionScope(
+              fluid: fluid,
+              child: ThemeRevealHost(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    LaunchUnder(
+                      child: Platform.operatingSystem == 'ohos'
+                          ? EasedKeyboardInset(child: MirroredSideInsets(child: child!))
+                          : MirroredSideInsets(child: child!),
+                    ),
+                    const LaunchLayer(),
+                  ],
+                ),
               ),
             ),
           ),
