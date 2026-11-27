@@ -1,0 +1,56 @@
+name: Collab tests
+
+# 只跑「协作聊天改造」这一批测试：上下文检索、输入栏遮挡几何、面板定位、
+# 顺序回答、会话切换。既有 Android 构建流程不动（android.yml）。
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.50.1'
+          cache: true
+
+      - name: Resolve packages
+        run: flutter pub get
+
+      - name: Analyze changed areas
+        run: |
+          flutter analyze lib/collab lib/council lib/team lib/ui/collab lib/ui/council lib/ui/team \
+            lib/ui/chat/shared lib/state/conversation_mode_state.dart || true
+          flutter analyze test/collab test/chat/conversation_mode_switcher_test.dart || true
+
+      - name: Context pack
+        run: flutter test test/collab/collab_context_pack_test.dart --reporter expanded
+
+      - name: Composer overlap geometry
+        run: flutter test test/collab/composer_overlap_test.dart --reporter expanded
+
+      - name: Mode panel anchor
+        run: flutter test test/collab/conversation_mode_panel_test.dart --reporter expanded
+
+      - name: Council sequential answers
+        run: flutter test test/collab/council_sequential_test.dart --reporter expanded
+
+      - name: Mode switching keeps session
+        run: flutter test test/chat/conversation_mode_switcher_test.dart --reporter expanded
+
+      - name: Existing council tests
+        run: flutter test test/council --reporter expanded
