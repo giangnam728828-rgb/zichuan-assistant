@@ -45,11 +45,15 @@ jobs:
 
       - name: Install CJK fonts for widget tests
         # test/flutter_test_config.dart 对字体是严格的：缺 Noto Sans CJK 就直接
-        # 判失败（不悄悄画方框）。runner 默认没有这套字体，这里装上。
+        # 判失败（不悄悄画方框）。runner 默认没有这套字体，这里装上；Ubuntu 把
+        # 它放在 opentype/noto，测试通过 DSH_TEST_FONT_DIR 读这个目录。
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq fonts-noto-cjk fonts-noto-cjk-extra
-          ls /usr/share/fonts/noto-cjk
+          FONT_DIR="$(dirname "$(ls /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc 2>/dev/null || ls /usr/share/fonts/truetype/noto-cjk/NotoSansCJK-Regular.ttc)")"
+          echo "font dir: $FONT_DIR"
+          ls "$FONT_DIR" | grep -i 'NotoSansCJK-\(Light\|Regular\|Bold\)'
+          echo "DSH_TEST_FONT_DIR=$FONT_DIR" >> "$GITHUB_ENV"
 
       - name: Resolve packages
         run: flutter pub get
