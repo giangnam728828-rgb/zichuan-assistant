@@ -75,7 +75,22 @@ class CollabHistoryTile extends StatelessWidget {
     final isCouncil = entry.kind == CollabKind.council;
     final accent = isCouncil ? colors.primary : colors.tertiary;
     final icon = isCouncil ? AppIcons.team : AppIcons.groupChat;
-    final subtitle = [entry.subtitle, if (entry.running) '进行中' else collabStamp(entry.updatedAt)].join(' · ');
+    // 状态如实显示：进行中 / 可恢复 / 已完成 / 已失败 / 已取消。
+    // 不再只靠「有没有人在跑」二选一——落盘的任务图还在跑或还能续跑，
+    // 这里就要说清楚，而不是显示成一条安静的旧记录。
+    final statusLabel = switch (entry.status) {
+      CollabRunStatus.running => '进行中',
+      CollabRunStatus.recoverable => '可恢复',
+      CollabRunStatus.done => null,
+      CollabRunStatus.failed => '已失败',
+      CollabRunStatus.cancelled => '已取消',
+    };
+    final subtitle = [
+      entry.subtitle,
+      if (statusLabel != null) statusLabel else collabStamp(entry.updatedAt),
+      if (entry.status == CollabRunStatus.recoverable || entry.status == CollabRunStatus.cancelled)
+        collabStamp(entry.updatedAt),
+    ].join(' · ');
     return Semantics(
       button: true,
       label: '${entry.title}，$subtitle',
@@ -130,15 +145,25 @@ class CollabHistoryTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (entry.running)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 6, top: 10),
-                    child: SizedBox(
+                Padding(
+                  padding: const EdgeInsets.only(left: 6, top: 8),
+                  child: switch (entry.status) {
+                    CollabRunStatus.running => SizedBox(
                       width: 8,
                       height: 8,
                       child: CircularProgressIndicator(strokeWidth: 1.6, color: accent),
                     ),
-                  ),
+                    CollabRunStatus.recoverable => Tooltip(
+                      message: '还有没跑完的任务，点开可以继续',
+                      child: Icon(AppIcons.play, size: 16, color: accent),
+                    ),
+                    CollabRunStatus.failed => Tooltip(
+                      message: entry.failure ?? '上一次运行失败',
+                      child: Icon(AppIcons.info, size: 16, color: colors.error),
+                    ),
+                    _ => const SizedBox.shrink(),
+                  },
+                ),
               ],
             ),
           ),
