@@ -4,6 +4,7 @@
 // 停了、让席位继续在后面烧钱。这里用假驱动记下 cancel 调用，跑一遍两端：
 // 议会取消 run、团队取消 running。
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dsh_app/council/collab_models.dart';
@@ -18,6 +19,7 @@ import 'package:flutter_test/flutter_test.dart';
 final class _SlowCouncilDriver implements CollabSessionDriver {
   final cancelled = <String>{};
   final calls = <String>[];
+  final _pending = <String, Completer<void>>{};
 
   @override
   Future<String> openSession(SeatSpec seat, {String? workspaceId}) async => 's-${seat.id}';
@@ -30,18 +32,25 @@ final class _SlowCouncilDriver implements CollabSessionDriver {
     List<CollabAttachment> attachments = const [],
   }) async {
     calls.add(sessionId);
-    // 一直到超时才返回：取消会先到这里。
-    await Future<void>.delayed(timeout ?? const Duration(seconds: 30));
-    return const TurnOutcome(kind: TurnKind.completed, text: '迟到的答案');
+    // 真实驱动被 cancel 时会掐断流并回 aborted；这里用 Completer 复现同一语义：
+    // 不靠超时兜底，否则测到的是「等超时」而不是「停止」。
+    final gate = Completer<void>();
+    _pending[sessionId] = gate;
+    await gate.future;
+    return const TurnOutcome(kind: TurnKind.aborted);
   }
 
   @override
-  Future<void> cancel(String sessionId) async => cancelled.add(sessionId);
+  Future<void> cancel(String sessionId) async {
+    cancelled.add(sessionId);
+    _pending.remove(sessionId)?.complete();
+  }
 }
 
 /// 团队侧：同样慢，记下被取消的队友会话。
 final class _SlowTeamDriver implements CollabSessionDriver {
   final cancelled = <String>{};
+  final _pending = <String, Completer<void>>{};
 
   @override
   Future<String> openSession(SeatSpec seat, {String? workspaceId}) async => 's-${seat.id}';
@@ -53,12 +62,17 @@ final class _SlowTeamDriver implements CollabSessionDriver {
     Duration? timeout,
     List<CollabAttachment> attachments = const [],
   }) async {
-    await Future<void>.delayed(timeout ?? const Duration(seconds: 30));
-    return const TurnOutcome(kind: TurnKind.completed, text: '也会迟到');
+    final gate = Completer<void>();
+    _pending[sessionId] = gate;
+    await gate.future;
+    return const TurnOutcome(kind: TurnKind.aborted);
   }
 
   @override
-  Future<void> cancel(String sessionId) async => cancelled.add(sessionId);
+  Future<void> cancel(String sessionId) async {
+    cancelled.add(sessionId);
+    _pending.remove(sessionId)?.complete();
+  }
 }
 
 /// 议会：一席一个问题，够复现「跑着的时候按停止」。
@@ -140,7 +154,8 @@ void main() {
     final sending = orchestrator.send('t1', '把挡住的内容修掉');
     await Future<void>.delayed(const Duration(milliseconds: 120));
     await orchestrator.cancel('t1');
-    await sending.timeout(const Duration(seconds: 10), onTimeout: () => _team());
+    // cancel 之后这一轮会自己收尾（驱动回 aborted），不需要等超时。
+    await sending.timeout(const Duration(seconds: 5), onTimeout: () => _team());
 
     expect(driver.cancelled, isNotEmpty, reason: '停止要落到驱动层');
   });
