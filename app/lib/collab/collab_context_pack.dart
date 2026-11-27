@@ -171,17 +171,19 @@ final class CollabContextPack {
     }
     if (cleaned.isEmpty) return const CollabContextPack();
 
-    // 最近的几轮先占位；它们表达的是「用户刚说到哪了」。
-    final recentStart = cleaned.length > maxRecent ? cleaned.length - maxRecent : 0;
-    final recent = cleaned.sublist(recentStart);
-    final earlier = cleaned.sublist(0, recentStart);
-
-    // 锚点：早期的用户消息里，最长的那几条就是方案/要求本身。
-    // 长消息优先（方案不会只有一句话），同长度时取更早的，最后按时间排回来。
+    // 锚点：用户给的资料型长消息（方案、仓库、执行要求）。
+    //
+    // 划分不按「总条数是否超过 maxRecent」——历史很短时那样会把唯一那段方案
+    // 也算成「最近聊天」，锚点永远是空。这里直接看内容：谁够长、谁在更早的
+    // 位置。最后一条不算锚点（它很可能就是「按上面执行」这句指令本身）。
+    // 只有一条时它自己也可以是资料（用户贴完方案马上说「按这个做」：
+    // 指令那句已经按 currentText 移除了）。多条时才排除最后一条。
+    final skipLast = cleaned.length > 1;
     final candidates = <({int index, CollabContextMessage message})>[
-      for (var i = 0; i < earlier.length; i++)
-        if (earlier[i].role == CollabContextRole.user && earlier[i].text.length >= anchorMinChars)
-          (index: i, message: earlier[i]),
+      for (var i = 0; i < cleaned.length; i++)
+        if (!(skipLast && i == cleaned.length - 1))
+          if (cleaned[i].role == CollabContextRole.user && cleaned[i].text.length >= anchorMinChars)
+            (index: i, message: cleaned[i]),
     ];
     candidates.sort((a, b) {
       final byLength = b.message.text.length.compareTo(a.message.text.length);
@@ -190,6 +192,14 @@ final class CollabContextPack {
     });
     final picked = candidates.take(maxAnchors).toList()..sort((a, b) => a.index.compareTo(b.index));
     final anchors = [for (final entry in picked) entry.message];
+    final anchorIds = {for (final message in anchors) message.id};
+
+    // 最近几轮：除锚点之外的最后 maxRecent 条。
+    final rest = [
+      for (final message in cleaned)
+        if (!anchorIds.contains(message.id)) message,
+    ];
+    final recent = rest.length > maxRecent ? rest.sublist(rest.length - maxRecent) : rest;
 
     // 预算：锚点先拿，单条裁剪；剩下的给最近几轮，装不下就从最旧的开始丢。
     var remaining = budget;
