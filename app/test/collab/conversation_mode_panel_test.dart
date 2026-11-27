@@ -9,6 +9,8 @@ import 'package:dsh_app/ui/chat/conversation_mode_switcher.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../chat/support/harness.dart' show testApp;
+
 const _panel = ValueKey('conversation-mode-panel');
 
 /// 一张 360×780 的屏：右上角一枚「新对话」按钮，点开面板。
@@ -26,8 +28,8 @@ Future<({GlobalKey anchor, ConversationMode? picked})> _openPanel(
   final anchor = GlobalKey(debugLabel: 'anchor');
   ConversationMode? picked;
   await tester.pumpWidget(
-    MaterialApp(
-      home: MediaQuery(
+    testApp(
+      MediaQuery(
         data: MediaQueryData(size: size, textScaler: TextScaler.linear(textScale)),
         child: Scaffold(
           body: Builder(
@@ -108,8 +110,8 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
-        MaterialApp(
-          home: MediaQuery(
+        testApp(
+          MediaQuery(
             data: const MediaQueryData(size: Size(360, 780)),
             child: Scaffold(
               body: Builder(
