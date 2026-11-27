@@ -5,7 +5,7 @@
 // 出来，断言两者的行数上限与实测尺寸一致；再验证运行中给的是停止键。
 
 import 'package:dsh_app/ui/chat/composer.dart';
-import 'package:dsh_app/ui/chat/shared/conversation_kit.dart';
+import 'package:dsh_app/ui/collab/collab_kit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
