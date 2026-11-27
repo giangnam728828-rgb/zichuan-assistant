@@ -97,9 +97,9 @@ class CollabTimelineState extends State<CollabTimeline> {
   }
 
   @override
-  void didUpdateWidget(CollabTimeline old) {
-    super.didUpdateWidget(old);
-    if (old.controller != widget.controller) {
+  void didUpdateWidget(CollabTimeline oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
       _scroll.removeListener(_onScroll);
       if (_ownsController) _scroll.dispose();
       _ownsController = widget.controller == null;
@@ -107,7 +107,7 @@ class CollabTimelineState extends State<CollabTimeline> {
       _scroll.addListener(_onScroll);
     }
     if (!widget.followOnNewRows) return;
-    if (old.rows.length != widget.rows.length && _pinned) {
+    if (oldWidget.rows.length != widget.rows.length && _pinned) {
       // 行数变了（新消息/新状态行）且用户在底部：下一帧跟到底。
       _scheduleFollow();
     }
