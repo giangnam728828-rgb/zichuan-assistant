@@ -33,7 +33,8 @@ class MotionPolicy {
   /// 用户在 App 内关掉了动画。为真时只留 [MotionTier.essential]。
   final bool userMuted;
 
-  /// 低端机档位或发热降级。为真时关掉 [MotionTier.decorative]。
+  /// 低端机档位或发热降级。只改 [decorativeByDefault]，不是硬闸——
+  /// 用户在设置里显式打开灵动动效时仍然算数。
   final bool lightweight;
 
   bool allows(MotionTier tier) => switch (tier) {

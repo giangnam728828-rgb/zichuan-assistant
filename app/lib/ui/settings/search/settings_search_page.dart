@@ -73,9 +73,10 @@ String? unavailableReason(WidgetRef ref, SpotCondition? condition, L10n l10n) {
     SpotCondition.nativeUi => ref.watch(askAiAvailableProvider),
     SpotCondition.openChat => ref.watch(currentSessionProvider) != null,
     SpotCondition.workshopBuilt => ref.watch(workshopOriginProvider) != null,
-    // 灵动动效属于装饰档：低端机、发热、用户关动画、系统移除动画都不显示。
+    // 与设置页显示「灵动动效」那一行的条件一致：标准档被允许就找得到。
+    // 低端机只是默认关，用户仍可在这里搜到并打开。
     SpotCondition.animationsOn => ref.watch(
-      performanceDefaultsProvider.select((d) => d.motion.allows(MotionTier.decorative)),
+      performanceDefaultsProvider.select((d) => d.motion.allows(MotionTier.standard)),
     ),
     // Unknown until the host answers; the page says so itself.
     SpotCondition.engineField => true,
