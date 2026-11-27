@@ -781,10 +781,19 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       setState(() => _error = '还没连上引擎，稍等一下再发。');
       return;
     }
+    // 发送前自检：指代有没有资料、要提交有没有仓库与凭据。
+    // 资料在另一条会话里时当场说清楚，而不是让成员回一句「本次没有具体事项」。
+    final pack = _contextFor(question);
+    final facts = CollabTaskFacts.scan(pack.promptBlock.isEmpty ? question : pack.promptBlock);
+    final preflight = collabTaskPreflight(goal: question, pack: pack, repo: facts.repo, credentialRef: facts.credentialRef);
+    if (preflight.blocking != null) {
+      setState(() => _error = preflight.blocking);
+      return;
+    }
     _lastBeatAt = DateTime.now();
     setState(() {
       _busy = true;
-      _error = null;
+      _error = preflight.notes.isEmpty ? null : preflight.notes.first;
       _pendingQuestion = question;
     });
     _draft.clear();
@@ -804,9 +813,7 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
         }
         if (seeds.isNotEmpty) break;
       }
-      // 这一次提问可能只是「按前面那个方案做」：把聊天记录里的资料检索出来
-      // 一起交给成员，成员才不会回一句「本次消息没有具体事项」。
-      final pack = _contextFor(question);
+      // 资料在上面已经检索过（pack）：指代能不能对上，自检时就说清楚了。
       final spec = CouncilSpec(
         question: question.isEmpty ? '（附件）' : question,
         seats: conversation.seats,
@@ -898,6 +905,37 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     final turn = conversation.turns.lastOrNull;
     if (turn == null) return;
     await _orchestrator?.cancel(turn.runId);
+  }
+
+  /// 任务条上的「继续」：按 runId 恢复那一次运行（没跑完的席位接着跑）。
+  Future<void> _resumeTask(String runId) async {
+    final orchestrator = _orchestrator;
+    if (orchestrator == null) {
+      setState(() => _error = '还没连上引擎，稍等一下再继续。');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    _lastBeatAt = DateTime.now();
+    try {
+      final run = await orchestrator.resume(runId);
+      if (!mounted) return;
+      setState(() {
+        if (run != null) _runs[run.id] = run;
+        _busy = run != null && !run.phase.isTerminal;
+      });
+      if (run != null) _syncTurn(run);
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    }
+  }
+
+  /// 资料编号：复制到剪贴板（原文已经在任务条里展开了）。
+  void _copySourceId(String id) {
+    Clipboard.setData(ClipboardData(text: id));
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('已复制消息编号 $id')));
   }
 
   void _scrollToBottom() {
@@ -1173,7 +1211,12 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     if (task != null) {
       add(
         const ValueKey('collab-task-context'),
-        CollabTaskBar(task: task),
+        CollabTaskBar(
+          task: task,
+          busy: _busy || (task.id == _taskId && (_latestRun(_conversation)?.phase.isTerminal == false)),
+          onResume: () => unawaited(_resumeTask(task.id)),
+          onOpenSource: _copySourceId,
+        ),
         gap: 4,
       );
     }

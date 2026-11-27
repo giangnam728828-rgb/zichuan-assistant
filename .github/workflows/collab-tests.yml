@@ -85,6 +85,12 @@ jobs:
       - name: Page transitions
         run: flutter test test/collab/conversation_transition_test.dart --reporter expanded
 
+      - name: Team session restore
+        run: flutter test test/collab/team_session_restore_test.dart --reporter expanded
+
+      - name: Stop really cancels
+        run: flutter test test/collab/collab_stop_test.dart --reporter expanded
+
       - name: Mode switching keeps session
         run: flutter test test/chat/conversation_mode_switcher_test.dart --reporter expanded
 

@@ -116,6 +116,7 @@ final class CollabTaskContext {
     required this.kind,
     required this.goal,
     this.sourceMessageIds = const [],
+    this.excerpts = const {},
     this.repo,
     this.branch,
     this.credentialRef,
@@ -148,6 +149,12 @@ final class CollabTaskContext {
 
   /// 参考资料来自哪几条历史消息（能追回原文）。
   final List<String> sourceMessageIds;
+
+  /// 那几条消息的原文摘录：messageId → 前若干字（不含凭据）。
+  ///
+  /// 「通过 messageId 找回原文」不必真去翻另一条会话：任务条展开时直接把
+  /// 摘录摆出来，离线、跨页面、重启后都看得到。
+  final Map<String, String> excerpts;
 
   /// 目标仓库（从用户给的文字里提取，未给则空）。
   final String? repo;
@@ -198,6 +205,7 @@ final class CollabTaskContext {
     String? kind,
     String? goal,
     List<String>? sourceMessageIds,
+    Map<String, String>? excerpts,
     String? repo,
     String? branch,
     String? credentialRef,
@@ -219,6 +227,7 @@ final class CollabTaskContext {
     kind: kind ?? this.kind,
     goal: goal ?? this.goal,
     sourceMessageIds: sourceMessageIds ?? this.sourceMessageIds,
+    excerpts: excerpts ?? this.excerpts,
     repo: repo ?? this.repo,
     branch: branch ?? this.branch,
     credentialRef: credentialRef ?? this.credentialRef,
@@ -243,6 +252,7 @@ final class CollabTaskContext {
     'kind': kind,
     'goal': goal,
     if (sourceMessageIds.isNotEmpty) 'sourceMessageIds': sourceMessageIds,
+    if (excerpts.isNotEmpty) 'excerpts': excerpts,
     if (repo != null) 'repo': repo,
     if (branch != null) 'branch': branch,
     if (credentialRef != null) 'credentialRef': credentialRef,
@@ -271,6 +281,10 @@ final class CollabTaskContext {
       for (final id in _asList(json['sourceMessageIds']))
         if (id is String && id.isNotEmpty) id,
     ],
+    excerpts: {
+      for (final entry in (json['excerpts'] is Map ? (json['excerpts'] as Map).entries : const <MapEntry>[]))
+        if (entry.key is String && entry.value is String) '${entry.key}': entry.value as String,
+    },
     repo: json['repo'] as String?,
     branch: json['branch'] as String?,
     credentialRef: json['credentialRef'] as String?,
@@ -389,6 +403,7 @@ CollabTaskContext collabTaskFromPack({
   final facts = CollabTaskFacts.scan(text);
   final at = now ?? DateTime.now();
   return CollabTaskContext(
+    excerpts: collabTaskExcerpts(pack),
     id: id,
     conversationId: conversationId,
     kind: kind,
@@ -403,6 +418,74 @@ CollabTaskContext collabTaskFromPack({
     updatedAt: at,
   );
 }
+
+/// 发送前的自检结果（方案第一部分 · 7 错误分类）。
+final class CollabTaskPreflight {
+  const CollabTaskPreflight({this.blocking, this.notes = const []});
+
+  /// 必须拦下、并且说清楚缺什么的一句话（null = 可以发）。
+  final String? blocking;
+
+  /// 不拦，但要让用户知道的一句提醒。
+  final List<String> notes;
+
+  bool get isEmpty => blocking == null && notes.isEmpty;
+}
+
+/// 用户这句话是不是在用「上面 / 前面 / 刚才 / 之前 / 那个方案 / 继续」指代。
+bool collabGoalRefersBack(String text) => RegExp(
+  r'(上面|前面|刚才|之前|此前|那个方案|这份方案|该方案|这套方案|上一条|继续)',
+).hasMatch(text);
+
+/// 发送前检查：指代有没有资料、要提交有没有仓库与凭据。
+///
+/// 这一步存在的意义：用户说「按前面那个方案做」而资料其实在**另一条**会话里时，
+/// 发出去只会得到「本次消息没有具体事项」。与其让成员空转，不如当场说清楚。
+CollabTaskPreflight collabTaskPreflight({
+  required String goal,
+  required CollabContextPack pack,
+  String? repo,
+  String? credentialRef,
+}) {
+  final refers = collabGoalRefersBack(goal);
+  if (refers && pack.isEmpty) {
+    return const CollabTaskPreflight(
+      blocking: '你说的「上面 / 前面」在这次对话里没有找到对应内容。'
+          '它可能在另一条聊天里：把那段方案贴进来，或先在聊天里说完再让成员做。',
+    );
+  }
+  final notes = <String>[];
+  final wantsShip = RegExp(r'(提交|push|推送|构建|Actions|发版|出包|APK)', caseSensitive: false).hasMatch(goal);
+  if (wantsShip && repo == null) {
+    notes.add('没找到目标仓库：要给一个 github 链接，或「仓库 owner/repo」。');
+  }
+  if (wantsShip && repo != null && credentialRef == null) {
+    notes.add('没找到 GitHub 凭据：提交与构建会停在权限这一步。');
+  }
+  return CollabTaskPreflight(notes: notes);
+}
+
+/// 每条资料消息留一段摘录（最多 3 条、每条 200 字），凭据先抹掉。
+///
+/// 任务是给人看的「这件事」：展开时看到原话，比看到一个编号有用；
+/// 编号仍留着，需要精确回溯时还能对回会话。
+Map<String, String> collabTaskExcerpts(CollabContextPack pack, {int max = 3, int chars = 200}) {
+  final out = <String, String>{};
+  for (final message in [...pack.anchors, ...pack.recent]) {
+    if (out.length >= max) break;
+    if (message.role != CollabContextRole.user) continue;
+    final text = _redactSecrets(message.text).replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (text.isEmpty) continue;
+    out[message.id] = text.length <= chars ? text : '${text.substring(0, chars)}…';
+  }
+  return out;
+}
+
+/// 抹掉可能出现的令牌/密钥（摘录会显示在界面上）。
+String _redactSecrets(String text) => text
+    .replaceAll(RegExp(r'gh[pousr]_[A-Za-z0-9]{10,}'), '<已隐去>')
+    .replaceAll(RegExp(r'github_pat_[A-Za-z0-9_]{20,}'), '<已隐去>')
+    .replaceAll(RegExp(r'(?<=[Bb]earer\s)[A-Za-z0-9._-]{20,}'), '<已隐去>');
 
 /// 任务上下文的落盘仓库：一个任务一个文件，原子写。
 class CollabTaskStore {

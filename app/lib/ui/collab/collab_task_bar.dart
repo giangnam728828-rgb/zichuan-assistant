@@ -14,12 +14,18 @@ import '../theme/app_icons.dart';
 import '../theme/motion.dart';
 
 class CollabTaskBar extends StatefulWidget {
-  const CollabTaskBar({super.key, required this.task, this.onOpenSource});
+  const CollabTaskBar({super.key, required this.task, this.onOpenSource, this.onResume, this.busy = false});
 
   final CollabTaskContext task;
 
-  /// 点「资料 #m1」时回到那条历史消息（可选）。
+  /// 点「资料 #m1」时的动作（可选）：复制编号，或由页面跳回原会话。
   final ValueChanged<String>? onOpenSource;
+
+  /// 任务没跑完但当前没人在跑：给一个「继续」。
+  final VoidCallback? onResume;
+
+  /// 这一轮正在跑（不显示「继续」）。
+  final bool busy;
 
   @override
   State<CollabTaskBar> createState() => _CollabTaskBarState();
@@ -74,6 +80,22 @@ class _CollabTaskBarState extends State<CollabTaskBar> {
                       style: theme.textTheme.labelSmall?.copyWith(color: colors.onSurfaceVariant),
                     ),
                   ),
+                  if (widget.onResume != null && !widget.busy && !task.stage.isTerminal)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: InkWell(
+                        key: const ValueKey('collab-task-resume'),
+                        borderRadius: BorderRadius.circular(999),
+                        onTap: widget.onResume,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          child: Text(
+                            '继续',
+                            style: theme.textTheme.labelSmall?.copyWith(color: colors.primary),
+                          ),
+                        ),
+                      ),
+                    ),
                   AnimatedRotation(
                     turns: _open ? 0.5 : 0,
                     duration: AppMotion.of(context, AppMotion.quick),
@@ -119,7 +141,25 @@ class _CollabTaskBarState extends State<CollabTaskBar> {
               if (task.memberIds.isNotEmpty) _Fact(label: '成员', value: '${task.memberIds.length} 位'),
             ],
           ),
-          if (task.sourceMessageIds.isNotEmpty) ...[
+          if (task.excerpts.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text('资料原文', style: row?.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 2),
+            for (final entry in task.excerpts.entries)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: InkWell(
+                  onTap: widget.onOpenSource == null ? null : () => widget.onOpenSource!(entry.key),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Text(
+                    '#${entry.key} ${entry.value}',
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                  ),
+                ),
+              ),
+          ] else if (task.sourceMessageIds.isNotEmpty) ...[
             const SizedBox(height: 6),
             Wrap(
               spacing: 6,
@@ -149,6 +189,22 @@ class _CollabTaskBarState extends State<CollabTaskBar> {
           if (task.pending.isNotEmpty) Text('还差：${task.pending.take(3).join('、')}', style: row),
           if (task.testStatus.isNotEmpty) Text('测试：${task.testStatus}', style: row),
           if (task.buildStatus.isNotEmpty) Text('构建：${task.buildStatus}', style: row),
+          if (task.repo == null && task.stage == CollabTaskStage.planning && task.goal.contains('提交'))
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                '没在这段对话里找到仓库地址：要提交代码，请给一个 github 链接或「仓库 owner/repo」。',
+                style: row?.copyWith(color: colors.tertiary),
+              ),
+            ),
+          if (task.credentialRef == null && task.repo != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '凭据：这次对话里没有可用的 GitHub 凭据，提交/构建会停在权限这一步。',
+                style: row?.copyWith(color: colors.onSurfaceVariant),
+              ),
+            ),
           if (task.result.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text('结果：${_clip(task.result, 160)}', style: theme.textTheme.bodySmall),

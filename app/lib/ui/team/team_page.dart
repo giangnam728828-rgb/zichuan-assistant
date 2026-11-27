@@ -623,19 +623,26 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       setState(() => _error = '还没连上引擎，稍等一下再发。');
       return;
     }
+    // 发送前自检（与议会同一条规则）：指代对不上就当场说，别让队友空转。
+    final pack = _contextFor(text);
+    final facts = CollabTaskFacts.scan(pack.promptBlock.isEmpty ? text : pack.promptBlock);
+    final preflight = collabTaskPreflight(goal: text, pack: pack, repo: facts.repo, credentialRef: facts.credentialRef);
+    if (preflight.blocking != null) {
+      setState(() => _error = preflight.blocking);
+      return;
+    }
     _draft.clear();
     setState(() => _drafts = const []);
     ref.read(conversationModeProvider.notifier).clearDraft(ConversationMode.team, _hostKey, team.id);
     _lastBeatAt = DateTime.now();
     setState(() {
       _busy = true;
-      _error = null;
+      _error = preflight.notes.isEmpty ? null : preflight.notes.first;
     });
     _armWaitTicker();
     try {
       // 记下「这件事」（目标、资料编号、仓库/分支、队友、任务图）：
       // 切走页面或重启后说「继续」，靠它接上，不重复派活。
-      final pack = _contextFor(text);
       final taskId = 't${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
       _taskId = taskId;
       unawaited(
@@ -711,6 +718,12 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// 资料编号：复制到剪贴板（原文已经在任务条里展开了）。
+  void _copySourceId(String id) {
+    Clipboard.setData(ClipboardData(text: id));
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('已复制消息编号 $id')));
   }
 
   Future<void> _stop() async {
@@ -1157,7 +1170,12 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       rows.add(
         CollabTimelineRow(
           key: const ValueKey('collab-task-context'),
-          child: CollabTaskBar(task: task),
+          child: CollabTaskBar(
+            task: task,
+            busy: _busy || team.running.isNotEmpty,
+            onResume: () => unawaited(_resumeRun(team)),
+            onOpenSource: _copySourceId,
+          ),
         ),
       );
     }
