@@ -11,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../chat/support/harness.dart' show testApp;
 
-Future<void> _pump(WidgetTester tester, Widget child, {double width = 360}) async {
+Future<void> _pump(WidgetTester tester, Widget child, {double width = 360, bool settle = true}) async {
   tester.view.physicalSize = Size(width, 780) * 3.0;
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.resetPhysicalSize);
@@ -26,7 +26,14 @@ Future<void> _pump(WidgetTester tester, Widget child, {double width = 360}) asyn
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    // 运行中的输入栏边缘有一圈呼吸流光（无限循环），pumpAndSettle 永远等
+    // 不到静止：这里只推进几帧，够布局成型即可。
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+  }
 }
 
 void main() {
@@ -89,6 +96,7 @@ void main() {
           onSend: () {},
           onStop: () {},
         ),
+        settle: false,
       );
       // 运行时输入栏右上角是停止键（同一个 Composer，不再有第二套外观）。
       expect(find.byType(Composer), findsOneWidget);
