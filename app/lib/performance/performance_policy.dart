@@ -127,7 +127,9 @@ class PerformanceDefaults {
     // 发热降级只降动效与后台驻留：模糊是一次静态采样，关掉它只会让输入栏、
     // 底栏忽然变成不透明白块（观感像 bug），省不下多少电。
     final light = snapshot.thermalLightweight || low;
-    final reduceMotion = !(prefs.animations ?? !light);
+    // 动效只由「系统减少动画」和用户开关决定；性能档位只降装饰层（fluid/tilt/pet），
+    // 不能把页面转场、按钮反馈这些基本动效一起归零（V4.2 · S3）。
+    final reduceMotion = prefs.animations ?? false;
     return PerformanceDefaults(
       lightweight: light,
       blur: prefs.blur ?? !low,
@@ -136,7 +138,9 @@ class PerformanceDefaults {
       // 陀螺仪光斑：低端机与减动效默认关（方案要求），用户可以单独打开。
       tilt: !reduceMotion && (prefs.tilt ?? !light),
       petEnabled: !light,
-      autoStartLocal: !light,
+      // 自动启动引擎与性能档位无关：低端机或发热降级时也该由系统拉起，
+      // 否则冷启动必然停在「引擎未运行」（V4.2 · S1）。
+      autoStartLocal: true,
       recommendRemote: light || snapshot.tier == DeviceTier.low,
     );
   }

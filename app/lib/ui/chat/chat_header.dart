@@ -196,8 +196,8 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                                 grouped: true,
                                 onTap: widget.onOpenDrawer,
                                 child: Tooltip(
-                                  message: chrome?.menuTooltip ?? l10n.chatChats,
-                                  child: Center(child: Icon(AppIcons.menu, size: 22, color: colors.onSurface)),
+                                  message: l10n.chatHistory,
+                                  child: Center(child: Icon(AppIcons.history, size: 22, color: colors.onSurface)),
                                 ),
                               ),
                             )

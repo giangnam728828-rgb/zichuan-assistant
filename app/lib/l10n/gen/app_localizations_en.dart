@@ -2250,33 +2250,6 @@ class L10nEn extends L10n {
   String get botsWriteOwn => 'Write your own';
 
   @override
-  String get botsAnswerInline => 'You can also answer in the box below';
-
-  @override
-  String get botsRoomMode => 'How it collaborates';
-
-  @override
-  String get botsModeEveryone => 'Everyone answers in turn';
-
-  @override
-  String get botsModeEveryoneHint => 'Every member takes part in turn, as the server schedules.';
-
-  @override
-  String get botsModeAdmin => 'Lead first';
-
-  @override
-  String get botsModeAdminHint => 'Messages go to the admin Bot first, which decides who else joins.';
-
-  @override
-  String get botsModeNotSet => 'The room was created, but its collaboration mode couldn’t be set';
-
-  @override
-  String get botsModeRetry => 'Retry';
-
-  @override
-  String get botsMembersRunning => 'Taking part';
-
-  @override
   String get botsSubmit => 'Submit';
 
   @override
@@ -3573,6 +3546,33 @@ class L10nEn extends L10n {
 
   @override
   String get botsCreationConnectionChanged => 'The connection changed. Reopen this form to create on the current host.';
+
+  @override
+  String get botsAnswerInline => 'You can also answer in the box below';
+
+  @override
+  String get botsMembersRunning => 'Taking part';
+
+  @override
+  String get botsModeAdmin => 'Lead first';
+
+  @override
+  String get botsModeAdminHint => 'Messages go to the admin Bot first, which decides who else joins.';
+
+  @override
+  String get botsModeEveryone => 'Everyone answers in turn';
+
+  @override
+  String get botsModeEveryoneHint => 'Every member takes part in turn, as the server schedules.';
+
+  @override
+  String get botsModeNotSet => 'The room was created, but its collaboration mode couldn’t be set';
+
+  @override
+  String get botsModeRetry => 'Retry';
+
+  @override
+  String get botsRoomMode => 'How it collaborates';
 
   @override
   String get brandXiaomi => 'Xiaomi / Redmi';
@@ -5124,6 +5124,9 @@ class L10nEn extends L10n {
   String chatArtifactSemantics(String name, String description) {
     return '$name, $description';
   }
+
+  @override
+  String get chatHistory => 'History';
 
   @override
   String get commonCancel => 'Cancel';

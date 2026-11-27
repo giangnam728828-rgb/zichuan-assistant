@@ -215,6 +215,10 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
   /// The columns as last built; what ≡ does depends on them.
   AdaptiveLayout _layout = const AdaptiveLayout.compact();
 
+  /// 左上角历史键：直接切到「历史」标签（V4.2 · D1）。底部标签仍保留，
+  /// 抽屉只是宽屏侧栏，不再承担历史入口。
+  void _onHistory() => switchTab(context, RootTab.history, intent: TabIntent.focusSearch);
+
   /// ≡ (the header's, or the rail's): pull the drawer over, or fold / unfold
   /// the sidebar of a wide window.
   void _onMenu() {
@@ -377,7 +381,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
     // 3a：底部导航接管四个根页；≡ 只在宽屏（有持久侧栏）出现，用来收起/展开侧栏。
     // 第 7 步：聊天页可见时跟随手机倾斜（光斑偏移 ≤ 6dp），离开就停。
     final chat = TiltScope(
-      child: widget.chatBuilder?.call(_onMenu) ?? ChatScreen(onOpenDrawer: _onMenu, backdrop: false),
+      child: widget.chatBuilder?.call(_onMenu) ?? ChatScreen(onOpenDrawer: _onHistory, backdrop: false),
     );
     final tab = ref.watch(rootTabProvider);
     final badges = ref.watch(navBadgesProvider);

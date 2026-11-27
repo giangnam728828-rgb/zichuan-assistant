@@ -380,6 +380,15 @@ bash build-apk.sh
 - **保持现状**：`enableV1Signing = true`、`enableV2Signing = true`、`enableV3Signing = false`；CI 继续断言这个组合，它至少消掉了一个变量。
 - **下一步**：需要 `adb install` 的真实错误码（`INSTALL_PARSE_FAILED_*` / `INSTALL_FAILED_*`）才能定位。
 
+### 下载链路：为什么每次都要发 ZIP（别再怀疑签名）
+
+APK 的 v2/v3 签名块在**文件最末尾**，紧邻 ZIP 中央目录。600MB+ 的直链经过手机
+浏览器/下载器很容易断在半路，尾部缺失 → 安装器读不到签名 → vivo 报
+「套件似乎无效／安装组件欠缺开发人员证书」。这与签名方案无关：同一把钥匙、
+同一个指纹，直链下的包装不上，发布页下 ZIP 解压出来的同版本 APK 能装。
+
+**规则**：构建同时产出 `.apk` / `.zip` / `SHA256SUMS.txt`；给用户的链接优先 ZIP。
+
 做法：生成一把发布密钥，只在发版机器上用，并离线备份（丢了等于以后再也发不了更新，所有用户都得卸载重装）。
 
 ```sh

@@ -1056,5 +1056,14 @@
   "botsMobileUnsupportedTitle": "DS Bot 暂不支持手机端",
   "botsMobileApiRequired": "可先在网页版中使用",
   "botsMobileApiMissing": "手机端暂不支持，可先在网页版中使用",
-  "botsCreationConnectionChanged": "连接已变化，请重新打开创建页面后再操作。"
+  "botsCreationConnectionChanged": "连接已变化，请重新打开创建页面后再操作。",
+  "botsAnswerInline": "可以直接在下方输入框回答",
+  "botsMembersRunning": "参与情况",
+  "botsModeAdmin": "主持人优先",
+  "botsModeAdminHint": "普通消息优先交给管理员 Bot，由管理员决定是否需要其他成员参与。",
+  "botsModeEveryone": "全员依次回答",
+  "botsModeEveryoneHint": "所有成员按服务端规则依次参与回答。",
+  "botsModeNotSet": "讨论室已创建，但协作方式没设上",
+  "botsModeRetry": "重试",
+  "botsRoomMode": "协作方式"
 }

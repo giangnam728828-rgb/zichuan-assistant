@@ -241,6 +241,7 @@ class LaunchController extends ChangeNotifier {
   Timer? _handOverTimer;
   bool _engineReady = false;
   bool _motionDone = false;
+
   /// 动效已经起播过：从此只有点屏能提前结束它（见 [_leaveIfDone]）。
   bool _startedPlay = false;
   bool _reduced = false;
@@ -302,10 +303,37 @@ class LaunchController extends ChangeNotifier {
       if (custom != null) unawaited(controller.openMedia(screen ?? _screen()));
       active.value = controller;
       return controller;
-    } catch (_) {
+    } catch (error) {
+      // 原生侧交接失败时不要静默：开屏是「有没有」最容易被看见的一处，
+      // 以前这里 swallow 掉就只剩一片空白（V4.2 · S2）。
+      debugPrint('[dsh-launch] native begin failed: $error');
       unawaited(channel.done());
-      return null;
+      return _fallback(channel);
     }
+  }
+
+  /// 原生侧没给出画面（通道异常）时的兜底开屏：用默认品牌画面播一轮，
+  /// 不再让冷启动直接跳到页面。正常的热启动由原生明确回答，不会走这里。
+  static LaunchController? _fallback(LaunchChannel channel) {
+    if (_gaveUp) return null;
+    final dark = PlatformDispatcher.instance.platformBrightness == Brightness.dark;
+    final background = dark ? const Color(0xFF101014) : const Color(0xFFF7F7F9);
+    final controller = LaunchController(
+      snapshot: LaunchSnapshot(
+        sdk: 0,
+        systemSplash: false,
+        iconPx: 0,
+        background: background,
+        backgroundBottom: background,
+        dark: dark,
+        coldEngine: false,
+        systemIcon: false,
+      ),
+      channel: channel,
+      native: false,
+    );
+    active.value = controller;
+    return controller;
   }
 
   static Size _screen() {

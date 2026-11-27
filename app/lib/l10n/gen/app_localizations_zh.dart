@@ -2110,33 +2110,6 @@ class L10nZh extends L10n {
   String get botsWriteOwn => '自己写';
 
   @override
-  String get botsAnswerInline => '可以直接在下方输入框回答';
-
-  @override
-  String get botsRoomMode => '协作方式';
-
-  @override
-  String get botsModeEveryone => '全员依次回答';
-
-  @override
-  String get botsModeEveryoneHint => '所有成员按服务端规则依次参与回答。';
-
-  @override
-  String get botsModeAdmin => '主持人优先';
-
-  @override
-  String get botsModeAdminHint => '普通消息优先交给管理员 Bot，由管理员决定是否需要其他成员参与。';
-
-  @override
-  String get botsModeNotSet => '讨论室已创建，但协作方式没设上';
-
-  @override
-  String get botsModeRetry => '重试';
-
-  @override
-  String get botsMembersRunning => '参与情况';
-
-  @override
   String get botsSubmit => '提交';
 
   @override
@@ -3387,6 +3360,33 @@ class L10nZh extends L10n {
 
   @override
   String get botsCreationConnectionChanged => '连接已变化，请重新打开创建页面后再操作。';
+
+  @override
+  String get botsAnswerInline => '可以直接在下方输入框回答';
+
+  @override
+  String get botsMembersRunning => '参与情况';
+
+  @override
+  String get botsModeAdmin => '主持人优先';
+
+  @override
+  String get botsModeAdminHint => '普通消息优先交给管理员 Bot，由管理员决定是否需要其他成员参与。';
+
+  @override
+  String get botsModeEveryone => '全员依次回答';
+
+  @override
+  String get botsModeEveryoneHint => '所有成员按服务端规则依次参与回答。';
+
+  @override
+  String get botsModeNotSet => '讨论室已创建，但协作方式没设上';
+
+  @override
+  String get botsModeRetry => '重试';
+
+  @override
+  String get botsRoomMode => '协作方式';
 
   @override
   String get brandXiaomi => '小米 / Redmi';
@@ -4812,6 +4812,9 @@ class L10nZh extends L10n {
   String chatArtifactSemantics(String name, String description) {
     return '$name，$description';
   }
+
+  @override
+  String get chatHistory => '历史';
 
   @override
   String get commonCancel => '取消';

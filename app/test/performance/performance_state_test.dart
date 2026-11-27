@@ -29,10 +29,11 @@ void main() {
         final policy = PerformanceDefaults.resolve(snapshot(tier), const PerformancePrefs());
         final full = tier != DeviceTier.low;
         expect(policy.blur, full);
-        expect(policy.reduceMotion, !full);
+        // 动效与自动启动不再随档位关掉（V4.2 · S1/S3）。
+        expect(policy.reduceMotion, isFalse);
         expect(policy.fluidMotion, full);
         expect(policy.petEnabled, full);
-        expect(policy.autoStartLocal, full);
+        expect(policy.autoStartLocal, isTrue);
         expect(policy.recommendRemote, !full);
         expect(policy.keepEngineInBackground, isFalse);
       });
@@ -50,7 +51,7 @@ void main() {
         const PerformancePrefs(mode: PerformanceMode.light),
       );
       expect(light.blur, isFalse);
-      expect(light.autoStartLocal, isFalse);
+      expect(light.autoStartLocal, isTrue);
     });
 
     test('a temporary thermal profile does not rewrite explicit effect choices', () {
@@ -61,7 +62,7 @@ void main() {
       expect(policy.lightweight, isTrue);
       expect(policy.blur, isTrue);
       expect(policy.reduceMotion, isFalse);
-      expect(policy.autoStartLocal, isFalse);
+      expect(policy.autoStartLocal, isTrue);
     });
 
     test('unknown or absent platform facts preserve the neutral profile', () {
@@ -210,7 +211,7 @@ void main() {
         expect(result.loaded, isTrue);
         expect(result.thermalLightweight, isTrue);
         expect(result.sequence, 3);
-        expect(container.read(settingsProvider).autoStartLocal, isFalse);
+        expect(container.read(settingsProvider).autoStartLocal, isTrue);
       });
     }
 
@@ -247,7 +248,7 @@ void main() {
       expect(container.read(performanceDefaultsProvider).blur, isTrue);
       await container.read(performancePrefsProvider.notifier).resetEffects();
       expect(container.read(performanceDefaultsProvider).blur, isFalse);
-      expect(container.read(performanceDefaultsProvider).reduceMotion, isTrue);
+      expect(container.read(performanceDefaultsProvider).reduceMotion, isFalse);
       expect(container.read(settingsProvider).autoStartLocal, isTrue);
       expect(container.read(petPrefsProvider).packId, 'whale-girl');
       final prefs = await SharedPreferences.getInstance();
@@ -263,8 +264,8 @@ void main() {
       await prefs.ready;
       await container.read(performanceProvider.notifier).ready;
       PerformanceDefaults defaults() => container.read(performanceDefaultsProvider);
-      // A low device keeps animations off by default, and fluid needs them.
-      expect(defaults().reduceMotion, isTrue);
+      // 低端机默认只关装饰动效（fluid），基础动效仍在（V4.2 · S3）。
+      expect(defaults().reduceMotion, isFalse);
       expect(defaults().fluidMotion, isFalse);
       await prefs.setAnimations(true);
       expect(defaults().fluidMotion, isTrue);
