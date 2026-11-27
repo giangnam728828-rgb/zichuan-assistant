@@ -53,6 +53,12 @@ class ConversationWorkspace extends StatefulWidget {
   /// 输入栏最多占可用高度的多少（横屏 + 大字号 + 附件托盘同时出现时封顶）。
   static const maxComposerShare = 0.62;
 
+  /// 输入栏外层固定吃掉的留白（[_ComposerInset] 的 8dp 底距）。
+  ///
+  /// 封顶计算要把它一起算进去，否则「给消息区留 96dp」会被这 8dp 吃掉，
+  /// 横屏 + 大字号下只剩 88dp。
+  static const composerChrome = 8.0;
+
   @override
   State<ConversationWorkspace> createState() => ConversationWorkspaceState();
 }
@@ -81,7 +87,7 @@ class ConversationWorkspaceState extends State<ConversationWorkspace> {
                 0.0,
                 math.min(
                   available * ConversationWorkspace.maxComposerShare,
-                  reserved - ConversationWorkspace.minBodyHeight,
+                  reserved - ConversationWorkspace.minBodyHeight - ConversationWorkspace.composerChrome,
                 ),
               )
             : double.infinity;
