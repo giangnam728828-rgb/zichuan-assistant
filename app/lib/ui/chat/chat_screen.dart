@@ -231,6 +231,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
   double? _keyboardInset;
   final _composerGroup = Object();
 
+  /// 「新对话」按钮的锚点：类型选择面板据此贴在按钮旁边弹出。
+  final _newChatAnchor = GlobalKey(debugLabel: 'chat-new-chat-anchor');
+
+  /// 底部渐隐恒为 0：消息区已在输入栏上沿结束（见 [_ChatLayout]）。
+  final _zeroFade = ValueNotifier<double>(0);
+
   void _resetSlashDismissal() {
     final dismissed = _dismissedSlashText;
     if (dismissed == null) return;
@@ -570,6 +576,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
     _focus.dispose();
     _scrolledUnder.dispose();
     _veilHeight.dispose();
+    _zeroFade.dispose();
     _collabHeader.dispose();
     super.dispose();
   }
@@ -714,7 +721,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
   /// 已有会话原样留在历史里，不会被改类型。
   Future<void> _pickNewConversation(ConversationMode current) async {
     HapticFeedback.selectionClick();
-    final target = await pickConversationType(context, current: current);
+    // 锚点一路传下去：ChatHeader 的按钮 → pickConversationType →
+    // showConversationModePanel，面板才会出现在按钮下方而不是左上角。
+    final target = await pickConversationType(context, current: current, anchor: _newChatAnchor);
     if (!mounted || target == null) return;
     if (target == current) {
       switch (current) {
@@ -725,7 +734,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
       }
       return;
     }
-    switchConversationMode(context, ref, target, from: current);
+    if (target == ConversationMode.chat) {
+      // 「新对话 → 聊天」= 空白会话；原来的聊天留在历史里。
+      ref.read(currentSessionProvider.notifier).select(null);
+      switchConversationMode(context, ref, ConversationMode.chat, from: current);
+      return;
+    }
+    // 面板里选了别的类型 = 明确要新建一条该类型的会话。
+    switchConversationMode(context, ref, target, from: current, fresh: true);
   }
 
   Future<void> _send({SendMode mode = SendMode.now}) async {
@@ -1885,10 +1901,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                   LayoutId(
                     id: _Slot.body,
                     child: collabMode != ConversationMode.chat
-                        ? ConversationModeHost(mode: collabMode, header: _collabHeader, topInset: headerHeight)
+                        ? ConversationModeHost(
+                            mode: collabMode,
+                            header: _collabHeader,
+                            topInset: headerHeight,
+                            // 议会/团队发消息时从这条会话的历史里检索资料。
+                            parentSessionId: sessionId,
+                          )
                         : sessionId == null || idleBlank
                         ? Padding(
-                            padding: EdgeInsets.only(top: headerHeight, bottom: _ChatLayout.overlap),
+                            padding: EdgeInsets.only(top: headerHeight, bottom: AppSpace.sm),
                             child: Align(
                               // B3：整块靠左上（原来居中偏上），下面留白给输入条。
                               alignment: const Alignment(0, -0.42),
@@ -1960,14 +1982,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                   // B1 的顶栏没有胶囊了:顶栏那一段压到全透明,
                                   // 消息只在顶栏底边以下 48dp 里淡入。
                                   topHold: headerHeight,
-                                  bottom: _veilHeight,
+                                  // 底部不再渐隐：消息区已裁在输入栏上沿，正文不会
+                                  // 出现在玻璃下面，也就没有「字透出来」的问题。
+                                  bottom: _zeroFade,
                                   child: ChatList(
                                     key: ValueKey(sessionId),
                                     sessionId: sessionId,
                                     toTop: _toTop,
                                     topInset: headerHeight,
+                                    // 列表已在输入栏上方结束：不再需要「伸到输入栏
+                                    // 下面」的留白或按输入栏高度做底部渐隐。
                                     bottomInset: _ChatLayout.overlap,
-                                    bottomExtent: _veilHeight,
                                     scrolledUnder: _scrolledUnder,
                                     onWithdraw: _withdraw,
                                     onSendNow: _sendNow,
@@ -2018,6 +2043,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                 onOpenDrawer: widget.onOpenDrawer,
                                 // S5：新对话是类型入口，顶栏那枚只是徽标。
                                 onNewChat: () => _pickNewConversation(collabMode),
+                                newChatKey: _newChatAnchor,
                                 onTitleTap: info?.onTitleTap,
                                 trailing: null,
                                 mode: collabMode,
@@ -2044,6 +2070,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                               // S5：新对话是「会话类型」的唯一入口，空态也要在，
                               // 否则还没有会话时就建不了议会/团队。
                               onNewChat: isChild ? null : () => _pickNewConversation(ConversationMode.chat),
+                              newChatKey: isChild ? null : _newChatAnchor,
                               // 第 4 步：语音通话搬进输入栏，顶栏这一格留给「伙伴」。
                               onCompanion: isChild ? null : () => openAppMode(context, AppMode.companion),
                               // The title pill opens the whole session's details (on a
@@ -2696,8 +2723,8 @@ enum _Slot { body, pluginOverlay, header, palette, composer }
 class _ChatLayout extends MultiChildLayoutDelegate {
   _ChatLayout(this.veilHeight);
 
-  /// 列表视口伸到输入条上沿以下的距离(A1 前:底色在那里已经实心,看不见
-  /// 裁切;现在只用于空状态的底部留白,列表本身铺满整屏)。
+  /// 列表底部与输入条上沿之间的呼吸：列表已裁在输入条上方，这里只留
+  /// 一点点空隙，最后一行不贴着玻璃边。
   static const overlap = 6.0;
 
   /// 斜杠面板离屏幕两边、离输入条上沿的距离。
@@ -2728,7 +2755,10 @@ class _ChatLayout extends MultiChildLayoutDelegate {
       });
     }
 
-    layoutChild(_Slot.body, BoxConstraints.tight(size));
+    // 真正的布局分离（方案第二部分）：消息区只拿到输入栏**上方**的空间，
+    // 不再铺满整屏让正文钻到玻璃底下。最后一行因此一定完整可见；
+    // 输入栏多行/附件托盘/键盘长高时 top 跟着变，消息区自动让位。
+    layoutChild(_Slot.body, BoxConstraints.tight(Size(width, math.max(0, top))));
     positionChild(_Slot.body, Offset.zero);
     final header = layoutChild(_Slot.header, along);
     positionChild(_Slot.header, Offset.zero);
@@ -2745,7 +2775,7 @@ class _ChatLayout extends MultiChildLayoutDelegate {
         'height': size.height,
         'composerHeight': composer.height,
         'composerTop': top,
-        'bodyHeight': size.height,
+        'bodyHeight': top,
         'paletteHeight': palette.height,
       });
     }

@@ -21,12 +21,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../collab/collab_approval_banner.dart';
+import '../../collab/collab_context_pack.dart';
 import '../../collab/collab_approvals.dart';
 import '../../collab/collab_export.dart';
 import '../../collab/collab_session_book.dart';
 import '../../council/collab_models.dart';
 import '../../council/collab_orchestrator.dart';
 import '../../state/attachments.dart';
+import '../../state/chat_state.dart';
 import '../../state/conversation_mode_state.dart';
 import '../../state/hosts_state.dart';
 import '../../state/models_state.dart';
@@ -43,8 +45,8 @@ import '../chat/shared/conversation_workspace.dart';
 import '../chat/model_sheet.dart' show shortModelName;
 import '../shell/root_tab.dart';
 import '../theme/app_icons.dart';
-import '../theme/edge_fade.dart';
 import '../collab/collab_kit.dart';
+import '../collab/collab_timeline.dart';
 import 'team_run_card.dart';
 import '../collab/collab_members.dart';
 import '../../collab/collab_conversations.dart' show collabHistoryProvider, teamRootProvider, teamStoreProvider;
@@ -63,6 +65,7 @@ class TeamModeView extends ConsumerStatefulWidget {
     this.teamStoreRoot,
     this.header,
     this.topInset = 0,
+    this.parentSessionId,
   });
 
   /// 测试注入用；生产为空，视图自己建（进程级共享）实例。
@@ -86,6 +89,10 @@ class TeamModeView extends ConsumerStatefulWidget {
 
   /// 顶栏（含状态栏）高度。
   final double topInset;
+
+  /// 这一页所在的普通聊天会话：用户「前面那一大段方案」就在它的历史里。
+  /// 团队队友各自开会话，发送时从这里检索资料一并带给主管。
+  final String? parentSessionId;
 
   @override
   ConsumerState<TeamModeView> createState() => _TeamModeViewState();
@@ -113,7 +120,10 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
   /// 已经呈现过的消息：切回旧团队时不再重播每条消息的进场。
   final _seenMessages = <String>{};
 
-  /// 输入栏在列内，消息区不需要底部渐隐。
+  /// 时间线的滚动控制器：恢复会话后停在最新一轮，跟随规则由时间线管。
+  final _scroll = ScrollController();
+
+  /// 没有输入栏实测高度时的底部渐隐（0 = 不渐隐）。
   final _noBottomFade = ValueNotifier<double>(0);
   late final String _hostKey = conversationHostKey(ref.read(activeHostProvider));
 
@@ -133,6 +143,7 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     _sub?.cancel();
     _inbox?.dispose();
     _draft.dispose();
+    _scroll.dispose();
     _noBottomFade.dispose();
     super.dispose();
   }
@@ -496,6 +507,49 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     );
   }
 
+  /// 从父会话（普通聊天）的历史里检索这次要带上的资料。
+  ///
+  /// 队友的会话里只有群聊的新消息，看不见用户此前贴的方案/仓库/要求；用户
+  /// 一句「按前面那个方案做」时，资料只在聊天记录里，这里补上（带消息编号）。
+  CollabContextPack _contextFor(String text) {
+    final sessionId = widget.parentSessionId;
+    if (sessionId == null || sessionId.isEmpty) return const CollabContextPack();
+    ChatState? state;
+    try {
+      state = ref.read(chatProvider(sessionId));
+    } on Object {
+      state = null;
+    }
+    if (state == null) return const CollabContextPack();
+    final history = <CollabContextMessage>[];
+    for (final item in state.items) {
+      if (item is UserChatItem) {
+        history.add(
+          CollabContextMessage(
+            id: _contextMessageId(sessionId, item.requestId, item.seq),
+            text: item.text,
+            role: CollabContextRole.user,
+          ),
+        );
+      } else if (item is AssistantChatItem) {
+        history.add(
+          CollabContextMessage(
+            id: _contextMessageId(sessionId, null, item.seq),
+            text: item.text,
+            role: CollabContextRole.assistant,
+          ),
+        );
+      }
+    }
+    return CollabContextPack.build(history: history, currentText: text);
+  }
+
+  /// 消息的稳定编号：请求 id 优先，其次会话 + 序号。
+  static String _contextMessageId(String sessionId, String? requestId, int? seq) {
+    if (requestId != null && requestId.isNotEmpty) return requestId;
+    return '$sessionId#${seq ?? 'draft'}';
+  }
+
   Future<void> _send() async {
     final team = _team;
     final text = _draft.text.trim();
@@ -524,6 +578,7 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       await orchestrator.send(
         team.id,
         text,
+        context: _contextFor(text).promptBlock,
         attachments: [for (final a in sending) CollabAttachment(name: a.name, bytes: a.bytes, mediaType: a.mediaType)],
       );
     } on Object catch (error) {
@@ -978,47 +1033,54 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
 
   Widget _buildChat(TeamState team) {
     final messages = team.messages;
-    // 正在跑的队友：一位一行，正文就是他这一轮已经吐出来的部分。
-    final live = [
+    // 正在说的那一位：默认顺序分派，同一时刻只会有一位（方案第五部分）。
+    // 万一底层还留着并发（旧版本的可选并行），这里也只挑最靠前的一位显示
+    // 成活动气泡，其余的内容仍会随落盘消息出现，不会堆在聊天顶部。
+    final active = [
       for (final id in team.running)
-        if (team.activity[id] case final activity? when activity.isActive) (id: id, activity: activity),
+        if (team.activity[id] case final activity? when activity.isActive) id,
     ];
-    return Column(
-      children: [
-        if (live.length > 1) _runningBar(team, live.length),
-        Expanded(
-          child: messages.isEmpty && live.isEmpty
-              ? _emptyChat(team)
-              : EdgeFade(
-                  top: 24,
-                  topHold: 0,
-                  bottom: _noBottomFade,
-                  child: ListView.builder(
-                    key: ValueKey('team-timeline-${team.id}'),
-                    reverse: true,
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                    // reverse 列表的最后一项在最上面：任务图卡放那儿，历史消息在下面。
-                    itemCount: messages.length + live.length + (team.run == null ? 0 : 1),
-                    itemBuilder: (context, index) {
-                      if (index < live.length) {
-                        final entry = live[index];
-                        return _liveBubble(team, entry.id, entry.activity);
-                      }
-                      if (team.run case final run? when index == messages.length + live.length) {
-                        return TeamRunCard(
-                          team: team,
-                          run: run,
-                          busy: _busy,
-                          onResume: () => unawaited(_resumeRun(team)),
-                          onCancel: _stop,
-                        );
-                      }
-                      return _bubble(team, messages[messages.length - 1 - (index - live.length)]);
-                    },
-                  ),
-                ),
+    final liveId = active.firstOrNull;
+    final rows = <CollabTimelineRow>[];
+    // 任务图是辅助详情：放在时间线最上面，默认收起。
+    if (team.run case final run?) {
+      rows.add(
+        CollabTimelineRow(
+          key: const ValueKey('team-run-row'),
+          child: TeamRunCard(
+            team: team,
+            run: run,
+            busy: _busy,
+            onResume: () => unawaited(_resumeRun(team)),
+            onCancel: _stop,
+          ),
         ),
-      ],
+      );
+    }
+    for (final msg in messages) {
+      rows.add(CollabTimelineRow(key: ValueKey('team-msg-${msg.id}'), child: _bubble(team, msg)));
+    }
+    if (liveId != null) {
+      final activity = team.activity[liveId]!;
+      rows.add(
+        CollabTimelineRow(
+          key: ValueKey('live-${team.id}-$liveId'),
+          child: _liveBubble(team, liveId, activity),
+        ),
+      );
+    }
+    if (rows.isEmpty) return _emptyChat(team);
+    // 与议会共用同一条时间线：滚动、跟随、渐隐、留白只有一份实现。
+    return CollabTimeline(
+      key: ValueKey('team-timeline-${team.id}'),
+      rows: rows,
+      controller: _scroll,
+      composerHeight: ConversationComposerInset.maybeOf(context) ?? _noBottomFade,
+      footer: active.length > 1
+          // 旧数据里可能还有多位同时在跑：只留一句提示，不再让它们各占一个
+          // 活动气泡（方案：同一时间只有一个活动成员的主聊天流）。
+          ? CollabSystemNote(text: '还有 ${active.length - 1} 位队友在后台收尾')
+          : null,
     );
   }
 
@@ -1087,27 +1149,4 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     );
   }
 
-  /// 多位同时跑时的一句汇总；细节在每位的消息行里。
-  Widget _runningBar(TeamState team, int count) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      color: theme.colorScheme.surfaceContainerHighest,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Row(
-        children: [
-          Icon(AppIcons.queued, size: 14, color: theme.colorScheme.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '$count 位队友在并行处理…',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

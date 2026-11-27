@@ -22,7 +22,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../council/collab_models.dart';
+import '../team/team_models.dart';
 import '../team/team_store.dart';
+import '../team/team_tasks.dart';
 
 /// 协作会话的种类：议会 / 团队。
 enum CollabKind { council, team }
@@ -35,6 +37,7 @@ final class CouncilTurn {
     required this.at,
     this.phase,
     this.summary,
+    this.failure,
   });
 
   factory CouncilTurn.fromJson(Map<String, Object?> json) => CouncilTurn(
@@ -43,6 +46,7 @@ final class CouncilTurn {
     at: DateTime.tryParse(json['at'] as String? ?? '') ?? DateTime.now(),
     phase: json['phase'] as String?,
     summary: json['summary'] as String?,
+    failure: json['failure'] as String?,
   );
 
   final String runId;
@@ -55,17 +59,21 @@ final class CouncilTurn {
   /// 裁决的第一句（历史列表的副标题）。
   final String? summary;
 
+  /// 这一轮失败/取消的真实原因：历史里能点开看，不再只剩一句「失败」。
+  final String? failure;
+
   bool get running => phase != null && !_isTerminal(phase!);
 
   static bool _isTerminal(String phase) =>
       phase == CollabPhase.done.name || phase == CollabPhase.cancelled.name || phase == CollabPhase.failed.name;
 
-  CouncilTurn copyWith({String? phase, String? summary}) => CouncilTurn(
+  CouncilTurn copyWith({String? phase, String? summary, String? failure}) => CouncilTurn(
     runId: runId,
     question: question,
     at: at,
     phase: phase ?? this.phase,
     summary: summary ?? this.summary,
+    failure: failure ?? this.failure,
   );
 
   Map<String, Object?> toJson() => {
@@ -73,6 +81,7 @@ final class CouncilTurn {
     'question': question,
     'at': at.toIso8601String(),
     'phase': ?phase,
+    if (failure != null) 'failure': failure,
     'summary': ?summary,
   };
 }
@@ -359,6 +368,31 @@ final councilConversationsProvider =
       CouncilConversationsNotifier.new,
     );
 
+/// 一条协作会话在历史里的运行状态。
+///
+/// 不能只看 `TeamState.running`：那只是「本进程此刻在飞的队友」，落盘更新
+/// 可能把它清空，而任务图里还有 running/pending 的任务。判断要综合
+/// 会话状态 + 任务图 + 议会回合，才不会把还在跑的会话标成「已结束」。
+enum CollabRunStatus {
+  /// 有未完成的运行（正在跑，或进程被杀后可以接着跑）。
+  running,
+
+  /// 可以恢复：运行没到终态，但当前没有活动请求。
+  recoverable,
+
+  done,
+  failed,
+  cancelled;
+
+  String get label => switch (this) {
+    CollabRunStatus.running => '进行中',
+    CollabRunStatus.recoverable => '可恢复',
+    CollabRunStatus.done => '已完成',
+    CollabRunStatus.failed => '已失败',
+    CollabRunStatus.cancelled => '已取消',
+  };
+}
+
 /// 历史列表里的一条协作会话。
 final class CollabHistoryEntry {
   const CollabHistoryEntry({
@@ -369,7 +403,8 @@ final class CollabHistoryEntry {
     required this.memberCount,
     required this.createdAt,
     required this.updatedAt,
-    this.running = false,
+    this.status = CollabRunStatus.done,
+    this.failure,
   });
 
   final String id;
@@ -379,13 +414,23 @@ final class CollabHistoryEntry {
   final int memberCount;
   final DateTime createdAt;
   final DateTime updatedAt;
-  final bool running;
+  final CollabRunStatus status;
+
+  /// 失败/取消的原因（历史里能点开看）。
+  final String? failure;
+
+  /// 正在跑（列表里画转圈）。
+  bool get running => status == CollabRunStatus.running;
+
+  /// 有「继续」入口。
+  bool get resumable => status == CollabRunStatus.running || status == CollabRunStatus.recoverable;
 
   String get memberLabel => kind == CollabKind.council ? '$memberCount 位参会模型' : '$memberCount 位队友';
 }
 
 /// 全部协作会话（议会 + 团队），最近更新的在前。
 final collabHistoryProvider = FutureProvider<List<CollabHistoryEntry>>((ref) async {
+  // 议会：会话记录本身就是状态来源（回合里存着 phase）。
   final council = ref.watch(councilConversationsProvider).values.toList();
   final teams = await ref.watch(teamStoreProvider.future).then((store) => store.list());
   return [
@@ -398,7 +443,8 @@ final collabHistoryProvider = FutureProvider<List<CollabHistoryEntry>>((ref) asy
         memberCount: conversation.seats.length,
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
-        running: conversation.running,
+        status: _councilStatus(conversation),
+        failure: conversation.turns.lastOrNull?.failure,
       ),
     for (final team in teams)
       CollabHistoryEntry(
@@ -409,10 +455,46 @@ final collabHistoryProvider = FutureProvider<List<CollabHistoryEntry>>((ref) asy
         memberCount: team.teammates.length,
         createdAt: team.createdAt,
         updatedAt: team.updatedAt,
-        running: team.running.isNotEmpty,
+        status: teamHistoryStatus(team),
+        failure: team.run?.note,
       ),
   ]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 });
+
+/// 议会的历史状态：最近一个回合的 phase 说了算。
+CollabRunStatus _councilStatus(CouncilConversation conversation) {
+  final turn = conversation.turns.lastOrNull;
+  if (turn == null) return CollabRunStatus.done;
+  final phase = CollabPhase.values.firstWhere((p) => p.name == turn.phase, orElse: () => CollabPhase.done);
+  if (phase.isTerminal) {
+    return switch (phase) {
+      CollabPhase.failed => CollabRunStatus.failed,
+      CollabPhase.cancelled => CollabRunStatus.cancelled,
+      _ => CollabRunStatus.done,
+    };
+  }
+  // 回合记着「还在跑」：正在跑；否则是上次被打断、可以接着跑。
+  return turn.running ? CollabRunStatus.running : CollabRunStatus.recoverable;
+}
+
+/// 团队的历史状态：会话的 running 只是「此刻在飞的人」，不能单独作数。
+/// 综合任务图（run）与任务状态，才能区分进行中 / 可恢复 / 终态。
+CollabRunStatus teamHistoryStatus(TeamState team) {
+  // 1) 本进程确有队友在飞：肯定在进行中。
+  if (team.running.isNotEmpty) return CollabRunStatus.running;
+  final run = team.run;
+  if (run == null) return CollabRunStatus.done;
+  // 2) 任务图没到终态：有开放任务就是可恢复（进程重启后 resumeRun 会补跑）。
+  if (!run.isTerminal) {
+    return run.tasks.any((task) => task.isOpen) ? CollabRunStatus.recoverable : CollabRunStatus.running;
+  }
+  return switch (run.status) {
+    TeamRunStatus.done => CollabRunStatus.done,
+    TeamRunStatus.failed => CollabRunStatus.failed,
+    TeamRunStatus.cancelled => CollabRunStatus.cancelled,
+    _ => CollabRunStatus.recoverable,
+  };
+}
 
 /// 删除一条协作会话：只删它自己，别的会话不动。
 Future<void> deleteCollabEntry(WidgetRef ref, CollabHistoryEntry entry) async {

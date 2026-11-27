@@ -241,10 +241,12 @@ final class CouncilSpec {
     required this.seats,
     this.mode = CollabMode.quick,
     this.chairId,
-    this.maxConcurrency = 3,
+    this.maxConcurrency = 1,
     this.seatTimeout = const Duration(seconds: 90),
     this.budgetCalls = 16,
     this.workspaceId,
+    this.context = '',
+    this.sourceMessageIds = const [],
   });
 
   factory CouncilSpec.fromJson(Map<String, Object?> json) => CouncilSpec(
@@ -255,10 +257,15 @@ final class CouncilSpec {
     ],
     mode: CollabMode.values.firstWhere((m) => m.name == json['mode'], orElse: () => CollabMode.quick),
     chairId: json['chairId'] as String?,
-    maxConcurrency: (json['maxConcurrency'] as num?)?.toInt() ?? 3,
+    maxConcurrency: (json['maxConcurrency'] as num?)?.toInt() ?? 1,
     seatTimeout: Duration(milliseconds: (json['seatTimeoutMs'] as num?)?.toInt() ?? 90000),
     budgetCalls: (json['budgetCalls'] as num?)?.toInt() ?? 16,
     workspaceId: json['workspaceId'] as String?,
+    context: json['context'] as String? ?? '',
+    sourceMessageIds: [
+      for (final id in (json['sourceMessageIds'] as List? ?? const []))
+        if (id is String && id.isNotEmpty) id,
+    ],
   );
 
   /// 提交给议会的议题。
@@ -272,7 +279,11 @@ final class CouncilSpec {
   /// 负责综合的主席；空则用第一个席位。
   final String? chairId;
 
-  /// 同时最多几个席位的请求在飞（手机并发：3 到 4）。
+  /// 同时最多几个席位的请求在飞。
+  ///
+  /// 默认 1：议会按席位顺序依次作答，主聊天区同一时刻只有一位在写
+  /// （用户看到的就是正常群聊：上一位说完，下一位再开口）。需要抢时间
+  /// 时可以显式调高，但主聊天区的展示仍按完成顺序排列。
   final int maxConcurrency;
 
   /// 单席一轮的时限。
@@ -283,6 +294,15 @@ final class CouncilSpec {
 
   /// 席位会话落在哪个工作区；空则默认目录。
   final String? workspaceId;
+
+  /// 此前对话的检索结果（见 lib/collab/collab_context_pack.dart）。
+  ///
+  /// 用户在这次提问里用「上面那个方案 / 刚才的仓库 / 继续做」指代的内容，
+  /// 靠它随议题一起交给成员；随运行一起落盘，重启后仍在。
+  final String context;
+
+  /// [context] 用到的历史消息编号：任务记录能追回原文。
+  final List<String> sourceMessageIds;
 
   /// 预计调用次数（界面上「预计 N 次调用」就显示它）。
   /// 循证 = 权威首答 1 次 + 其余席位校验 (N-1) 次 + 主席综合 1 次。
@@ -304,6 +324,8 @@ final class CouncilSpec {
     'seatTimeoutMs': seatTimeout.inMilliseconds,
     'budgetCalls': budgetCalls,
     'workspaceId': ?workspaceId,
+    if (context.isNotEmpty) 'context': context,
+    if (sourceMessageIds.isNotEmpty) 'sourceMessageIds': sourceMessageIds,
   };
 }
 

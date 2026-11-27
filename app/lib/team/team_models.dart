@@ -140,6 +140,7 @@ final class TeamState {
     this.running = const [],
     this.activity = const {},
     this.run,
+    this.context = '',
     required this.createdAt,
     required this.updatedAt,
     this.rev = 0,
@@ -172,6 +173,7 @@ final class TeamState {
         if (id is String && id.isNotEmpty) id,
     ],
     run: json['run'] is Map ? TeamRun.fromJson((json['run'] as Map).cast<String, Object?>()) : null,
+    context: json['context'] as String? ?? '',
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
     updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? DateTime.now(),
     rev: (json['rev'] as num?)?.toInt() ?? 0,
@@ -209,6 +211,12 @@ final class TeamState {
 
   /// 最近一次任务图（S8）：主管拆分、执行、审核与汇总都记在这里，随会话落盘。
   final TeamRun? run;
+
+  /// 用户上一次交代的完整资料（方案、仓库、执行要求）的检索结果。
+  ///
+  /// 队友的会话里只有群聊的新消息；「按前面那个方案做」指代的内容靠这一段
+  /// 随每一轮提示词一起补上（见 lib/collab/collab_context_pack.dart）。
+  final String context;
 
   /// 正在跑的队友 id（按开始顺序）。每次开始/结束都落盘，重开页面还能
   /// 看到「谁在做」；进程重启后由编排器清掉（那已经不是在跑了）。
@@ -264,6 +272,7 @@ final class TeamState {
     Map<String, CollabActivity>? activity,
     TeamRun? run,
     bool clearRun = false,
+    String? context,
     DateTime? updatedAt,
     int? rev,
   }) => TeamState(
@@ -280,6 +289,7 @@ final class TeamState {
     running: running ?? this.running,
     activity: activity ?? this.activity,
     run: clearRun ? null : (run ?? this.run),
+    context: context ?? this.context,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     rev: rev ?? this.rev,
@@ -298,6 +308,7 @@ final class TeamState {
     if (!exclusiveWrite) 'exclusiveWrite': false,
     if (running.isNotEmpty) 'running': running,
     if (run case final run?) 'run': run.toJson(),
+    if (context.isNotEmpty) 'context': context,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
     'rev': rev,

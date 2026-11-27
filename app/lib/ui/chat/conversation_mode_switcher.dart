@@ -162,64 +162,148 @@ class _ModePanel extends StatelessWidget {
   final ConversationMode current;
   final ValueChanged<ConversationMode> onSelect;
 
+  /// 面板最大宽度（方案：不超过 272dp，窄屏再收）。
   static const _width = 272.0;
+
+  /// 面板离锚点按钮的最小间距。
+  static const _gap = 6.0;
+
+  /// 贴边留白。
+  static const _margin = 12.0;
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final padding = MediaQuery.paddingOf(context);
-    final rect = anchorRect;
-    final top = rect == null ? padding.top + 60 : rect.bottom + 6;
-    final right = rect == null ? 12.0 : (size.width - rect.right).clamp(12.0, size.width - _width - 12);
-    return Align(
-      alignment: Alignment.topLeft,
-      child: Padding(
-        padding: EdgeInsets.only(top: top.clamp(padding.top + 8, size.height - 240), right: right),
-        child: Material(
-          type: MaterialType.transparency,
-          child: GlassSurface(
-            tier: GlassTier.sheet,
-            borderRadius: BorderRadius.circular(20),
-            child: SizedBox(
-              width: _width,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
-                      child: Row(
-                        children: [
-                          Text(
-                            '新建会话',
-                            style: Theme.of(context).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                          const Spacer(),
-                          Text(
-                            '类型创建后不改',
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                          ),
-                        ],
+    final media = MediaQuery.of(context);
+    final screen = media.size;
+    // 键盘弹起时把面板挤到键盘以上；刘海/手势条由 padding 让开。
+    final insets = media.viewInsets;
+    final padding = media.padding;
+    final safe = Rect.fromLTRB(
+      padding.left,
+      padding.top,
+      screen.width - padding.right,
+      screen.height - insets.bottom - padding.bottom,
+    );
+    final width = _width.clamp(0.0, (safe.width - _margin * 2).clamp(0.0, _width));
+    final panel = Material(
+      key: const ValueKey('conversation-mode-panel'),
+      type: MaterialType.transparency,
+      child: GlassSurface(
+        tier: GlassTier.sheet,
+        borderRadius: BorderRadius.circular(20),
+        child: SizedBox(
+          width: width,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+                  child: Row(
+                    children: [
+                      Text(
+                        '新建会话',
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
                       ),
-                    ),
-                    for (final mode in ConversationMode.values)
-                      _ModeOption(
-                        key: ValueKey('mode-option-${mode.name}'),
-                        mode: mode,
-                        selected: mode == current,
-                        onTap: () => onSelect(mode),
+                      const Spacer(),
+                      Flexible(
+                        child: Text(
+                          '类型创建后不改',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        ),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+                for (final mode in ConversationMode.values)
+                  _ModeOption(
+                    key: ValueKey('mode-option-${mode.name}'),
+                    mode: mode,
+                    selected: mode == current,
+                    onTap: () => onSelect(mode),
+                  ),
+              ],
             ),
           ),
         ),
       ),
     );
+    // 面板宽高都要等量好才知道放得下放不下：自定义布局先量孩子，再决定
+    // 放按钮下方还是上方（下方放不下就翻到上方，再不行就贴安全区边界）。
+    return SizedBox.expand(
+      child: CustomSingleChildLayout(
+        delegate: _ModePanelLayout(
+          anchor: anchorRect,
+          safe: safe,
+          width: width,
+          gap: _gap,
+          margin: _margin,
+        ),
+        child: panel,
+      ),
+    );
   }
+}
+
+/// 把面板锚到「新对话」按钮上：优先下方、右对齐；放不下就翻到上方；
+/// 左右都夹在安全区内，任何宽度/字号/横屏下都不出界。
+class _ModePanelLayout extends SingleChildLayoutDelegate {
+  _ModePanelLayout({
+    required this.anchor,
+    required this.safe,
+    required this.width,
+    required this.gap,
+    required this.margin,
+  });
+
+  /// 按钮在屏幕上的矩形（拿不到时为空：走安全区顶部的兜底位置）。
+  final Rect? anchor;
+  final Rect safe;
+  final double width;
+  final double gap;
+  final double margin;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    final maxHeight = (safe.height - margin * 2).clamp(0.0, constraints.maxHeight);
+    return BoxConstraints(minWidth: width, maxWidth: width, minHeight: 0, maxHeight: maxHeight);
+  }
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) =>
+      Offset(_left(childSize), _top(childSize));
+
+  double _left(Size childSize) {
+    final minLeft = safe.left + margin;
+    final maxLeft = safe.right - margin - childSize.width;
+    final rect = anchor;
+    final wanted = rect == null ? maxLeft : rect.right - childSize.width;
+    if (maxLeft < minLeft) return minLeft;
+    return wanted.clamp(minLeft, maxLeft);
+  }
+
+  double _top(Size childSize) {
+    final minTop = safe.top + margin;
+    final maxTop = safe.bottom - margin - childSize.height;
+    final rect = anchor;
+    // 没有锚点：贴在顶部安全区里（不跑到左上角以外，也不压住输入栏）。
+    if (rect == null) return minTop;
+    final below = rect.bottom + gap;
+    if (below <= maxTop) return below;
+    final above = rect.top - gap - childSize.height;
+    if (above >= minTop) return above;
+    // 上下都放不下（横屏 + 大字号）：放在安全区里可用的最大位置。
+    return maxTop < minTop ? minTop : maxTop;
+  }
+
+  @override
+  bool shouldRelayout(_ModePanelLayout old) =>
+      old.anchor != anchor || old.safe != safe || old.width != width || old.gap != gap || old.margin != margin;
 }
 
 class _ModeOption extends StatelessWidget {
@@ -305,11 +389,16 @@ class _ModeOption extends StatelessWidget {
 /// 「新对话」用：先选类型，再建会话。点外面返回 null。
 ///
 /// D2：类型只在创建时确定一次，所以入口必须在这里而不是会话内的顶栏。
-Future<ConversationMode?> pickConversationType(BuildContext context, {required ConversationMode current}) {
+Future<ConversationMode?> pickConversationType(
+  BuildContext context, {
+  required ConversationMode current,
+  GlobalKey? anchor,
+}) {
   final completer = Completer<ConversationMode?>();
   unawaited(
     showConversationModePanel(
       context,
+      anchor: anchor,
       current: current,
       onSelect: (mode) {
         if (!completer.isCompleted) completer.complete(mode);
@@ -324,20 +413,29 @@ Future<ConversationMode?> pickConversationType(BuildContext context, {required C
 /// 模式切换的唯一入口：只改状态，不再 push 任何整页路由（方案三）。
 ///
 /// [from] 是用户点面板时所在的模式；不传则读全局状态。
-void switchConversationMode(BuildContext context, WidgetRef ref, ConversationMode target, {ConversationMode? from}) {
+void switchConversationMode(
+  BuildContext context,
+  WidgetRef ref,
+  ConversationMode target, {
+  ConversationMode? from,
+  bool fresh = false,
+}) {
   final controller = ref.read(conversationModeProvider.notifier);
   final current = from ?? ref.read(conversationModeProvider).mode;
-  if (target == current) {
+  if (target == current && !fresh) {
     controller.setMode(target);
     return;
   }
   HapticFeedback.selectionClick();
-  if (target == ConversationMode.chat) {
-    // 回普通聊天：原来的聊天会话原样保留（currentSessionProvider 不动）。
-    controller.setMode(target);
-  } else {
-    // 切到议会/团队 = 新建一条对应会话；旧会话留在历史里。
+  // **临时切模式不等于新建会话**（方案第六部分）：默认回到该模式上次那条，
+  // 正在跑的席位、已生成的消息、草稿都原样保留。
+  //
+  // [fresh] 只给「新对话」面板用：用户在面板里选了类型 = 明确要开一条新的，
+  // 这时才走 `startNew`（普通聊天的新建由调用方清掉当前会话）。
+  if (fresh && target != ConversationMode.chat) {
     controller.startNew(target);
+  } else {
+    controller.setMode(target);
   }
   // 模式内容都在聊天工作区里：确保聊天标签在前台。
   switchTab(context, RootTab.chat);

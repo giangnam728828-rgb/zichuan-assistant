@@ -4,7 +4,8 @@
 // - 窄屏收起文字只留图标，触控区仍是 44；
 // - 控制器按主机记住每种模式上次的会话，草稿按模式与会话隔离；
 // - 切模式不再 push 独立页面：三种模式都在同一个 ChatScreen 工作区里，
-//   切到议会/团队 = 新建一条对应会话，切回聊天 = 原来的聊天会话。
+//   「新对话」里选类型 = 新建一条该类型会话；顶栏徽标只读，临时切模式
+//   （setMode）回到该模式上次那条，不新建、不丢正在跑的运行。
 
 import 'dart:io';
 
@@ -94,10 +95,11 @@ void main() {
       expect(container.read(conversationModeProvider).draftOf(ConversationMode.council, host, 'c1'), isEmpty);
     });
 
-    test('主动切模式 = 新建请求；历史打开 = 恢复请求；冷启动没有请求', () {
+    test('新建 = 新建请求；历史打开 = 恢复请求；临时切模式 = 回到原会话', () {
       final container = ProviderContainer();
       addTearDown(container.dispose);
       final controller = container.read(conversationModeProvider.notifier);
+      final host = conversationHostKey(_host);
 
       // 冷启动恢复：序号 0，不新建。
       expect(container.read(conversationModeProvider).requestNonce, 0);
@@ -122,10 +124,21 @@ void main() {
       expect(state.createNew, isFalse);
       expect(state.requestNonce, 3);
 
+      // 临时切模式：回到该模式上次那条，不新建、不重放一次性请求
+      // （方案第六部分：不得因为临时切换模式而调用 startNew）。
+      controller.rememberCouncil(host, 'c7');
       controller.setMode(ConversationMode.chat);
       state = container.read(conversationModeProvider);
       expect(state.mode, ConversationMode.chat);
       expect(state.openId, isNull);
+      expect(state.createNew, isFalse);
+
+      controller.setMode(ConversationMode.council);
+      state = container.read(conversationModeProvider);
+      expect(state.mode, ConversationMode.council);
+      expect(state.createNew, isFalse, reason: '临时切回来不是新建');
+      expect(state.requestNonce, 3, reason: '切换不 bump 序号，视图状态实例复用');
+      expect(state.councilIdFor(host), 'c7', reason: '记住的会话不被清掉');
     });
   });
 

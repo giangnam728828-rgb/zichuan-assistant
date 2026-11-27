@@ -36,7 +36,21 @@ class TeamRunCard extends StatefulWidget {
 }
 
 class _TeamRunCardState extends State<TeamRunCard> {
-  bool _open = true;
+  /// 默认收起：任务图是辅助详情，聊天主体仍是成员的回答（方案第五部分）。
+  /// 需要用户处理时（失败/退回/卡住）自动展开，免得错误被折叠藏起来。
+  bool? _open;
+
+  bool get _expanded => _open ?? _needsAttention;
+
+  bool get _needsAttention {
+    final run = widget.run;
+    if (run.isTerminal) return false;
+    if (widget.team.running.isNotEmpty) return false;
+    final paused = !widget.busy;
+    if (!paused) return false;
+    // 还有没跑完的任务却没人跑：用户得看到「继续」。
+    return run.tasks.any((task) => task.isOpen);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +61,7 @@ class _TeamRunCardState extends State<TeamRunCard> {
     final done = run.doneCount;
     final total = run.tasks.length;
     final paused = !run.isTerminal && !widget.busy && widget.team.running.isEmpty;
+    final open = _expanded;
 
     return Container(
       key: const ValueKey('team-run-card'),
@@ -61,7 +76,7 @@ class _TeamRunCardState extends State<TeamRunCard> {
         children: [
           InkWell(
             borderRadius: BorderRadius.circular(16),
-            onTap: () => setState(() => _open = !_open),
+            onTap: () => setState(() => _open = !open),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
               child: Row(
@@ -105,12 +120,12 @@ class _TeamRunCardState extends State<TeamRunCard> {
                       child: Icon(AppIcons.info, size: 16, color: colors.onSurfaceVariant),
                     ),
                   const SizedBox(width: 4),
-                  Icon(_open ? AppIcons.collapse : AppIcons.expand, size: 16, color: colors.onSurfaceVariant),
+                  Icon(open ? AppIcons.collapse : AppIcons.expand, size: 16, color: colors.onSurfaceVariant),
                 ],
               ),
             ),
           ),
-          if (_open) ...[
+          if (open) ...[
             if (run.tasks.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),

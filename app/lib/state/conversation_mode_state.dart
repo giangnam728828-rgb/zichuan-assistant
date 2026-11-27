@@ -182,22 +182,23 @@ class ConversationModeController extends Notifier<ConversationModeState> {
     _saveTimer = Timer(const Duration(milliseconds: 300), () => ConversationModeStore.save(state));
   }
 
+  /// 临时切到某种模式：**回到该模式上次那条会话**，不新建。
+  ///
+  /// 一次性请求（新建 / 从历史打开 / 深链 runId）在这里清掉：它们是「这一次
+  /// 点击」的意思，切走再回来不该重放——否则切到团队会把议会刚建的那条
+  /// 又建一遍，或者把历史打开请求重新触发一次。记住的会话 id 与草稿保留，
+  /// 正在跑的运行由进程级编排器继续驱动。
   void setMode(ConversationMode mode) {
     if (state.mode == mode) return;
-    if (mode == ConversationMode.chat) {
-      // 回普通聊天：清掉协作侧的一次性打开请求，聊天会话原样保留。
-      _commit(
-        ConversationModeState(
-          mode: mode,
-          councilIds: state.councilIds,
-          teamIds: state.teamIds,
-          drafts: state.drafts,
-          requestNonce: state.requestNonce,
-        ),
-      );
-      return;
-    }
-    _commit(state.copyWith(mode: mode));
+    _commit(
+      ConversationModeState(
+        mode: mode,
+        councilIds: state.councilIds,
+        teamIds: state.teamIds,
+        drafts: state.drafts,
+        requestNonce: state.requestNonce,
+      ),
+    );
   }
 
   /// 用户主动切到议会/团队：像点「新建对话」一样开一条全新会话（方案 4.1）。

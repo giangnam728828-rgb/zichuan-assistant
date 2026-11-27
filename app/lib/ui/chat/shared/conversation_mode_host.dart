@@ -92,7 +92,13 @@ class CollabHeaderInfo {
 
 /// 按当前模式把议会/团队视图放进聊天工作区。
 class ConversationModeHost extends ConsumerWidget {
-  const ConversationModeHost({super.key, required this.mode, required this.header, required this.topInset});
+  const ConversationModeHost({
+    super.key,
+    required this.mode,
+    required this.header,
+    required this.topInset,
+    this.parentSessionId,
+  });
 
   /// 只会是 council / team；chat 由 ChatScreen 自己渲染。
   final ConversationMode mode;
@@ -102,6 +108,10 @@ class ConversationModeHost extends ConsumerWidget {
 
   /// 顶栏（含状态栏）高度：内容从它下面开始。
   final double topInset;
+
+  /// 这一页所在的普通聊天会话 id：议会/团队发消息时从这里检索此前的资料
+  /// （用户上一条给的长方案、仓库、要求都在它的历史里）。
+  final String? parentSessionId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -118,6 +128,7 @@ class ConversationModeHost extends ConsumerWidget {
         key: key,
         header: header,
         topInset: topInset,
+        parentSessionId: parentSessionId,
         conversationId: request.$2 ?? (request.$4 || request.$3 != null ? null : remembered),
         runId: request.$3,
         createNew: request.$4,
@@ -127,6 +138,7 @@ class ConversationModeHost extends ConsumerWidget {
         key: key,
         header: header,
         topInset: topInset,
+        parentSessionId: parentSessionId,
         teamId: request.$2 ?? (request.$4 ? null : remembered),
         createNew: request.$4,
         resumeLatest: !request.$4 && request.$2 == null,

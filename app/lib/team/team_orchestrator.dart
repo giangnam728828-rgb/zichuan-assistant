@@ -235,7 +235,12 @@ final class TeamOrchestrator {
   /// 最多再转两手，防互相推诿的死循环。
   ///
   /// 返回这一轮全部答完之后的快照；过程中每一次变化都会从 [events] 发出。
-  Future<TeamState> send(String teamId, String text, {List<CollabAttachment> attachments = const []}) {
+  Future<TeamState> send(
+    String teamId,
+    String text, {
+    List<CollabAttachment> attachments = const [],
+    String context = '',
+  }) {
     final body = text.trim();
     // 只发附件也允许（S6）；群聊里显示「（附件）」占位。
     if (body.isEmpty && attachments.isEmpty) throw ArgumentError('消息不能为空');
@@ -262,6 +267,9 @@ final class TeamOrchestrator {
           ..clear()
           ..addAll([for (final mate in picked) mate.id]);
         return current.copyWith(
+          // 用户上一条交代的方案/仓库/要求：这一轮起一直随提示词带给队友。
+          // 只在真有检索结果时替换，空串保留上一次的资料。
+          context: context.trim().isEmpty ? current.context : context.trim(),
           messages: [
             ...current.messages,
             TeamMsg(
@@ -490,6 +498,8 @@ final class TeamOrchestrator {
     ];
     return [
       '你是团队的主管。把用户这件事拆成任务图，交给队友执行；能一个人做完就不要拆。',
+      if (state.context.trim().isNotEmpty) ...['', state.context.trim(), ''],
+      '用户的这句话是在交代要做什么（若用了「上面/前面/那个方案」，指的就在上面的资料里）：',
       if (members.isNotEmpty) '可用的队友：${members.join('、')}。',
       '规则：每个任务一个负责人，负责人必须写队友的名字；deps 填依赖的任务编号，没有依赖就写 []；',
       '任务不要比队友多；不要写你准备怎么做，直接给结构。',
@@ -1161,6 +1171,13 @@ final class TeamOrchestrator {
     buffer
       ..writeln('你们在一个群聊里，各答各的那一份：不要假装别人已经回答。')
       ..writeln('直接说内容，不要复述这段说明。');
+    // 用户此前交代的资料（方案、仓库、执行要求）：用户常只用一句「按前面
+    // 那个方案做」指代它们，没有这段就只剩最后一句话可看。
+    if (state.context.trim().isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln(state.context.trim());
+    }
 
     final ask = _lastAsk(state.messages);
     final from = (state.cursors[mate.id] ?? 0).clamp(0, state.messages.length);
@@ -1247,10 +1264,13 @@ final class TeamOrchestrator {
     });
   }
 
-  /// 并发池：每次最多 [maxConcurrency] 个队友在飞。
-  Future<void> _each(List<String> ids, Future<void> Function(String id) task) async {
+  /// 群聊默认顺序回答：一个接一个，同一时刻只有一位在说话（方案第五部分）。
+  ///
+  /// 任务图的执行走自己的调度（[_eachAll]），不受这里影响；需要真正并行
+  /// 群聊发言时显式传 [concurrency]。
+  Future<void> _each(List<String> ids, Future<void> Function(String id) task, {int concurrency = 1}) async {
     if (ids.isEmpty) return;
-    final limit = maxConcurrency.clamp(1, ids.length);
+    final limit = concurrency.clamp(1, ids.length);
     var next = 0;
     Future<void> worker() async {
       while (true) {

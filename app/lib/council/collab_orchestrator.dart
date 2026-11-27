@@ -172,15 +172,21 @@ final class CollabOrchestrator {
   ///
   /// [seedSessions] 是上一轮各席位的子会话 id：带上的话这一轮直接续在同一个
   /// 会话里问，模型自己记得上文（多轮议会靠它，不用把历史塞进提示词）。
+  /// [runId] 是**预留的**运行 id：页面可以先生成它、把父会话的回合连同这个
+  /// runId 一起落盘，再来提交。这样即使运行立刻开始（甚至瞬间结束），父会话
+  /// 记录里也一定找得到对应的 runId，不会出现「run 在盘上、父会话找不到」
+  /// 的断层（方案第六部分 · Council 运行关联竞态）。
   Future<CollabRun> submit(
     CouncilSpec spec, {
     Map<String, String> seedSessions = const {},
     List<CollabAttachment> attachments = const [],
+    String? runId,
   }) async {
     _validate(spec);
     final now = _clock();
+    final id = (runId == null || runId.trim().isEmpty) ? _newId() : runId.trim();
     final run = CollabRun(
-      id: _newId(),
+      id: id,
       spec: spec,
       phase: CollabPhase.queued,
       seats: {for (final s in spec.seats) s.id: SeatState(sessionId: seedSessions[s.id])},
@@ -602,7 +608,15 @@ final class CollabOrchestrator {
   String _roundPrompt(CollabRun run, SeatSpec seat) {
     final buffer = StringBuffer()
       ..writeln('你是议会中的一员，正在独立回答下面的议题。')
-      ..writeln()
+      ..writeln();
+    // 此前对话的检索结果（方案、仓库、执行要求）：用户常常只用一句
+    // 「按前面那个方案做」指代它们，光看议题会以为没有任务。
+    if (run.spec.context.trim().isNotEmpty) {
+      buffer
+        ..writeln(run.spec.context.trim())
+        ..writeln();
+    }
+    buffer
       ..writeln('【议题】')
       ..writeln(run.spec.question)
       ..writeln();
@@ -615,6 +629,8 @@ final class CollabOrchestrator {
     buffer
       ..writeln('【要求】')
       ..writeln('- 直接给出你的答案，不要复述议题，不要客套。')
+      ..writeln('- 议题引用前面资料时（例如「上面那一大段」），先把资料里的目标任务说清楚，再作答。')
+      ..writeln('- 资料里已经给出的仓库、分支、步骤直接采用，不要要求用户再贴一遍。')
       ..writeln('- 结论先行，理由随后；不确定的地方明确标注「不确定」。')
       ..writeln('- 控制在 200 到 400 字。');
     return buffer.toString();
@@ -676,7 +692,13 @@ final class CollabOrchestrator {
   String _synthPrompt(CollabRun run, List<({String label, String text})> answers) {
     final buffer = StringBuffer()
       ..writeln('你是议会主席。下面是同一个议题的所有成员答案，请综合出最终裁决。')
-      ..writeln()
+      ..writeln();
+    if (run.spec.context.trim().isNotEmpty) {
+      buffer
+        ..writeln(run.spec.context.trim())
+        ..writeln();
+    }
+    buffer
       ..writeln('【议题】')
       ..writeln(run.spec.question)
       ..writeln()

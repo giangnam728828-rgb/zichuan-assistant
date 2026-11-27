@@ -67,6 +67,7 @@ class ChatHeader extends ConsumerStatefulWidget {
     this.onOpenDrawer,
     this.onTitleTap,
     this.onNewChat,
+    this.newChatKey,
     this.onCompanion,
     this.scrolledUnder,
     this.mode,
@@ -93,6 +94,9 @@ class ChatHeader extends ConsumerStatefulWidget {
   final VoidCallback? onOpenDrawer;
   final VoidCallback? onTitleTap;
   final VoidCallback? onNewChat;
+
+  /// 「新对话」按钮的锚点：类型选择面板贴到它附近弹出。
+  final GlobalKey? newChatKey;
 
   /// 「伙伴」: the 工作 ⇄ 伙伴 switch (总方案 v3 · 第 4 步). 语音通话 has moved into the
   /// composer's own row, so the header keeps only 标题 / 模型 / 伙伴 / 新对话.
@@ -310,15 +314,23 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                                 child: SizedBox.square(
                                   key: const ValueKey('chat-new-chat'),
                                   dimension: 44,
-                                  child: GlassSurface(
-                                    tier: GlassTier.chrome,
-                                    bare: true,
-                                    circle: true,
-                                    grouped: true,
-                                    onTap: widget.onNewChat,
-                                    child: Tooltip(
-                                      message: l10n.commonNewChat,
-                                      child: Center(child: Icon(AppIcons.newChat, size: 22, color: colors.onSurface)),
+                                  // 面板锚点：外层用这个 GlobalKey 量按钮的真实
+                                  // 位置，类型面板才贴得到按钮旁边，而不是固定
+                                  // 跑到屏幕左上角。
+                                  child: KeyedSubtree(
+                                    key: widget.newChatKey,
+                                    child: GlassSurface(
+                                      tier: GlassTier.chrome,
+                                      bare: true,
+                                      circle: true,
+                                      grouped: true,
+                                      onTap: widget.onNewChat,
+                                      child: Tooltip(
+                                        message: l10n.commonNewChat,
+                                        child: Center(
+                                          child: Icon(AppIcons.newChat, size: 22, color: colors.onSurface),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),

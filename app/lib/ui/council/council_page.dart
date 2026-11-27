@@ -21,6 +21,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../collab/collab_approval_banner.dart';
+import '../../collab/collab_context_pack.dart';
 import '../../collab/collab_approvals.dart';
 import '../../collab/collab_conversations.dart';
 import '../../collab/collab_export.dart';
@@ -29,6 +30,7 @@ import '../../council/collab_models.dart';
 import '../../council/collab_orchestrator.dart';
 import '../../council/collab_store.dart';
 import '../../council/verdict_parser.dart';
+import '../../state/chat_state.dart';
 import '../../state/conversation_mode_state.dart';
 import '../../state/hosts_state.dart';
 import '../../state/models_state.dart';
@@ -43,9 +45,9 @@ import '../chat/model_sheet.dart' show shortModelName;
 import '../providers/provider_brand_icon.dart';
 import '../shell/root_tab.dart';
 import '../theme/app_icons.dart';
-import '../theme/edge_fade.dart';
 import '../collab/collab_members.dart';
 import '../collab/collab_kit.dart';
+import '../collab/collab_timeline.dart';
 import '../chat/render/markdown_body.dart';
 
 /// 进程级共享的议会编排器：切到团队/聊天不打断还在跑的席位，回来接着看。
@@ -62,6 +64,7 @@ class CouncilModeView extends ConsumerStatefulWidget {
     this.resumeLatest = false,
     this.header,
     this.topInset = 0,
+    this.parentSessionId,
   });
 
   /// 测试注入用；生产为空，视图自己建实例。
@@ -85,6 +88,12 @@ class CouncilModeView extends ConsumerStatefulWidget {
 
   /// 顶栏（含状态栏）高度。
   final double topInset;
+
+  /// 这一页所在的普通聊天会话：用户「前面那一大段方案」就在它的历史里。
+  ///
+  /// 议会成员各自开会话，看不见聊天页的上下文；发送时从这里检索出该带上的
+  /// 资料（见 lib/collab/collab_context_pack.dart），随议题一起交给成员。
+  final String? parentSessionId;
 
   @override
   ConsumerState<CouncilModeView> createState() => _CouncilModeViewState();
@@ -535,15 +544,22 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     });
   }
 
-  /// 运行结束时把阶段与裁决首句写回会话记录（历史列表用）。
+  /// 把运行的阶段与裁决首句写回会话记录（历史列表用）。
+  ///
+  /// 阶段变了就写：历史列表在**离开页面之后**也要显示「进行中」，不能等
+  /// 终态才落盘（那样切走时历史里还是一条「已完成」的旧记录）。
   void _syncTurn(CollabRun run) {
     final conversation = _conversation;
     if (conversation == null) return;
     final index = conversation.turns.indexWhere((turn) => turn.runId == run.id);
     if (index < 0) return;
-    if (!run.phase.isTerminal) return;
+    final turn = conversation.turns[index];
+    final phase = run.phase.name;
+    final summary = run.phase == CollabPhase.done ? collabNotifierLead(run) : turn.summary;
+    final failure = run.phase == CollabPhase.failed || run.phase == CollabPhase.cancelled ? run.failure : null;
+    if (turn.phase == phase && turn.summary == summary && turn.failure == failure) return;
     final turns = [...conversation.turns];
-    turns[index] = turns[index].copyWith(phase: run.phase.name, summary: collabNotifierLead(run));
+    turns[index] = turn.copyWith(phase: phase, summary: summary, failure: failure);
     final next = conversation.copyWith(turns: turns);
     _conversation = next;
     unawaited(ref.read(councilConversationsProvider.notifier).save(next));
@@ -651,6 +667,57 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     );
   }
 
+  /// 从父会话（普通聊天）的历史里检索这次要带上的资料。
+  ///
+  /// 用户只说了「按前面那一大段方案执行」时，方案本身在聊天记录里：这里把
+  /// 早期资料型的长消息（方案、仓库、要求）和最近几轮一起取出来，任务记录
+  /// 里留下消息编号，能追回原文。
+  CollabContextPack _contextFor(String question) {
+    final sessionId = widget.parentSessionId;
+    if (sessionId == null || sessionId.isEmpty) return const CollabContextPack();
+    ChatState? state;
+    try {
+      state = ref.read(chatProvider(sessionId));
+    } on Object {
+      // 没连上/还没加载：没有资料可带，正常发就是。
+      state = null;
+    }
+    if (state == null) return const CollabContextPack();
+    final history = <CollabContextMessage>[];
+    for (final item in state.items) {
+      if (item is UserChatItem) {
+        history.add(
+          CollabContextMessage(
+            id: _contextMessageId(sessionId, item.requestId, item.seq),
+            text: item.text,
+            role: CollabContextRole.user,
+          ),
+        );
+      } else if (item is AssistantChatItem) {
+        history.add(
+          CollabContextMessage(
+            id: _contextMessageId(sessionId, null, item.seq),
+            text: item.text,
+            role: CollabContextRole.assistant,
+          ),
+        );
+      }
+    }
+    return CollabContextPack.build(history: history, currentText: question);
+  }
+
+  /// 消息的稳定编号：请求 id 优先，其次会话 + 序号。
+  static String _contextMessageId(String sessionId, String? requestId, int? seq) {
+    if (requestId != null && requestId.isNotEmpty) return requestId;
+    return '$sessionId#${seq ?? 'draft'}';
+  }
+
+  /// 预留一个运行 id（与 [CollabOrchestrator] 的默认格式同源：c + 时间）。
+  ///
+  /// 页面先拿它写进父会话的回合、落盘，再把同一个 id 交给编排器提交，
+  /// 两边永远对得上。
+  static String _reserveRunId() => 'c${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
+
   Future<void> _send() async {
     final conversation = _conversation;
     final question = _draft.text.trim();
@@ -689,33 +756,62 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
         }
         if (seeds.isNotEmpty) break;
       }
+      // 这一次提问可能只是「按前面那个方案做」：把聊天记录里的资料检索出来
+      // 一起交给成员，成员才不会回一句「本次消息没有具体事项」。
+      final pack = _contextFor(question);
       final spec = CouncilSpec(
         question: question.isEmpty ? '（附件）' : question,
         seats: conversation.seats,
         mode: conversation.mode,
         chairId: conversation.chairId,
+        context: pack.promptBlock,
+        sourceMessageIds: pack.sourceMessageIds,
         // 预计调用 + 2 次重试余量。
         budgetCalls: (conversation.seats.length * (conversation.mode == CollabMode.deliberative ? 2 : 1)) + 3,
       );
-      final run = await orchestrator.submit(
-        spec,
-        seedSessions: seeds,
-        attachments: [for (final a in sending) CollabAttachment(name: a.name, bytes: a.bytes, mediaType: a.mediaType)],
-      );
-      _listen();
-      final turn = CouncilTurn(runId: run.id, question: question, at: DateTime.now(), phase: run.phase.name);
+      // 先预留 runId、把回合连同它一起落盘，再启动运行（方案第六部分）。
+      // 反过来的话，运行可能先落盘、先跑完，而父会话里还没有这条回合，
+      // 历史里就会「找不到运行记录」。
+      final runId = _reserveRunId();
+      final turn = CouncilTurn(runId: runId, question: question, at: DateTime.now(), phase: CollabPhase.queued.name);
       final next = conversation.copyWith(
         title: conversation.title.trim().isEmpty ? question : conversation.title,
         turns: [...conversation.turns, turn],
       );
+      setState(() => _conversation = next);
+      await ref.read(councilConversationsProvider.notifier).save(next);
+
+      final CollabRun run;
+      try {
+        run = await orchestrator.submit(
+          spec,
+          seedSessions: seeds,
+          runId: runId,
+          attachments: [
+            for (final a in sending) CollabAttachment(name: a.name, bytes: a.bytes, mediaType: a.mediaType),
+          ],
+        );
+      } on Object {
+        // 启动失败：回合留在会话里并标明失败，用户能看到原因、也能重试。
+        final current = _conversation;
+        if (current != null) {
+          final failed = current.copyWith(
+            turns: [
+              for (final item in current.turns)
+                if (item.runId == runId) item.copyWith(phase: CollabPhase.failed.name) else item,
+            ],
+          );
+          setState(() => _conversation = failed);
+          await ref.read(councilConversationsProvider.notifier).save(failed);
+        }
+        rethrow;
+      }
+      _listen();
       setState(() {
-        _conversation = next;
         _runs[run.id] = run;
         _pendingQuestion = null;
       });
-      await ref.read(councilConversationsProvider.notifier).save(next);
-      // 跑得快的运行可能在回合写进会话之前就已经结束：用最新快照补一次阶段。
-      _syncTurn(_runs[run.id] ?? run);
+      _syncTurn(run);
       _scrollToBottom();
     } on Object catch (error) {
       if (mounted) {
@@ -1008,15 +1104,18 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
   }
 
   Widget _messages(CouncilConversation conversation) {
-    final children = <Widget>[];
+    final rows = <CollabTimelineRow>[];
+    void add(Key key, Widget child, {double gap = 0}) =>
+        rows.add(CollabTimelineRow(key: key, child: child, bottomGap: gap));
     for (final turn in conversation.turns) {
       final animate = !_seenTurns.contains(turn.runId);
       _seenTurns.add(turn.runId);
-      children.add(CollabUserBubble(key: ValueKey('q-${turn.runId}'), text: turn.question, animate: animate));
+      add(ValueKey('q-${turn.runId}'), CollabUserBubble(text: turn.question, animate: animate));
       final run = _runs[turn.runId];
       if (run == null) {
-        children.add(
-          CollabSystemNote(key: ValueKey('missing-${turn.runId}'), text: turn.running ? '这一轮正在恢复…' : '这一轮的记录已经不在了'),
+        add(
+          ValueKey('missing-${turn.runId}'),
+          CollabSystemNote(text: turn.running ? '这一轮正在恢复…' : '这一轮的记录已经不在了'),
         );
         continue;
       }
@@ -1030,9 +1129,9 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
             : seatStatus(run, seat, Theme.of(context).colorScheme);
         final text = (live && (activity?.text.trim().isNotEmpty ?? false)) ? activity!.text : (state.best ?? '');
         final waiting = state.status == SeatStatus.pending && !live;
-        children.add(
+        add(
+          ValueKey('seat-${run.id}-${seat.id}'),
           CollabMessage(
-            key: ValueKey('seat-${run.id}-${seat.id}'),
             brand: brandOf(seat.provider, seat.model),
             name: seat.displayName,
             model: '${brandLabel(brandOf(seat.provider, seat.model))} · ${shortModelName(seat.model)}',
@@ -1050,29 +1149,23 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       }
       final verdict = run.verdict;
       if (verdict != null) {
-        children.add(const SizedBox(height: 4));
-        children.add(_verdictCard(run, verdict));
+        add(ValueKey('verdict-${run.id}'), _verdictCard(run, verdict), gap: 8);
       } else if (run.phase == CollabPhase.failed && run.failure != null) {
-        children.add(CollabSystemNote(text: '议会没能完成：${run.failure}'));
+        add(ValueKey('failed-${run.id}'), CollabSystemNote(text: '议会没能完成：${run.failure}'));
       } else if (run.phase == CollabPhase.cancelled) {
-        children.add(const CollabSystemNote(text: '这一轮已取消'));
+        add(ValueKey('cancelled-${run.id}'), const CollabSystemNote(text: '这一轮已取消'));
       }
     }
     if (_pendingQuestion case final question?) {
-      children.add(CollabUserBubble(key: const ValueKey('pending-question'), text: question));
-      children.add(const CollabSystemNote(key: ValueKey('pending-note'), text: '正在召集成员…'));
+      add(const ValueKey('pending-question'), CollabUserBubble(text: question));
+      add(const ValueKey('pending-note'), const CollabSystemNote(text: '正在召集成员…'));
     }
-    // 消息区上沿一层轻渐隐，和聊天列表滚到顶栏下的手感接近。
-    return EdgeFade(
-      top: 24,
-      topHold: 0,
-      bottom: _noBottomFade,
-      child: ListView(
-        key: ValueKey('council-timeline-${conversation.id}'),
-        controller: _scroll,
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-        children: children,
-      ),
+    // 与团队共用同一条时间线：滚动方向、跟随、渐隐、留白只有一份实现。
+    return CollabTimeline(
+      key: ValueKey('council-timeline-${conversation.id}'),
+      rows: rows,
+      controller: _scroll,
+      composerHeight: ConversationComposerInset.maybeOf(context) ?? _noBottomFade,
     );
   }
 
