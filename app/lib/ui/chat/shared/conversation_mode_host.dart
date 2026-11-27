@@ -16,7 +16,7 @@ import '../../../state/conversation_mode_state.dart';
 import '../../../state/hosts_state.dart';
 import '../../council/council_page.dart';
 import '../../team/team_page.dart';
-import '../../theme/motion.dart';
+import 'conversation_transition.dart';
 
 /// ⋯ 菜单里的一项（成员管理、导出、设置……）。
 class CollabMenuAction {
@@ -145,19 +145,16 @@ class ConversationModeHost extends ConsumerWidget {
       ),
       ConversationMode.chat => const SizedBox.shrink(),
     };
-    // 内容切换：轻量淡入 + 8dp 位移（方案 11.2）；背景和顶栏不参与重建。
+    // 内容切换：**只淡入**（方案第八部分）。
+    //
+    // 位移留给标签页那一层：两处都挪 8dp 时，从历史标签点开议会会看到两层
+    // 位移叠在一起。时长与曲线取同一套规格；减少动画时直接呈现。
+    if (ConversationTransition.reduced(context)) return view;
     return AnimatedSwitcher(
-      duration: AppMotion.of(context, AppMotion.standard),
-      switchInCurve: AppMotion.enter,
-      switchOutCurve: AppMotion.exit,
-      transitionBuilder: (child, animation) => FadeTransition(
-        opacity: animation,
-        child: AnimatedBuilder(
-          animation: animation,
-          builder: (context, inner) => Transform.translate(offset: Offset(0, 8 * (1 - animation.value)), child: inner),
-          child: child,
-        ),
-      ),
+      duration: ConversationTransition.duration(context),
+      switchInCurve: ConversationTransition.curveIn,
+      switchOutCurve: ConversationTransition.curveOut,
+      transitionBuilder: (child, animation) => ConversationTransition.mode(context: context, animation: animation, child: child),
       child: view,
     );
   }

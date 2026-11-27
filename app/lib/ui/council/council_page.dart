@@ -22,6 +22,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../collab/collab_approval_banner.dart';
 import '../../collab/collab_context_pack.dart';
+import '../../collab/collab_task_context.dart';
 import '../../collab/collab_approvals.dart';
 import '../../collab/collab_conversations.dart';
 import '../../collab/collab_export.dart';
@@ -47,6 +48,7 @@ import '../shell/root_tab.dart';
 import '../theme/app_icons.dart';
 import '../collab/collab_members.dart';
 import '../collab/collab_kit.dart';
+import '../collab/collab_task_bar.dart';
 import '../collab/collab_timeline.dart';
 import '../chat/render/markdown_body.dart';
 
@@ -108,6 +110,9 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
   StreamSubscription<CollabRun>? _sub;
   CouncilConversation? _conversation;
   final _runs = <String, CollabRun>{};
+
+  /// 这一轮对应的任务上下文 id（与 runId 同源）：阶段变化时更新它。
+  String? _taskId;
 
   /// 已经呈现过的回合：切回旧会话时不再重播每条消息的进场。
   final _seenTurns = <String>{};
@@ -560,6 +565,52 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     final next = conversation.copyWith(turns: turns);
     _conversation = next;
     unawaited(ref.read(councilConversationsProvider.notifier).save(next));
+    _syncTaskProgress(run);
+  }
+
+  /// 把运行的阶段/结果写进任务上下文（方案第一部分 3.3 的持久化部分）。
+  void _syncTaskProgress(CollabRun run) {
+    final taskId = _taskId;
+    if (taskId == null || taskId != run.id) return;
+    final stage = switch (run.phase) {
+      CollabPhase.queued || CollabPhase.round1 || CollabPhase.reviewing || CollabPhase.verifying => CollabTaskStage.running,
+      CollabPhase.synthesizing => CollabTaskStage.running,
+      CollabPhase.done => CollabTaskStage.done,
+      CollabPhase.failed => CollabTaskStage.failed,
+      CollabPhase.cancelled => CollabTaskStage.cancelled,
+    };
+    final answered = run.answeredCount;
+    final total = run.spec.seats.length;
+    final step = switch (run.phase) {
+      CollabPhase.queued => '正在准备',
+      CollabPhase.round1 => '成员作答 $answered/$total',
+      CollabPhase.reviewing => '互相审议 $answered/$total',
+      CollabPhase.verifying => '校验补漏 $answered/$total',
+      CollabPhase.synthesizing => '主席综合',
+      CollabPhase.done => '已完成',
+      CollabPhase.failed => '失败：${run.failure ?? '未知原因'}',
+      CollabPhase.cancelled => '已取消',
+    };
+    final result = run.phase == CollabPhase.done ? collabNotifierLead(run) : '';
+    unawaited(
+      ref.read(collabTaskProvider.notifier).patch(
+        taskId,
+        (current) => current.copyWith(
+          stage: stage,
+          currentStep: step,
+          result: result.isEmpty ? null : result,
+          failure: run.phase == CollabPhase.failed ? run.failure : null,
+          done: [
+            for (final seat in run.spec.seats)
+              if (run.seatOf(seat.id).best?.isNotEmpty ?? false) '${seat.displayName} 已作答',
+          ],
+          pending: [
+            for (final seat in run.spec.seats)
+              if (run.seatOf(seat.id).best?.isEmpty ?? true) '${seat.displayName} 还没答',
+          ],
+        ),
+      ),
+    );
   }
 
   /// 席位子会话的审批：按 sessionId 认人，标明是哪一席在申请。
@@ -777,6 +828,19 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       );
       setState(() => _conversation = next);
       await ref.read(councilConversationsProvider.notifier).save(next);
+
+      // 先把「这件事」记下来（目标、资料编号、仓库/分支、成员）：
+      // 切走页面、隔天说「继续」，都能靠它接上，而不是从零再问一遍。
+      _taskId = runId;
+      final task = collabTaskFromPack(
+        id: runId,
+        conversationId: conversation.id,
+        kind: 'council',
+        goal: question.isEmpty ? '（附件）' : question,
+        pack: pack,
+        memberIds: [for (final seat in conversation.seats) seat.id],
+      );
+      unawaited(ref.read(collabTaskProvider.notifier).upsert(task));
 
       final CollabRun run;
       try {
@@ -1104,6 +1168,15 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     final rows = <CollabTimelineRow>[];
     void add(Key key, Widget child, {double gap = 0}) =>
         rows.add(CollabTimelineRow(key: key, child: child, bottomGap: gap));
+    // 任务上下文：这件事的目标、仓库、阶段。收起时只占一行。
+    final task = _taskId == null ? null : ref.watch(collabTaskProvider.select((all) => all[_taskId!]));
+    if (task != null) {
+      add(
+        const ValueKey('collab-task-context'),
+        CollabTaskBar(task: task),
+        gap: 4,
+      );
+    }
     for (final turn in conversation.turns) {
       final animate = !_seenTurns.contains(turn.runId);
       _seenTurns.add(turn.runId);

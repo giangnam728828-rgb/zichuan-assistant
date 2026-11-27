@@ -22,6 +22,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../collab/collab_approval_banner.dart';
 import '../../collab/collab_context_pack.dart';
+import '../../collab/collab_task_context.dart';
 import '../../collab/collab_approvals.dart';
 import '../../collab/collab_export.dart';
 import '../../collab/collab_session_book.dart';
@@ -33,6 +34,7 @@ import '../../state/conversation_mode_state.dart';
 import '../../state/hosts_state.dart';
 import '../../state/models_state.dart';
 import '../../state/read_list_identity.dart';
+import '../../team/team_tasks.dart';
 import '../../team/team_models.dart';
 import '../../team/team_store.dart';
 import '../../team/team_orchestrator.dart';
@@ -45,6 +47,7 @@ import '../chat/model_sheet.dart' show shortModelName;
 import '../shell/root_tab.dart';
 import '../theme/app_icons.dart';
 import '../collab/collab_kit.dart';
+import '../collab/collab_task_bar.dart';
 import '../collab/collab_timeline.dart';
 import 'team_run_card.dart';
 import '../collab/collab_members.dart';
@@ -115,6 +118,9 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
 
   /// 已选、未发送的附件（S6：与普通聊天同一套选择与预算）。
   List<DraftAttachment> _drafts = const [];
+
+  /// 这一轮对应的任务上下文 id（与团队 runId 同源）。
+  String? _taskId;
 
   /// 已经呈现过的消息：切回旧团队时不再重播每条消息的进场。
   final _seenMessages = <String>{};
@@ -336,7 +342,63 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       setState(() => _team = state);
       _invalidateHistory();
       _armWaitTicker();
+      _syncTaskProgress(state);
     });
+  }
+
+  /// 把团队的任务图与运行状态写进任务上下文（落盘）。
+  void _syncTaskProgress(TeamState team) {
+    final taskId = _taskId;
+    if (taskId == null) return;
+    final run = team.run;
+    final stage = run == null
+        ? (team.running.isEmpty ? CollabTaskStage.planning : CollabTaskStage.running)
+        : switch (run.status) {
+            TeamRunStatus.planning => CollabTaskStage.planning,
+            TeamRunStatus.running => CollabTaskStage.running,
+            TeamRunStatus.reviewing || TeamRunStatus.summarizing => CollabTaskStage.running,
+            TeamRunStatus.done => CollabTaskStage.done,
+            TeamRunStatus.failed => CollabTaskStage.failed,
+            TeamRunStatus.cancelled => CollabTaskStage.cancelled,
+          };
+    final items = [
+      for (final task in run?.tasks ?? const [])
+        CollabTaskItem(
+          id: task.id,
+          title: task.title,
+          owner: team.mate(task.ownerId)?.name ?? task.ownerId,
+          deps: task.deps,
+          status: switch (task.status) {
+            TeamTaskStatus.done => CollabTaskStage.done,
+            TeamTaskStatus.failed => CollabTaskStage.failed,
+            TeamTaskStatus.cancelled => CollabTaskStage.cancelled,
+            TeamTaskStatus.running || TeamTaskStatus.reviewing => CollabTaskStage.running,
+            _ => CollabTaskStage.planning,
+          },
+          result: task.result,
+        ),
+    ];
+    unawaited(
+      ref.read(collabTaskProvider.notifier).patch(
+        taskId,
+        (current) => current.copyWith(
+          stage: stage,
+          items: items,
+          currentStep: run == null
+              ? (team.running.isEmpty ? '等待派活' : '队友在答')
+              : '任务图 ${run.doneCount}/${run.tasks.length}${run.note.isEmpty ? '' : ' · ${run.note}'}',
+          done: [
+            for (final item in items)
+              if (item.status == CollabTaskStage.done) item.title,
+          ],
+          pending: [
+            for (final item in items)
+              if (item.isOpen) item.title,
+          ],
+          failure: run?.status == TeamRunStatus.failed ? run?.note : null,
+        ),
+      ),
+    );
   }
 
   /// 记住这是团队「上次用的那个」：冷启动恢复时直接回到它。
@@ -571,10 +633,46 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     });
     _armWaitTicker();
     try {
+      // 记下「这件事」（目标、资料编号、仓库/分支、队友、任务图）：
+      // 切走页面或重启后说「继续」，靠它接上，不重复派活。
+      final pack = _contextFor(text);
+      final taskId = 't${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
+      _taskId = taskId;
+      unawaited(
+        ref
+            .read(collabTaskProvider.notifier)
+            .upsert(
+              collabTaskFromPack(
+                id: taskId,
+                conversationId: team.id,
+                kind: 'team',
+                goal: text.isEmpty ? '（附件）' : text,
+                pack: pack,
+                memberIds: [for (final mate in team.teammates) mate.id],
+                items: [
+                  for (final task in team.run?.tasks ?? const [])
+                    CollabTaskItem(
+                      id: task.id,
+                      title: task.title,
+                      owner: team.mate(task.ownerId)?.name ?? task.ownerId,
+                      deps: task.deps,
+                      status: switch (task.status) {
+                        TeamTaskStatus.done => CollabTaskStage.done,
+                        TeamTaskStatus.failed => CollabTaskStage.failed,
+                        TeamTaskStatus.cancelled => CollabTaskStage.cancelled,
+                        TeamTaskStatus.running || TeamTaskStatus.reviewing => CollabTaskStage.running,
+                        _ => CollabTaskStage.planning,
+                      },
+                      result: task.result,
+                    ),
+                ],
+              ),
+            ),
+      );
       await orchestrator.send(
         team.id,
         text,
-        context: _contextFor(text).promptBlock,
+        context: pack.promptBlock,
         attachments: [for (final a in sending) CollabAttachment(name: a.name, bytes: a.bytes, mediaType: a.mediaType)],
       );
     } on Object catch (error) {
@@ -1050,6 +1148,16 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
             onResume: () => unawaited(_resumeRun(team)),
             onCancel: _stop,
           ),
+        ),
+      );
+    }
+    // 任务上下文：目标、仓库、阶段、任务项。默认收起。
+    final task = _taskId == null ? null : ref.watch(collabTaskProvider.select((all) => all[_taskId!]));
+    if (task != null) {
+      rows.add(
+        CollabTimelineRow(
+          key: const ValueKey('collab-task-context'),
+          child: CollabTaskBar(task: task),
         ),
       );
     }

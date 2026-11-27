@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../chat/shared/conversation_transition.dart';
 import '../features/all_features_page.dart';
 import '../settings/settings_screen.dart';
 import '../theme/theme.dart';
@@ -47,7 +48,14 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
     duration: AppMotion.standard,
     value: 1,
   );
-  late final AnimationController _switch = AnimationController(vsync: this, duration: const Duration(milliseconds: 200));
+  /// 标签切换的淡入：时长与曲线跟聊天模式切换同一套规格
+  /// （[ConversationTransition]）。减少动画时由 build 直接呈现，不跑这条。
+  late final AnimationController _switch = AnimationController(
+    vsync: this,
+    // 字段初始化时还读不到 MediaQuery：先用标准档，didChangeDependencies
+    // 里按当前动效档位校准（减少动画 → 0）。
+    duration: AppMotion.standard,
+  );
 
   /// 已构建过的标签（懒加载）。
   final Set<RootTab> _built = {RootTab.chat};
@@ -93,6 +101,10 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
   void didChangeDependencies() {
     super.didChangeDependencies();
     _syncKeyboard(MediaQuery.viewInsetsOf(context).bottom > 0);
+    // 系统「移除动画」/ 用户关动画是异步翻的：时长跟着调，切换才不会拖一条
+    // 半透明的尾巴。
+    final duration = ConversationTransition.duration(context);
+    if (_switch.duration != duration) _switch.duration = duration;
   }
 
   @override
@@ -242,7 +254,7 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
                 child: Opacity(
                   opacity: fade,
                   child: Transform.translate(
-                    offset: Offset(reduce ? 0 : (1 - fade) * 8 * direction, 0),
+                    offset: Offset(reduce ? 0 : (1 - fade) * ConversationTransition.shift * direction, 0),
                     child: Stack(
                       fit: StackFit.expand,
                       children: [

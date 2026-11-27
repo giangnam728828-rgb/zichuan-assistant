@@ -284,7 +284,11 @@ class _ConversationComposerState extends State<ConversationComposer> {
   @override
   Widget build(BuildContext context) {
     // 真正的普通聊天输入栏：输入框高度、圆角、发送/停止键、焦点动画、键盘
-    // 行为都跟聊天一模一样；议会/团队只通过 leading 放各自的功能（@ 队友）。
+    // 行为都跟聊天一模一样；议会/团队只通过 leading / tray / modePill 放各自
+    // 的功能（附件、@ 队友、议会配置）。
+    //
+    // maxLines 与普通聊天同一个公式（[Composer.linesFor]）：锁定/横屏/大字号
+    // 时两边同时收窄，不会出现「聊天能写 6 行、议会只给 2 行」的错位。
     return Composer(
       controller: widget.controller,
       connected: widget.enabled,
@@ -299,7 +303,7 @@ class _ConversationComposerState extends State<ConversationComposer> {
       leading: widget.leading,
       tray: widget.tray,
       hasAttachments: widget.hasAttachments,
-      maxLines: 6,
+      maxLines: Composer.linesFor(context),
     );
   }
 }

@@ -76,6 +76,15 @@ jobs:
       - name: Council sequential answers
         run: flutter test test/collab/council_sequential_test.dart --reporter expanded
 
+      - name: Task context pack
+        run: flutter test test/collab/collab_task_context_test.dart --reporter expanded
+
+      - name: Unified composer
+        run: flutter test test/collab/composer_unified_test.dart --reporter expanded
+
+      - name: Page transitions
+        run: flutter test test/collab/conversation_transition_test.dart --reporter expanded
+
       - name: Mode switching keeps session
         run: flutter test test/chat/conversation_mode_switcher_test.dart --reporter expanded
 
