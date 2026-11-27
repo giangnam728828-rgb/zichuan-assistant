@@ -278,6 +278,19 @@ class CouncilConversationsNotifier extends Notifier<Map<String, CouncilConversat
     CollabMode mode = CollabMode.quick,
     String? chairId,
   }) async {
+    final conversation = createLocal(seats: seats, mode: mode, chairId: chairId);
+    await flush();
+    return conversation;
+  }
+
+  /// 本地即时创建（方案 8.2）：同步进内存表，第一帧就能显示；落盘交给
+  /// [flush]，由调用方在后台做一次并处理失败。快速连续切换不会重复建：
+  /// 每次调用只生成一个 id，状态里按 id 去重。
+  CouncilConversation createLocal({
+    required List<SeatSpec> seats,
+    CollabMode mode = CollabMode.quick,
+    String? chairId,
+  }) {
     final now = DateTime.now();
     final conversation = CouncilConversation(
       id: 'conv${now.microsecondsSinceEpoch.toRadixString(36)}',
@@ -288,9 +301,12 @@ class CouncilConversationsNotifier extends Notifier<Map<String, CouncilConversat
       createdAt: now,
       updatedAt: now,
     );
-    await _write({...state, conversation.id: conversation});
+    state = {...state, conversation.id: conversation};
     return conversation;
   }
+
+  /// 把当前表完整落盘一次；失败抛给调用方（界面要显示明确的保存错误）。
+  Future<void> flush() async => (await _store()).save(state);
 
   /// 存一条（改成员、加回合、改标题都走这里）。
   Future<CouncilConversation> save(CouncilConversation conversation) async {

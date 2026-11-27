@@ -70,6 +70,7 @@ import '../common/ui_trace.dart';
 import '../common/sheet_title_bar.dart';
 import '../common/smooth_size.dart';
 import '../common/status_dot.dart';
+import '../agents/header_agents.dart' show headerPieceGap;
 import '../features/session_export_page.dart';
 import '../onboarding/local_install.dart';
 import '../pets/pet_perch.dart';
@@ -99,6 +100,7 @@ import 'chat_list.dart';
 import 'composer.dart';
 import 'conversation_mode_switcher.dart';
 import 'composer_toast.dart';
+import 'shared/conversation_mode_host.dart';
 import 'dock/chat_dock.dart';
 import 'dock/dock_stack.dart';
 import 'empty_state.dart';
@@ -264,6 +266,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
 
   /// 底色遮罩的实心高度:页面布局排好输入条时写入(见 [_ChatLayout])。
   final _veilHeight = ValueNotifier<double>(0);
+
+  /// 议会/团队视图 → 统一顶栏的信息通道（v4）。
+  final _collabHeader = ValueNotifier<CollabHeaderInfo?>(null);
 
   /// How far the list has scrolled under the header (0..1), for its fade.
   final _scrolledUnder = ValueNotifier<double>(0);
@@ -565,6 +570,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
     _focus.dispose();
     _scrolledUnder.dispose();
     _veilHeight.dispose();
+    _collabHeader.dispose();
     super.dispose();
   }
 
@@ -1785,6 +1791,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
     // A subagent conversation: 「‹ 上级对话」 takes the menu key's place, so
     // the 新对话 key would have nothing to mirror.
     final isChild = sessionId != null && ref.watch(subagentParentProvider(sessionId).select((p) => p != null));
+    // v4：三种模式共用这一个工作区。议会/团队不再是独立路由，而是这里的
+    // 内容切换；子代理对话不参与模式切换。
+    final collabMode = isChild
+        ? ConversationMode.chat
+        : ref.watch(conversationModeProvider.select((s) => s.mode));
     // 生成模式: this conversation's, and what the host can do.
     final generate = ref.watch(generateModeProvider.select((m) => m.byKey[_draftKey]));
     final mediaReady = ref.watch(mediaPluginProvider) == MediaPluginState.ready;
@@ -1855,7 +1866,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                 children: [
                   LayoutId(
                     id: _Slot.body,
-                    child: sessionId == null || idleBlank
+                    child: collabMode != ConversationMode.chat
+                        ? ConversationModeHost(mode: collabMode, header: _collabHeader, topInset: headerHeight)
+                        : sessionId == null || idleBlank
                         ? Padding(
                             padding: EdgeInsets.only(top: headerHeight, bottom: _ChatLayout.overlap),
                             child: Align(
@@ -1953,7 +1966,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                   ),
                   LayoutId(
                     id: _Slot.pluginOverlay,
-                    child: ClipRect(
+                    // 协作模式不叠聊天会话的插件浮层。
+                    child: collabMode != ConversationMode.chat
+                        ? const SizedBox.shrink()
+                        : ClipRect(
                       child: MediaQuery(
                         // The layout already reserves the native chrome and keyboard.
                         data: MediaQuery.of(context).copyWith(padding: EdgeInsets.zero, viewInsets: EdgeInsets.zero),
@@ -1965,7 +1981,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                     id: _Slot.header,
                     child: _HeaderAside(
                       aside: typing,
-                      child: ChatHeader(
+                      // v4：三种模式共用真正的 ChatHeader。协作模式的标题/
+                      // 状态/菜单由模式视图发布过来，顶部结构完全一致。
+                      child: collabMode != ConversationMode.chat
+                          ? ValueListenableBuilder<CollabHeaderInfo?>(
+                              valueListenable: _collabHeader,
+                              builder: (context, info, _) => ChatHeader(
+                                title: info?.title ?? collabMode.label,
+                                status: HeaderStatus(
+                                  info?.failed == true
+                                      ? StatusTone.error
+                                      : (info?.busy ?? false)
+                                      ? StatusTone.busy
+                                      : StatusTone.ok,
+                                  info?.subtitle ?? '',
+                                ),
+                                onOpenDrawer: widget.onOpenDrawer,
+                                onNewChat: info?.onNew,
+                                onTitleTap: info?.onTitleTap,
+                                trailing: null,
+                                mode: collabMode,
+                                onModeSelected: (mode) =>
+                                    switchConversationMode(context, ref, mode, from: collabMode),
+                                moreOverride: _CollabMoreKey(info: info),
+                              ),
+                            )
+                          : ChatHeader(
                         scrolledUnder: sessionId == null ? null : _scrolledUnder,
                         title: title,
                         status: status,
@@ -1996,7 +2037,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                         // 不再占一格写模型名，标题拿回整行宽度。子代理对话
                         // 本来就没有模型 chip：它的模型由上级路由。
                         trailing: null,
-                        // v2：左上角模式切换器紧跟 ≡，子代理对话不参与模式切换。
+                        // v4：模式按钮在右侧操作区；子代理对话不参与模式切换。
                         mode: isChild ? null : ConversationMode.chat,
                         onModeSelected: isChild
                             ? null
@@ -2056,7 +2097,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                   ),
                   LayoutId(
                     id: _Slot.composer,
-                    child: _ComposerBottom(
+                    // 协作模式的输入栏在模式视图里（同一套 Composer）；
+                    // 这里不再叠一条聊天输入栏。
+                    child: collabMode != ConversationMode.chat
+                        ? const SizedBox.shrink()
+                        : _ComposerBottom(
                       child: Padding(
                         // A little air above the (transparent) gesture bar;
                         // 12 at the sides like the header's keys above.
@@ -2420,6 +2465,53 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
       return HeaderStatus(StatusTone.busy, appL10n.chatGenerating, spoken: spoken);
     }
     return HeaderStatus(StatusTone.ok, label, spoken: spoken);
+  }
+}
+
+/// 议会/团队的 ⋯ 菜单：成员管理排第一，其余动作由模式视图发布。
+/// 外观与普通聊天的 ⋯ 完全一致（44dp、同一枚图标）。
+class _CollabMoreKey extends StatelessWidget {
+  const _CollabMoreKey({required this.info});
+
+  final CollabHeaderInfo? info;
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = info?.actions ?? const <CollabMenuAction>[];
+    if (actions.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(left: headerPieceGap),
+      child: PopupMenuButton<CollabMenuAction>(
+        key: const ValueKey('chat-more'),
+        tooltip: '更多',
+        padding: EdgeInsets.zero,
+        position: PopupMenuPosition.under,
+        onSelected: (action) => action.onTap(),
+        itemBuilder: (context) => [
+          for (final action in actions)
+            PopupMenuItem<CollabMenuAction>(
+              key: ValueKey(action.key),
+              value: action,
+              child: Row(
+                children: [
+                  if (action.icon case final icon?) ...[
+                    Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+                    const SizedBox(width: 12),
+                  ],
+                  Flexible(
+                    child: Text(action.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium),
+                  ),
+                ],
+              ),
+            ),
+        ],
+        child: SizedBox.square(
+          dimension: 44,
+          child: Center(child: Icon(AppIcons.more, size: 22, color: theme.colorScheme.onSurface)),
+        ),
+      ),
+    );
   }
 }
 

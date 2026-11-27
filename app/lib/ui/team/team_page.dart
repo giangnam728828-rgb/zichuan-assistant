@@ -1,12 +1,16 @@
-// 团队：几位队友在一个群里，谁被 @ 谁回答（方案第二部分）。
+// 团队：统一聊天工作区里的一种模式（总方案 v4）。
 //
-// 点「团队」= 新建一条团队会话并直接进群聊：顶部是模式标识、标题和成员入口，
-// 中间是群聊记录，底部是和普通聊天一样的输入栏。建队表单不再占满整页——
-// 第一次进来若还没有队友，聊天区里给一块紧凑的初始化面板，加完就地回到聊天。
+// 不再是独立整页：ChatScreen 是唯一聊天根页面，这里只提供团队的内容——
+// 群聊时间线、@ 点名、成员管理、运行恢复。顶栏由统一的 ChatHeader 渲染，
+// 本视图把标题/状态/菜单动作发布到 [header]。
 //
-// 编排在 [TeamOrchestrator]（lib/team/），这里只管界面。页面的编排器是
-// 进程级共享的：退出页面不打断正在答的队友，回来还能接着看。队友的审批请求
-// 在这里标出「是谁在申请」。
+// 启动分两段（方案九）：
+// 第一段：只读本地 TeamStore，确定/创建团队，立刻呈现时间线和输入栏——
+// 不等 TeamOrchestrator、不等引擎连接、不等历史登记。
+// 第二段：后台连编排器、订阅队友状态、登记内部子会话、恢复运行/审批。
+//
+// 编排在 [TeamOrchestrator]（lib/team/），进程级共享：切到议会/聊天不打断
+// 正在答的队友，回来还能接着看。
 
 import 'dart:async';
 import 'dart:io';
@@ -28,31 +32,34 @@ import '../../state/read_list_identity.dart';
 import '../../team/team_models.dart';
 import '../../team/team_store.dart';
 import '../../team/team_orchestrator.dart';
-import '../chat/conversation_mode_switcher.dart';
 import '../chat/model_brand_mark.dart';
+import '../chat/shared/conversation_mode_host.dart';
 import '../chat/shared/conversation_workspace.dart';
 import '../chat/model_sheet.dart' show shortModelName;
 import '../shell/root_tab.dart';
 import '../theme/app_icons.dart';
+import '../theme/edge_fade.dart';
 import '../collab/collab_kit.dart';
 import '../collab/collab_members.dart';
-import '../../collab/collab_conversations.dart' show collabHistoryProvider, teamRootProvider;
+import '../../collab/collab_conversations.dart' show collabHistoryProvider, teamRootProvider, teamStoreProvider;
 
-/// 进程级共享的团队编排器：离开页面不打断在跑的队友。
+/// 进程级共享的团队编排器：离开视图不打断在跑的队友。
 TeamOrchestrator? _shared;
 DshClient? _sharedClient;
 
-class TeamPage extends ConsumerStatefulWidget {
-  const TeamPage({
+class TeamModeView extends ConsumerStatefulWidget {
+  const TeamModeView({
     super.key,
     this.orchestrator,
     this.teamId,
     this.createNew = true,
     this.resumeLatest = false,
     this.teamStoreRoot,
+    this.header,
+    this.topInset = 0,
   });
 
-  /// 测试注入用；生产为空，页面自己建（进程级共享）实例。
+  /// 测试注入用；生产为空，视图自己建（进程级共享）实例。
   final TeamOrchestrator? orchestrator;
 
   /// 从历史记录或通知打开的那个团队；空表示新会话。
@@ -61,21 +68,28 @@ class TeamPage extends ConsumerStatefulWidget {
   /// 没给 [teamId] 时是否新建一条团队会话。
   final bool createNew;
 
-  /// 没有指定的团队时，先恢复最近一条（左上角模式切换走这条）；
+  /// 没有指定的团队时，先恢复最近一条（冷启动恢复走这条）；
   /// 一条都没有才新建。
   final bool resumeLatest;
 
   /// 测试注入的团队目录；生产为空，走 [teamRootProvider]。
   final Future<Directory> Function()? teamStoreRoot;
 
+  /// 统一顶栏的信息通道；测试里可以不接。
+  final ValueNotifier<CollabHeaderInfo?>? header;
+
+  /// 顶栏（含状态栏）高度。
+  final double topInset;
+
   @override
-  ConsumerState<TeamPage> createState() => _TeamPageState();
+  ConsumerState<TeamModeView> createState() => _TeamModeViewState();
 }
 
-class _TeamPageState extends ConsumerState<TeamPage> {
+class _TeamModeViewState extends ConsumerState<TeamModeView> {
   final _draft = TextEditingController();
 
   TeamOrchestrator? _orchestrator;
+  TeamStore? _store;
   StreamSubscription<TeamState>? _sub;
   CollabApprovalInbox? _inbox;
   TeamState? _team;
@@ -85,66 +99,104 @@ class _TeamPageState extends ConsumerState<TeamPage> {
 
   /// 已经呈现过的消息：切回旧团队时不再重播每条消息的进场。
   final _seenMessages = <String>{};
+
+  /// 输入栏在列内，消息区不需要底部渐隐。
+  final _noBottomFade = ValueNotifier<double>(0);
   late final String _hostKey = conversationHostKey(ref.read(activeHostProvider));
 
   @override
   void initState() {
     super.initState();
-    _boot();
+    unawaited(_bootLocal());
   }
 
   @override
   void dispose() {
+    for (final timer in _timers) {
+      timer.cancel();
+    }
+    _timers.clear();
     _sub?.cancel();
     _inbox?.dispose();
     _draft.dispose();
+    _noBottomFade.dispose();
     super.dispose();
   }
 
-  Future<void> _boot() async {
+  final _timers = <Timer>{};
+  final _initTrace = <String, String>{};
+  bool _engineBooting = false;
+
+  Future<T?> _limit<T>(Future<T> future, Duration limit) {
+    final completer = Completer<T?>();
+    late Timer timer;
+    void settle(void Function() done) {
+      timer.cancel();
+      _timers.remove(timer);
+      if (!completer.isCompleted) done();
+    }
+
+    timer = Timer(limit, () => settle(() => completer.complete(null)));
+    _timers.add(timer);
+    future.then(
+      (value) => settle(() => completer.complete(value)),
+      onError: (Object error, StackTrace stack) => settle(() => completer.completeError(error, stack)),
+    );
+    return completer.future;
+  }
+
+  void _trace(String phase, Stopwatch watch, [Object? error]) {
+    final line = error == null ? '${watch.elapsedMilliseconds} ms' : 'failed: $error';
+    _initTrace[phase] = line;
+    debugPrint('[team boot] $phase: $line');
+  }
+
+  // ---------------------------------------------------------------------------
+  // 第一段：只读本地 TeamStore，立刻出聊天界面（方案九）
+
+  Future<void> _bootLocal() async {
+    final watch = Stopwatch()..start();
     try {
-      final orchestrator = await _ensureOrchestrator();
-      _orchestrator = orchestrator;
-      _sub = orchestrator.events.listen((state) {
-        final current = _team;
-        if (!mounted || current == null || current.id != state.id) return;
-        setState(() => _team = state);
-        _invalidateHistory();
-      });
-      // 把已经建过的团队会话补登记进协作登记表：老会话不再单列在历史里。
-      await _registerPastSessions(orchestrator);
+      // 测试注入的编排器自带仓库（内存实现）；生产走本地 TeamStore。
+      final override = widget.teamStoreRoot;
+      final TeamStore store =
+          widget.orchestrator?.store ??
+          (override != null ? TeamStore(await override()) : await ref.read(teamStoreProvider.future));
+      _store = store;
+      _trace('teamStoreReady', watch);
 
       TeamState? team;
-      if (widget.teamId case final id?) team = await orchestrator.load(id);
-      if (team == null && widget.resumeLatest) team = await orchestrator.latest();
-      if (team == null && widget.createNew) team = await _createDefaultTeam(orchestrator);
-      team ??= await orchestrator.latest();
+      if (widget.teamId case final id?) team = await store.load(id);
+      if (team == null && widget.resumeLatest) team = await store.latest();
+      if (team == null) team = await _createLocal(store);
       if (!mounted) return;
       setState(() {
         _team = team;
         _loading = false;
       });
-      if (team != null) {
-        _remember(team);
-        _restoreDraft(team);
-        _seenMessages.addAll([for (final msg in team.messages) msg.id]);
-      }
-      _watchApprovals();
+      _remember(team);
+      _restoreDraft(team);
+      _seenMessages.addAll([for (final msg in team.messages) msg.id]);
+      _trace('showTeam', watch);
     } on Object catch (error) {
+      _trace('bootLocal', watch, error);
       if (mounted) {
         setState(() {
-          _error = '$error';
+          _error = '团队记录没能读出来：$error';
           _loading = false;
         });
       }
     }
+    // 第二段：引擎/编排器，全部后台。
+    unawaited(_bootEngine());
   }
 
   /// 新团队：默认沿用上一个团队的队友配置（复制成独立的一份），没有就按
-  /// 模型目录给两位；目录还没到就先建一条空会话，聊天里再补。
-  Future<TeamState> _createDefaultTeam(TeamOrchestrator orchestrator) async {
+  /// 已缓存的模型目录给两位；目录还没到就先建一条空会话，聊天里再补。
+  /// 不复制旧团队的消息与运行任务，两个团队不共享可变消息列表。
+  Future<TeamState> _createLocal(TeamStore store) async {
     final mates = <Teammate>[];
-    final past = await orchestrator.store.list();
+    final past = await store.list();
     if (past.isNotEmpty) {
       final source = past.first;
       var index = 0;
@@ -164,7 +216,6 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       }
     }
     if (mates.isEmpty) {
-      // 不等目录：目录慢或断线时，团队也要能立刻进群聊，队友在抽屉里补。
       final catalog = ref.read(currentModelCatalogProvider);
       if (catalog != null) {
         for (final group in catalog.groups) {
@@ -183,10 +234,89 @@ class _TeamPageState extends ConsumerState<TeamPage> {
         }
       }
     }
-    return orchestrator.create(teammates: mates, leadId: mates.isNotEmpty ? mates.first.id : null, allowEmpty: true);
+    final normalized = normalizeTeammates(mates);
+    final now = DateTime.now();
+    final state = TeamState(
+      id: 't${now.microsecondsSinceEpoch.toRadixString(36)}',
+      teammates: normalized,
+      leadId: normalized.isNotEmpty ? normalized.first.id : null,
+      createdAt: now,
+      updatedAt: now,
+      rev: 1,
+    );
+    await store.save(state);
+    return state;
   }
 
-  /// 记住这是团队「上次用的那个」：从聊天/议会切回来直接恢复它。
+  // ---------------------------------------------------------------------------
+  // 第二段：编排器、订阅、历史登记、运行恢复（全部不挡首帧）
+
+  Future<void> _bootEngine() async {
+    if (_engineBooting) return;
+    _engineBooting = true;
+    try {
+      final watch = Stopwatch()..start();
+      final orchestrator = await _ensureOrchestratorSafely(watch);
+      if (orchestrator == null || !mounted) return;
+      _listen();
+      // 把已经建过的团队会话补登记进协作登记表：老会话不再单列在历史里。
+      unawaited(
+        _registerPastSessions(orchestrator).timeout(const Duration(seconds: 6)).catchError((Object error) {
+          _trace('registerPastSessions', watch, error);
+        }),
+      );
+      // 让编排器认一遍当前团队：擦掉上次进程留下的「在跑」残影、接上定时唤醒。
+      final team = _team;
+      if (team != null) {
+        try {
+          final loaded = await _limit(orchestrator.load(team.id), const Duration(seconds: 4));
+          _trace('loadTeam', watch);
+          if (mounted && loaded != null && loaded.rev >= team.rev) {
+            setState(() => _team = loaded);
+          }
+        } on Object catch (error) {
+          _trace('loadTeam', watch, error);
+        }
+      }
+      _watchApprovals();
+    } finally {
+      _engineBooting = false;
+    }
+  }
+
+  Future<TeamOrchestrator?> _ensureOrchestratorSafely(Stopwatch watch) async {
+    try {
+      final orchestrator = await _limit(_ensureOrchestrator(), const Duration(seconds: 8));
+      _trace('ensureOrchestrator', watch);
+      return orchestrator;
+    } on Object catch (error) {
+      _trace('ensureOrchestrator', watch, error);
+      if (mounted) setState(() => _error = '还没连上引擎，团队暂时只能看记录。');
+    }
+    return null;
+  }
+
+  /// 连接换了：旧订阅作废，按新客户端重建编排器。
+  void _onConnectionChanged() {
+    _sub?.cancel();
+    _sub = null;
+    _orchestrator = null;
+    unawaited(_bootEngine());
+  }
+
+  void _listen() {
+    if (_sub != null) return;
+    final orchestrator = _orchestrator;
+    if (orchestrator == null) return;
+    _sub = orchestrator.events.listen((state) {
+      final current = _team;
+      if (!mounted || current == null || current.id != state.id) return;
+      setState(() => _team = state);
+      _invalidateHistory();
+    });
+  }
+
+  /// 记住这是团队「上次用的那个」：冷启动恢复时直接回到它。
   void _remember(TeamState team) {
     ref.read(conversationModeProvider.notifier).rememberTeam(_hostKey, team.id);
   }
@@ -234,14 +364,14 @@ class _TeamPageState extends ConsumerState<TeamPage> {
   /// 共享实例：同一个引擎连接上复用，重连后重建。
   Future<TeamOrchestrator> _ensureOrchestrator() async {
     final injected = widget.orchestrator;
-    if (injected != null) return injected;
+    if (injected != null) return _orchestrator = injected;
     final conn = ref.read(readListLiveConnectionProvider);
     if (conn == null) throw StateError('还没有连上引擎');
     final existing = _shared;
-    if (existing != null && identical(_sharedClient, conn.client)) return existing;
+    if (existing != null && identical(_sharedClient, conn.client)) return _orchestrator = existing;
     final override = widget.teamStoreRoot;
     final root = override != null ? await override() : await ref.read(teamRootProvider)();
-    // 共享实例活得比页面久，回调里不能抓页面自己的 ref。
+    // 共享实例活得比视图久，回调里不能抓视图自己的 ref。
     final container = ProviderScope.containerOf(context, listen: false);
     final created = TeamOrchestrator(
       driver: DshCollabDriver(conn.client),
@@ -262,7 +392,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     if (existing != null) unawaited(existing.dispose());
     _shared = created;
     _sharedClient = conn.client;
-    return created;
+    return _orchestrator = created;
   }
 
   /// 队友子会话的审批：按 sessionId 认人，标明「谁在申请」。
@@ -272,7 +402,7 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     if (client == null) return;
     _inbox = CollabApprovalInbox(
       events: client.hostEvents,
-      // 打开页面时已经挂着的请求（通知点进来、重连）也要接住。
+      // 打开视图时已经挂着的请求（通知点进来、重连）也要接住。
       pending: client.mux.pendingRequests,
       labelOf: (sessionId) => _team?.mateBySession(sessionId)?.name,
       respond: (request, decision) => client.respondApproval(request, decision),
@@ -352,10 +482,10 @@ class _TeamPageState extends ConsumerState<TeamPage> {
 
   Future<void> _export() async {
     final team = _team;
-    final orchestrator = _orchestrator;
-    if (team == null || orchestrator == null) return;
+    final store = _store;
+    if (team == null || store == null) return;
     try {
-      await orchestrator.store.writeMarkdown(team);
+      await store.writeMarkdown(team);
       await shareMarkdownFile(fileName: '团队-${team.displayTitle}.md', content: team.toMarkdown());
     } on Object catch (error) {
       if (mounted) setState(() => _error = '$error');
@@ -364,9 +494,9 @@ class _TeamPageState extends ConsumerState<TeamPage> {
 
   /// 点名字看这位队友的配置。
   ///
-  /// 以前这里直接跳进他的子会话——那是执行任务用的内部会话，提示词里塞着
-  /// 群聊背景和角色说明，当普通聊天打开会让人以为自己在跟模型对话。现在只
-  /// 展示成员信息，要看执行记录请到成员抽屉里换模型/看任务，主记录仍是群聊。
+  /// 不直接跳进他的子会话——那是执行任务用的内部会话，提示词里塞着群聊背景
+  /// 和角色说明，当普通聊天打开会让人以为自己在跟模型对话。这里只展示成员
+  /// 信息，主记录仍是群聊。
   Future<void> _openMateInfo(TeamState team, String mateId) async {
     final mate = team.mate(mateId);
     if (mate == null) return;
@@ -448,14 +578,22 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     );
     controller.dispose();
     if (next == null || next.trim().isEmpty || !mounted) return;
-    await _orchestrator?.rename(team.id, next.trim());
+    final orchestrator = _orchestrator;
+    if (orchestrator != null) {
+      await orchestrator.rename(team.id, next.trim());
+    } else {
+      // 引擎还没连上：标题先落本地，连上后编排器读到的就是新标题。
+      final updated = team.copyWith(title: next.trim(), updatedAt: DateTime.now());
+      await _store?.save(updated);
+      if (mounted) setState(() => _team = updated);
+    }
     _invalidateHistory();
   }
 
   Future<void> _newTeam() async {
-    final orchestrator = _orchestrator;
-    if (orchestrator == null) return;
-    final team = await _createDefaultTeam(orchestrator);
+    final store = _store;
+    if (store == null) return;
+    final team = await _createLocal(store);
     if (!mounted) return;
     setState(() {
       _team = team;
@@ -478,7 +616,10 @@ class _TeamPageState extends ConsumerState<TeamPage> {
       team: team,
       onSave: (mates, leadId) async {
         final orchestrator = _orchestrator;
-        if (orchestrator == null) return;
+        if (orchestrator == null) {
+          if (mounted) setState(() => _error = '还没连上引擎，稍等一下再改成员。');
+          return;
+        }
         // 逐个应用：改过的队友用 updateMate，新加的用 addMate，少掉的 removeMate。
         final current = await orchestrator.load(team.id) ?? team;
         final byId = {for (final mate in mates) mate.id: mate};
@@ -567,91 +708,105 @@ class _TeamPageState extends ConsumerState<TeamPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 引擎晚到/换连接：界面早就出来了，连上后自己补上编排器和运行状态。
+    ref.listen(readListLiveConnectionProvider, (previous, next) {
+      if (next == null) return;
+      if (previous == null || !identical(previous.client, next.client)) _onConnectionChanged();
+    });
     final theme = Theme.of(context);
     final team = _team;
-    return PopScope(
-      // 系统返回/返回键离开协作页：把「上次用的模式」改回聊天，下次启动不会
-      // 又把用户拽回议会。pushReplacement 不算 pop，切模式时不会误触发。
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) ref.read(conversationModeProvider.notifier).setMode(ConversationMode.chat);
-      },
-      child: ConversationWorkspace(
-        header: CollabHeader(
-          title: team?.displayTitle ?? '团队',
-          subtitle: [
-            '${team?.teammates.length ?? 0} 位队友',
-            if (team?.lead case final lead?) '主管 ${lead.name}',
-          ].join(' · '),
-          badge: CollabModeBadge(label: '团队', color: theme.colorScheme.tertiary),
-          mode: ConversationMode.team,
-          onModeSelected: (mode) => switchConversationMode(context, ref, mode, from: ConversationMode.team),
-          onTitleTap: team == null ? null : _rename,
-          actions: [
-            IconButton(
-              key: const ValueKey('team-members'),
-              tooltip: '成员',
-              icon: const Icon(AppIcons.team, size: 21),
-              onPressed: team == null ? null : _openMembers,
+    _publishHeader(team);
+    return ConversationWorkspace(
+      topInset: widget.topInset,
+      banners: [
+        if (_inbox?.pending.isNotEmpty ?? false)
+          for (final approval in _inbox!.pending)
+            CollabApprovalBanner(
+              key: ValueKey('team-approval-${approval.eventId}'),
+              approval: approval,
+              onDecide: (decision) => _respond(approval.eventId, decision),
             ),
-            PopupMenuButton<String>(
-              tooltip: '更多',
-              icon: const Icon(AppIcons.more, size: 20),
-              onSelected: (value) {
-                switch (value) {
-                  case 'settings':
-                    unawaited(_openSettings());
-                  case 'export':
-                    unawaited(_export());
-                  case 'new':
-                    unawaited(_newTeam());
-                  case 'history':
-                    switchTab(context, RootTab.history);
-                }
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'settings', child: Text('团队设置')),
-                PopupMenuItem(value: 'export', child: Text('导出 Markdown')),
-                PopupMenuItem(value: 'new', child: Text('新团队')),
-                PopupMenuItem(value: 'history', child: Text('历史团队')),
-              ],
-            ),
-          ],
-        ),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : team == null
-            ? const SizedBox.shrink()
-            : team.teammates.isEmpty
-            ? _onboarding(team)
-            : _buildChat(team),
-        error: _error == null
-            ? null
-            : Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(_error!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
+      ],
+      body: _loading
+          ? Center(
+              child: Text(
+                '正在恢复上次的团队…',
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
-        composer: CollabComposer(
-          controller: _draft,
-          // 后台还有队友在答（页面退出再回来）：仍显示停止键，不能重复发。
-          busy: _busy || (team?.running.isNotEmpty ?? false),
-          hint: '说点什么，@ 一位队友',
-          onSend: _send,
-          onStop: _stop,
-          onChanged: _saveDraft,
-          enabled: team != null,
-          leading: team == null || team.teammates.isEmpty
-              ? null
-              : PopupMenuButton<Teammate>(
-                  tooltip: '点名',
-                  icon: const Icon(AppIcons.mention, size: 20),
-                  onSelected: _insertMention,
-                  itemBuilder: (_) => [
-                    for (final mate in team.teammates) PopupMenuItem(value: mate, child: Text(mate.name)),
-                  ],
-                ),
-        ),
+            )
+          : team == null
+          ? const SizedBox.shrink()
+          : team.teammates.isEmpty
+          ? _onboarding(team)
+          : _buildChat(team),
+      error: _error == null
+          ? null
+          : Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(_error!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
+                  ),
+                  TextButton(
+                    key: const ValueKey('team-retry'),
+                    onPressed: () {
+                      setState(() => _error = null);
+                      unawaited(_bootEngine());
+                    },
+                    child: const Text('重试'),
+                  ),
+                ],
+              ),
+            ),
+      composer: CollabComposer(
+        controller: _draft,
+        // 后台还有队友在答（切走再回来）：仍显示停止键，不能重复发。
+        busy: _busy || (team?.running.isNotEmpty ?? false),
+        hint: '说点什么，@ 一位队友',
+        onSend: _send,
+        onStop: _stop,
+        onChanged: _saveDraft,
+        enabled: team != null,
+        sendable: (team?.teammates.length ?? 0) >= 2,
+        leading: team == null || team.teammates.isEmpty
+            ? null
+            : PopupMenuButton<Teammate>(
+                key: const ValueKey('team-mention'),
+                tooltip: '点名',
+                icon: const Icon(AppIcons.mention, size: 20),
+                onSelected: _insertMention,
+                itemBuilder: (_) => [
+                  for (final mate in team.teammates) PopupMenuItem(value: mate, child: Text(mate.name)),
+                ],
+              ),
       ),
     );
+  }
+
+  /// 把标题/状态/菜单动作发布给统一顶栏（帧后写，避免构建中通知）。
+  void _publishHeader(TeamState? team) {
+    final notifier = widget.header;
+    if (notifier == null) return;
+    final info = CollabHeaderInfo(
+      title: team?.displayTitle ?? '团队',
+      subtitle: [
+        '${team?.teammates.length ?? 0} 位队友',
+        if (team?.lead case final lead?) '主管 ${lead.name}',
+      ].join(' · '),
+      busy: _busy || (team?.running.isNotEmpty ?? false),
+      onTitleTap: team == null ? null : _rename,
+      onNew: _newTeam,
+      actions: [
+        CollabMenuAction(key: 'team-members', label: '管理成员', icon: AppIcons.team, onTap: _openMembers),
+        CollabMenuAction(key: 'team-settings', label: '团队设置', onTap: _openSettings),
+        CollabMenuAction(key: 'team-export', label: '导出 Markdown', onTap: _export),
+        CollabMenuAction(key: 'team-history', label: '历史团队', onTap: () => switchTab(context, RootTab.history)),
+      ],
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && notifier.value != info) notifier.value = info;
+    });
   }
 
   /// 首次进来还没有队友：聊天区里一块紧凑的初始化面板，加完就地回到聊天。
@@ -694,28 +849,27 @@ class _TeamPageState extends ConsumerState<TeamPage> {
     ];
     return Column(
       children: [
-        if (_inbox?.pending.isNotEmpty ?? false)
-          for (final approval in _inbox!.pending)
-            CollabApprovalBanner(
-              key: ValueKey('team-approval-${approval.eventId}'),
-              approval: approval,
-              onDecide: (decision) => _respond(approval.eventId, decision),
-            ),
         if (live.length > 1) _runningBar(team, live.length),
         Expanded(
           child: messages.isEmpty && live.isEmpty
               ? _emptyChat(team)
-              : ListView.builder(
-                  reverse: true,
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                  itemCount: messages.length + live.length,
-                  itemBuilder: (context, index) {
-                    if (index < live.length) {
-                      final entry = live[index];
-                      return _liveBubble(team, entry.id, entry.activity);
-                    }
-                    return _bubble(team, messages[messages.length - 1 - (index - live.length)]);
-                  },
+              : EdgeFade(
+                  top: 24,
+                  topHold: 0,
+                  bottom: _noBottomFade,
+                  child: ListView.builder(
+                    key: ValueKey('team-timeline-${team.id}'),
+                    reverse: true,
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                    itemCount: messages.length + live.length,
+                    itemBuilder: (context, index) {
+                      if (index < live.length) {
+                        final entry = live[index];
+                        return _liveBubble(team, entry.id, entry.activity);
+                      }
+                      return _bubble(team, messages[messages.length - 1 - (index - live.length)]);
+                    },
+                  ),
                 ),
         ),
       ],

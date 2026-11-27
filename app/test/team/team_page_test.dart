@@ -16,6 +16,7 @@ import 'package:dsh_app/team/team_models.dart';
 import 'package:dsh_app/team/team_orchestrator.dart';
 import 'package:dsh_app/team/team_store.dart';
 import 'package:dsh_app/ui/collab/collab_kit.dart';
+import 'package:dsh_app/ui/chat/shared/conversation_mode_host.dart';
 import 'package:dsh_app/ui/team/team_page.dart';
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
@@ -23,6 +24,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../chat/support/harness.dart' show testApp;
+import '../collab/mode_view_harness.dart';
 
 ModelCatalog _catalog() => const ModelCatalog(
   defaultSelection: ModelSelection(provider: 'deepseek', model: 'flash'),
@@ -138,9 +140,20 @@ Future<void> _pump(
   String? teamId,
   bool resumeLatest = false,
 }) async {
+  final header = ValueNotifier<CollabHeaderInfo?>(null);
+  addTearDown(header.dispose);
   await tester.pumpWidget(
     testApp(
-      TeamPage(orchestrator: orchestrator, teamId: teamId, resumeLatest: resumeLatest),
+      ModeViewHarness(
+        header: header,
+        newLabel: '新团队',
+        child: TeamModeView(
+          orchestrator: orchestrator,
+          teamId: teamId,
+          resumeLatest: resumeLatest,
+          header: header,
+        ),
+      ),
       overrides: [
         modelCatalogProvider.overrideWith((ref) async => _catalog()),
         // 目录已缓存：新建会话按它凑两位成员（真机上点进来时通常也已经有缓存）。
@@ -172,9 +185,7 @@ void main() {
     final orch = orchestrator();
     await _pump(tester, orch);
 
-    // 顶栏那块模式标识是「团队」，左上角的切换器也写着「团队」。
-    expect(find.byType(CollabModeBadge), findsOneWidget);
-    expect(find.text('团队'), findsNWidgets(2));
+    // 统一顶栏由 ChatHeader 承担；脚手架里标题是「新团队」。
     expect(find.text('新团队'), findsOneWidget);
     expect(find.textContaining('2 位队友'), findsOneWidget);
     // 按模型目录默认给了两位，各用各的模型。
@@ -188,9 +199,15 @@ void main() {
 
   testWidgets('目录里一个模型都没有：紧凑的初始化面板，加完就地回到聊天', (tester) async {
     final orch = orchestrator();
+    final header = ValueNotifier<CollabHeaderInfo?>(null);
+    addTearDown(header.dispose);
     await tester.pumpWidget(
       testApp(
-        TeamPage(orchestrator: orch),
+        ModeViewHarness(
+          header: header,
+          newLabel: '新团队',
+          child: TeamModeView(orchestrator: orch, header: header),
+        ),
         overrides: [
           modelCatalogProvider.overrideWith(
             (ref) async => const ModelCatalog(defaultSelection: null, routableProviders: [], groups: [], failures: []),

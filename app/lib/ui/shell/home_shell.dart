@@ -16,17 +16,12 @@ import '../../pets/overlay_channel.dart' show petOverlayChannelProvider;
 import '../../pets/pet_overlay_bridge.dart';
 import '../../state/adaptive_layout_state.dart';
 import '../../state/android_features.dart';
-import '../../state/conversation_mode_state.dart';
 import '../../state/drawer_view_state.dart' show drawerSelectionProvider;
-import '../../state/hosts_state.dart';
 import '../../state/quick_panel_state.dart';
 import '../../state/sessions_state.dart' show currentSessionProvider;
 import '../bots/bot_alerts.dart';
 import '../chat/chat_screen.dart';
 import '../chat/composer_toast.dart' show composerToastGap;
-import '../chat/conversation_mode_switcher.dart' show conversationModeRoute;
-import '../council/council_page.dart';
-import '../team/team_page.dart';
 import '../engine/engine_screen.dart';
 import '../engine/reset_outcome.dart';
 import '../forum/forum_link_host.dart';
@@ -163,27 +158,8 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
     _petSettings = ref.read(petOverlayChannelProvider).settingsRequests.listen((_) {
       if (mounted) unawaited(PetSettingsPage.open(context));
     });
-    // 上次停在议会/团队：主壳一出来就恢复那条会话（无动画，不先闪聊天）。
-    WidgetsBinding.instance.addPostFrameCallback((_) => _restoreConversationMode());
-  }
-
-  /// 启动恢复：只跳一次。会话 id 失效时页面自己会回退到「最近一条」。
-  Future<void> _restoreConversationMode() async {
-    if (!mounted) return;
-    final state = ref.read(conversationModeProvider);
-    if (state.mode == ConversationMode.chat) return;
-    final host = ref.read(activeHostProvider);
-    final id = state.idFor(state.mode, conversationHostKey(host));
-    final page = switch (state.mode) {
-      ConversationMode.council => CouncilPage(conversationId: id, createNew: true, resumeLatest: true),
-      ConversationMode.team => TeamPage(teamId: id, createNew: true, resumeLatest: true),
-      ConversationMode.chat => const SizedBox.shrink(),
-    };
-    if (!mounted) return;
-    await Navigator.of(
-      context,
-      rootNavigator: true,
-    ).push(conversationModeRoute(context: context, page: page, immediate: true));
+    // v4：启动恢复不再 push 协作页——ChatScreen 第一帧就按存档里的模式
+    // 渲染对应会话（conversationModeInitialProvider 在 main() 注入）。
   }
 
   @override

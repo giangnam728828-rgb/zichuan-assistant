@@ -15,6 +15,7 @@ import 'package:dsh_app/council/collab_store.dart';
 import 'package:dsh_app/state/models_state.dart';
 import 'package:dsh_app/state/read_list_identity.dart';
 import 'package:dsh_app/ui/council/council_page.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -130,7 +131,7 @@ void main() {
   Future<void> pump(WidgetTester tester, CollabOrchestrator orchestrator, {String? runId, String? conversationId}) async {
     await tester.pumpWidget(
       testApp(
-        CouncilPage(orchestrator: orchestrator, runId: runId, conversationId: conversationId),
+        Scaffold(body: CouncilModeView(orchestrator: orchestrator, runId: runId, conversationId: conversationId)),
         overrides: [
           modelCatalogProvider.overrideWith((ref) async => _catalog()),
         // 目录已缓存：新建会话按它凑两位成员（真机上点进来时通常也已经有缓存）。
@@ -197,7 +198,7 @@ void main() {
 
     await pump(tester, orchestrator, runId: 'run-book');
 
-    final container = ProviderScope.containerOf(tester.element(find.byType(CouncilPage)));
+    final container = ProviderScope.containerOf(tester.element(find.byType(CouncilModeView)));
     final owners = container.read(collabSessionBookProvider);
     expect(owners.containsKey('sess-book'), isTrue);
     expect(owners['sess-book']?.kind, CollabSessionKind.council);

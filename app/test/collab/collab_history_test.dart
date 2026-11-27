@@ -10,7 +10,7 @@ import 'package:dsh_app/team/team_models.dart';
 import 'package:dsh_app/team/team_store.dart';
 import 'package:dsh_app/ui/collab/collab_history.dart';
 import 'package:dsh_app/ui/common/capsule_chip.dart';
-import 'package:dsh_app/ui/team/team_page.dart';
+import 'package:dsh_app/state/conversation_mode_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -253,10 +253,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(find.byType(TeamPage), findsOneWidget);
-    final page = tester.widget<TeamPage>(find.byType(TeamPage));
-    expect(page.teamId, 't1');
-    expect(page.createNew, isFalse);
+    // v4：不再 push 独立页面，只把「打开哪条」写进模式状态。
+    final container = ProviderScope.containerOf(tester.element(find.text('open')));
+    final state = container.read(conversationModeProvider);
+    expect(state.mode, ConversationMode.team);
+    expect(state.openId, 't1');
+    expect(state.createNew, isFalse);
   });
 
   test('分类控制器：默认全部，切换后回传', () {

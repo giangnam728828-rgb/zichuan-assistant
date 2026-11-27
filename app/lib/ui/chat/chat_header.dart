@@ -71,6 +71,7 @@ class ChatHeader extends ConsumerStatefulWidget {
     this.scrolledUnder,
     this.mode,
     this.onModeSelected,
+    this.moreOverride,
   });
 
   final String title;
@@ -80,6 +81,9 @@ class ChatHeader extends ConsumerStatefulWidget {
   /// 只关心标题栏的场合）。
   final ConversationMode? mode;
   final ValueChanged<ConversationMode>? onModeSelected;
+
+  /// 替换默认的 ⋯ 菜单（议会/团队用它放成员管理、导出等动作）。
+  final Widget? moreOverride;
 
   /// What follows the status under the title (a phone: the workspace). Shortens first.
   final String? detail;
@@ -177,13 +181,11 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                   // A subagent conversation shows 「‹ 上级对话」 here.
                   HeaderLeadSlot(
                     // 3a：抽屉不再是主入口，没有 onOpenDrawer 时不画 ≡。
+                    // v4：模式按钮搬去右侧操作区，这里只剩历史菜单。
                     menu: SizedBox(
                       height: 44,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (showsMenu)
-                            SizedBox.square(
+                      child: showsMenu
+                          ? SizedBox.square(
                               key: const ValueKey('chat-menu'),
                               dimension: 44,
                               child: GlassSurface(
@@ -198,14 +200,8 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                                   child: Center(child: Icon(AppIcons.menu, size: 22, color: colors.onSurface)),
                                 ),
                               ),
-                            ),
-                          // 模式切换器紧跟历史菜单：输入栏不再管导航。
-                          if (widget.mode case final mode?) ...[
-                            if (showsMenu) const SizedBox(width: 4),
-                            ConversationModeSwitcher(mode: mode, onSelect: widget.onModeSelected),
-                          ],
-                        ],
-                      ),
+                            )
+                          : const SizedBox.shrink(),
                     ),
                   ),
                   Semantics(
@@ -297,11 +293,16 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                     ),
                     null => const SizedBox.shrink(),
                   },
-                  // 新对话, then ⋯ (伙伴 / 子代理 / 详情). 语音通话 moved into
-                  // the composer (第 4 步).
+                  // v4 右侧操作区：[模式按钮] [新对话] [⋯]。模式按钮在新对话
+                  // 之前；窄屏自动缩成图标 + 小箭头（44dp 触控不变）。
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (widget.mode case final mode?)
+                        Padding(
+                          padding: const EdgeInsets.only(left: headerPieceGap),
+                          child: ConversationModeSwitcher(mode: mode, onSelect: widget.onModeSelected),
+                        ),
                       SmoothSize(
                         duration: AppMotion.of(context, AppMotion.quick),
                         child: widget.onNewChat == null
@@ -325,7 +326,8 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                                 ),
                               ),
                       ),
-                      _HeaderMoreKey(onCompanion: widget.onCompanion, showsDetails: chrome?.showsPanelKey ?? false),
+                      widget.moreOverride ??
+                          _HeaderMoreKey(onCompanion: widget.onCompanion, showsDetails: chrome?.showsPanelKey ?? false),
                     ],
                   ),
                 ],

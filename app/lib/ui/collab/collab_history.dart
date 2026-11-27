@@ -11,10 +11,8 @@ import '../../collab/collab_export.dart';
 import '../../state/conversation_mode_state.dart';
 import '../../state/history_kind_state.dart';
 import '../../state/hosts_state.dart';
-import '../chat/conversation_mode_switcher.dart';
 import '../common/capsule_chip.dart';
-import '../council/council_page.dart';
-import '../team/team_page.dart';
+import '../shell/root_tab.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
 
@@ -258,29 +256,21 @@ class CollabHistorySection extends ConsumerWidget {
   }
 }
 
-/// 打开一条协作会话：恢复原会话，不新建。
+/// 打开一条协作会话：在同一个聊天工作区里恢复原会话，不新建、不 push 页面。
 void openCollabEntry(BuildContext context, CollabHistoryEntry entry, {VoidCallback? onClose}) {
   onClose?.call();
   final container = ProviderScope.containerOf(context, listen: false);
   final mode = entry.kind == CollabKind.council ? ConversationMode.council : ConversationMode.team;
   final controller = container.read(conversationModeProvider.notifier);
-  controller.setMode(mode);
-  // 从历史打开的这条就是该模式「上次用的那条」，再切回来还是它。
+  // 从历史打开的这条就是该模式「上次用的那条」，冷启动恢复还是它。
   final hostKey = conversationHostKey(container.read(activeHostProvider));
   if (mode == ConversationMode.council) {
     controller.rememberCouncil(hostKey, entry.id);
   } else {
     controller.rememberTeam(hostKey, entry.id);
   }
-  Navigator.of(context, rootNavigator: true).push(
-    conversationModeRoute<void>(
-      context: context,
-      page: switch (entry.kind) {
-        CollabKind.council => CouncilPage(conversationId: entry.id, createNew: false),
-        CollabKind.team => TeamPage(teamId: entry.id, createNew: false),
-      },
-    ),
-  );
+  controller.openExisting(mode, entry.id);
+  switchTab(context, RootTab.chat);
 }
 
 /// 长按删除：只删这一条，别的会话不动。

@@ -14,12 +14,14 @@ import 'package:dsh_app/council/collab_orchestrator.dart';
 import 'package:dsh_app/council/collab_store.dart';
 import 'package:dsh_app/state/models_state.dart';
 import 'package:dsh_app/state/read_list_identity.dart';
+import 'package:dsh_app/ui/chat/shared/conversation_mode_host.dart';
 import 'package:dsh_app/ui/council/council_page.dart';
 import 'package:dsh_app/ui/collab/collab_kit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../chat/support/harness.dart' show testApp;
+import '../collab/mode_view_harness.dart';
 
 ModelCatalog _catalog() => const ModelCatalog(
   defaultSelection: ModelSelection(provider: 'deepseek', model: 'flash'),
@@ -124,9 +126,21 @@ Future<void> _pump(
   String? runId,
   bool resumeLatest = false,
 }) async {
+  final header = ValueNotifier<CollabHeaderInfo?>(null);
+  addTearDown(header.dispose);
   await tester.pumpWidget(
     testApp(
-      CouncilPage(orchestrator: orchestrator, conversationId: conversationId, runId: runId, resumeLatest: resumeLatest),
+      ModeViewHarness(
+        header: header,
+        newLabel: '新议会',
+        child: CouncilModeView(
+          orchestrator: orchestrator,
+          conversationId: conversationId,
+          runId: runId,
+          resumeLatest: resumeLatest,
+          header: header,
+        ),
+      ),
       overrides: [
         modelCatalogProvider.overrideWith((ref) async => _catalog()),
         // 目录已缓存：新建会话按它凑两位成员（真机上点进来时通常也已经有缓存）。
@@ -153,7 +167,6 @@ void main() {
     addTearDown(orchestrator.dispose);
     await _pump(tester, orchestrator, conversations);
 
-    expect(find.text('议会'), findsWidgets);
     expect(find.text('新议会'), findsOneWidget);
     expect(find.text('议会已就绪'), findsOneWidget);
     expect(find.textContaining('2 位成员'), findsOneWidget);
@@ -165,9 +178,15 @@ void main() {
     // 目录请求挂住（Host 慢 / 断线）：以前这里会永远转圈、副标题停在「0 位成员」。
     final orchestrator = CollabOrchestrator(driver: _Driver(), store: runs);
     addTearDown(orchestrator.dispose);
+    final header = ValueNotifier<CollabHeaderInfo?>(null);
+    addTearDown(header.dispose);
     await tester.pumpWidget(
       testApp(
-        CouncilPage(orchestrator: orchestrator),
+        ModeViewHarness(
+          header: header,
+          newLabel: '新议会',
+          child: CouncilModeView(orchestrator: orchestrator, header: header),
+        ),
         overrides: [
           modelCatalogProvider.overrideWith((ref) => Completer<ModelCatalog?>().future),
           readListLiveConnectionProvider.overrideWith((ref) => null),

@@ -15,141 +15,15 @@
 
 import 'package:flutter/material.dart';
 
-import '../../../state/conversation_mode_state.dart';
 import '../../providers/provider_brand_icon.dart';
 import '../composer.dart';
-import '../../theme/app_icons.dart';
 import '../../theme/motion.dart';
-import '../conversation_mode_switcher.dart';
 import '../model_brand_mark.dart';
 import '../render/markdown_body.dart';
 import '../widgets/user_bubble.dart';
 
 /// 顶栏高度：与 `ChatHeader.barHeight` 一致（不含状态栏）。
 const double conversationHeaderHeight = 56;
-
-/// 一条会话的顶栏：返回 / 标题 + 一句状态 / 右侧动作。
-///
-/// 普通聊天顶栏是一条**透明的行**：没有色带、没有胶囊，标题站左边，下面一行
-/// 是状态；滚动渐隐由列表负责。这里保持同一套尺寸与字重，模式差异只体现在
-/// 标题旁那枚小胶囊。
-class ConversationHeader extends StatelessWidget {
-  const ConversationHeader({
-    super.key,
-    required this.title,
-    this.subtitle,
-    this.badge,
-    this.actions = const [],
-    this.onTitleTap,
-    this.onBack,
-    this.statusColor,
-    this.leading,
-    this.mode,
-    this.onModeSelected,
-  });
-
-  final String title;
-  final String? subtitle;
-
-  /// 模式标识（「议会」/「团队」），压在标题后面。
-  final Widget? badge;
-  final List<Widget> actions;
-  final VoidCallback? onTitleTap;
-  final VoidCallback? onBack;
-
-  /// 状态点颜色；空则不画点，只画副标题。
-  final Color? statusColor;
-
-  /// 替换返回键（桌面 / 抽屉场景）。
-  final Widget? leading;
-
-  /// 左上角的模式切换器：紧跟返回键，和普通聊天同一枚。
-  final ConversationMode? mode;
-  final ValueChanged<ConversationMode>? onModeSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    return SizedBox(
-      height: conversationHeaderHeight,
-      child: Row(
-        children: [
-          leading ??
-              IconButton(
-                tooltip: '返回',
-                onPressed: onBack ?? () => Navigator.of(context).maybePop(),
-                icon: const Icon(AppIcons.back, size: 22),
-                constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-                padding: EdgeInsets.zero,
-              ),
-          if (mode case final mode?) ...[
-            const SizedBox(width: 2),
-            ConversationModeSwitcher(mode: mode, onSelect: onModeSelected),
-          ],
-          const SizedBox(width: 2),
-          Expanded(
-            child: InkWell(
-              onTap: onTitleTap,
-              borderRadius: BorderRadius.circular(10),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              height: 1.3,
-                            ),
-                          ),
-                        ),
-                        if (badge != null) ...[const SizedBox(width: 6), badge!],
-                      ],
-                    ),
-                    if (subtitle case final line? when line.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          if (statusColor != null) ...[
-                            ConversationStatusDot(color: statusColor!),
-                            const SizedBox(width: 5),
-                          ],
-                          Flexible(
-                            child: Text(
-                              line,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                fontSize: 11,
-                                height: 1.25,
-                                color: colors.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-          ...actions,
-          const SizedBox(width: 2),
-        ],
-      ),
-    );
-  }
-}
 
 /// 我说的一句话：直接用普通聊天的 [UserBubble]。
 class ConversationUserMessage extends StatelessWidget {
@@ -411,6 +285,8 @@ class _ConversationComposerState extends State<ConversationComposer> {
       running: widget.busy,
       busy: widget.busy,
       sessionReady: widget.enabled,
+      // 成员不足时输入栏照常可用，只让发送键不亮（方案 8.3）。
+      sendable: widget.sendable,
       onSend: widget.onSend,
       onStop: widget.onStop ?? () {},
       placeholder: widget.hint,

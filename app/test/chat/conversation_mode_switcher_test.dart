@@ -1,16 +1,21 @@
-// 左上角模式切换器（总方案 v2 第一、二阶段）：
+// 顶栏模式入口（总方案 v4）：
 //
-// - 三个页面共用一份菜单：聊天 / 议会 / 团队，当前项打勾；
-// - 窄屏先收起模式文字，只留图标和箭头，触控区仍是 44；
+// - 顶栏只有一枚「当前模式」按钮，点开是纵向三项的悬浮面板；
+// - 窄屏收起文字只留图标，触控区仍是 44；
 // - 控制器按主机记住每种模式上次的会话，草稿按模式与会话隔离；
-// - 从聊天切到协作页、再切另一种、再切回聊天，路由栈不堆第二张协作页。
+// - 切模式不再 push 独立页面：三种模式都在同一个 ChatScreen 工作区里，
+//   切到议会/团队 = 新建一条对应会话，切回聊天 = 原来的聊天会话。
 
+import 'dart:io';
+
+import 'package:dsh_app/collab/collab_conversations.dart';
 import 'package:dsh_app/state/conversation_mode_state.dart';
 import 'package:dsh_app/state/hosts_state.dart';
 import 'package:dsh_app/state/read_list_identity.dart';
+import 'package:dsh_app/team/team_models.dart';
+import 'package:dsh_app/team/team_store.dart';
 import 'package:dsh_app/ui/chat/chat_header.dart';
 import 'package:dsh_app/ui/chat/chat_screen.dart';
-import 'package:dsh_app/ui/chat/conversation_mode_switcher.dart';
 import 'package:dsh_app/ui/common/status_dot.dart';
 import 'package:dsh_app/ui/council/council_page.dart';
 import 'package:dsh_app/ui/team/team_page.dart';
@@ -22,6 +27,30 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'support/harness.dart';
 
 final _host = const HostRef.ssh('mac-mini');
+
+/// 内存仓库：工作区里的议会/团队视图不做真实文件 IO。
+final class _MemCouncilStore extends CouncilConversationStore {
+  _MemCouncilStore() : super(Directory.systemTemp);
+
+  @override
+  Future<Map<String, CouncilConversation>> load() async => const {};
+
+  @override
+  Future<void> save(Map<String, CouncilConversation> all) async {}
+}
+
+final class _MemTeamStore extends TeamStore {
+  _MemTeamStore() : super(Directory.systemTemp);
+
+  @override
+  Future<void> save(TeamState state) async {}
+
+  @override
+  Future<TeamState?> load(String id) async => null;
+
+  @override
+  Future<List<TeamState>> list() async => const [];
+}
 
 void main() {
   setUp(() {
@@ -64,6 +93,40 @@ void main() {
       controller.clearDraft(ConversationMode.council, host, 'c1');
       expect(container.read(conversationModeProvider).draftOf(ConversationMode.council, host, 'c1'), isEmpty);
     });
+
+    test('主动切模式 = 新建请求；历史打开 = 恢复请求；冷启动没有请求', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final controller = container.read(conversationModeProvider.notifier);
+
+      // 冷启动恢复：序号 0，不新建。
+      expect(container.read(conversationModeProvider).requestNonce, 0);
+      expect(container.read(conversationModeProvider).createNew, isFalse);
+
+      controller.startNew(ConversationMode.council);
+      var state = container.read(conversationModeProvider);
+      expect(state.mode, ConversationMode.council);
+      expect(state.createNew, isTrue);
+      expect(state.requestNonce, 1);
+
+      controller.startNew(ConversationMode.team);
+      state = container.read(conversationModeProvider);
+      expect(state.mode, ConversationMode.team);
+      expect(state.createNew, isTrue);
+      expect(state.requestNonce, 2);
+
+      controller.openExisting(ConversationMode.council, 'c7');
+      state = container.read(conversationModeProvider);
+      expect(state.mode, ConversationMode.council);
+      expect(state.openId, 'c7');
+      expect(state.createNew, isFalse);
+      expect(state.requestNonce, 3);
+
+      controller.setMode(ConversationMode.chat);
+      state = container.read(conversationModeProvider);
+      expect(state.mode, ConversationMode.chat);
+      expect(state.openId, isNull);
+    });
   });
 
   test('落盘：重启后模式、会话与草稿都回来', () async {
@@ -91,14 +154,14 @@ void main() {
     expect(state.mode, ConversationMode.council, reason: '第一帧就是上次的模式');
     expect(state.idFor(ConversationMode.council, host), 'c7');
     expect(state.draftOf(ConversationMode.council, host, 'c7'), '没发完的问题');
+    expect(state.createNew, isFalse, reason: '冷启动恢复不新建会话');
   });
 
-  group('顶栏上的切换器', () {
-    Future<ConversationMode?> pumpHeader(WidgetTester tester, {double width = 800}) async {
+  group('顶栏上的模式按钮', () {
+    Future<void> pumpHeader(WidgetTester tester, {double width = 800, ValueChanged<ConversationMode>? onSelect}) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = Size(width, 800);
       addTearDown(tester.view.reset);
-      ConversationMode? picked;
       await tester.pumpWidget(
         testApp(
           Scaffold(
@@ -106,7 +169,7 @@ void main() {
               title: '修复登录重复提交',
               status: const HeaderStatus(StatusTone.ok, '本机'),
               mode: ConversationMode.chat,
-              onModeSelected: (mode) => picked = mode,
+              onModeSelected: onSelect ?? (_) {},
               onOpenDrawer: () {},
               onNewChat: () {},
             ),
@@ -115,95 +178,99 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      return picked;
     }
 
-    testWidgets('三段常驻：点哪个就切哪个，当前项有选中语义', (tester) async {
+    testWidgets('只有一枚当前模式按钮；点开是纵向三项的面板', (tester) async {
       ConversationMode? picked;
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(800, 800);
-      addTearDown(tester.view.reset);
-      await tester.pumpWidget(
-        testApp(
-          Scaffold(
-            body: ChatHeader(
-              title: '今天的安排',
-              status: const HeaderStatus(StatusTone.ok, '本机'),
-              mode: ConversationMode.chat,
-              onModeSelected: (mode) => picked = mode,
-              onOpenDrawer: () {},
-              onNewChat: () {},
-            ),
-          ),
-          overrides: ChatHarness(session: null).overrides,
-        ),
-      );
+      await pumpHeader(tester, onSelect: (mode) => picked = mode);
+
+      // 三段式已经删除：顶栏只有当前模式这一枚。
+      expect(find.byKey(const ValueKey('mode-chip')), findsOneWidget);
+      expect(find.byKey(const ValueKey('mode-council')), findsNothing);
+      expect(find.text('聊天'), findsOneWidget);
+      expect(find.text('议会'), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('mode-chip')));
       await tester.pumpAndSettle();
 
-      // 不点开任何菜单，三段都在。
-      expect(find.byKey(const ValueKey('mode-chat')), findsOneWidget);
-      expect(find.byKey(const ValueKey('mode-council')), findsOneWidget);
-      expect(find.byKey(const ValueKey('mode-team')), findsOneWidget);
-      expect(
-        tester.getSemantics(find.byKey(const ValueKey('mode-chat'))),
-        matchesSemantics(label: '聊天', isButton: true, isSelected: true, hasSelectedState: true),
-      );
+      // 面板纵向三项，各带一句用途说明。
+      expect(find.byKey(const ValueKey('mode-option-chat')), findsOneWidget);
+      expect(find.byKey(const ValueKey('mode-option-council')), findsOneWidget);
+      expect(find.byKey(const ValueKey('mode-option-team')), findsOneWidget);
+      expect(find.text('普通 AI 对话'), findsOneWidget);
+      expect(find.text('多个模型共同参与议题'), findsOneWidget);
+      expect(find.text('主管与多位队友协作'), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('mode-team')));
+      await tester.tap(find.byKey(const ValueKey('mode-option-team')));
       await tester.pumpAndSettle();
       expect(picked, ConversationMode.team);
-      // 三段不会收起。
-      expect(find.byKey(const ValueKey('mode-team')), findsOneWidget);
+      // 选择后面板收起。
+      expect(find.byKey(const ValueKey('mode-option-team')), findsNothing);
+    });
+
+    testWidgets('点面板外面关闭，不触发切换', (tester) async {
+      ConversationMode? picked;
+      await pumpHeader(tester, onSelect: (mode) => picked = mode);
+
+      await tester.tap(find.byKey(const ValueKey('mode-chip')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('mode-option-chat')), findsOneWidget);
+
+      await tester.tapAt(const Offset(20, 700));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('mode-option-chat')), findsNothing);
+      expect(picked, isNull);
     });
 
     testWidgets('窄屏收起模式文字，触控区仍是 44', (tester) async {
       await pumpHeader(tester, width: 360);
       expect(find.text('聊天'), findsNothing);
-      // 每段自己就是 44dp 的触控区。
-      for (final mode in ConversationMode.values) {
-        final size = tester.getSize(find.byKey(ValueKey('mode-${mode.name}')));
-        expect(size.height, 44);
-        expect(size.width, 44);
-      }
+      final size = tester.getSize(find.byKey(const ValueKey('mode-chip')));
+      expect(size.height, 44);
     });
 
-    testWidgets('宽屏显示模式名字', (tester) async {
+    testWidgets('宽屏显示当前模式名字', (tester) async {
       await pumpHeader(tester, width: 800);
       expect(find.text('聊天'), findsOneWidget);
-      expect(find.text('议会'), findsOneWidget);
-      expect(find.text('团队'), findsOneWidget);
     });
   });
 
-  group('模式路由', () {
-    testWidgets('聊天 → 议会 → 团队 → 聊天：只有一张协作页，回来还是聊天', (tester) async {
+  group('模式切换：同一个工作区，不再 push 整页', () {
+    testWidgets('聊天 → 议会 → 团队 → 聊天：都在 ChatScreen 里，回来还是聊天', (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(430, 900);
       addTearDown(tester.view.reset);
-      final harness = ChatHarness(session: null, extra: [readListLiveConnectionProvider.overrideWith((ref) => null)]);
+      final harness = ChatHarness(
+        session: null,
+        extra: [
+          readListLiveConnectionProvider.overrideWith((ref) => null),
+          councilStoreProvider.overrideWith((ref) async => _MemCouncilStore()),
+          teamStoreProvider.overrideWith((ref) async => _MemTeamStore()),
+        ],
+      );
       await tester.pumpWidget(testApp(const ChatScreen(), overrides: harness.overrides));
       await tester.pumpAndSettle();
 
-      // 输入栏不再有协作键。
-      expect(find.byKey(const ValueKey('composer-collab')), findsNothing);
-      expect(find.byKey(const ValueKey('mode-chat')), findsOneWidget);
+      Future<void> pick(ConversationMode mode) async {
+        await tester.tap(find.byKey(const ValueKey('mode-chip')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(ValueKey('mode-option-${mode.name}')));
+        await tester.pumpAndSettle();
+      }
 
-      await tester.tap(find.byKey(const ValueKey('mode-council')));
-      await tester.pumpAndSettle();
-      expect(find.byType(CouncilPage), findsOneWidget);
-      expect(find.byType(TeamPage), findsNothing);
-
-      // 议会页顶栏也是同一枚切换器。
-      await tester.tap(find.byKey(const ValueKey('mode-team')));
-      await tester.pumpAndSettle();
-      expect(find.byType(TeamPage), findsOneWidget);
-      expect(find.byType(CouncilPage), findsNothing, reason: '议会页被替换，不是叠在下面');
-
-      await tester.tap(find.byKey(const ValueKey('mode-chat')));
-      await tester.pumpAndSettle();
+      await pick(ConversationMode.council);
       expect(find.byType(ChatScreen), findsOneWidget);
-      expect(find.byType(TeamPage), findsNothing);
-      expect(find.byType(CouncilPage), findsNothing);
+      expect(find.byType(CouncilModeView), findsOneWidget);
+      expect(find.byType(TeamModeView), findsNothing);
+
+      await pick(ConversationMode.team);
+      expect(find.byType(TeamModeView), findsOneWidget);
+      expect(find.byType(CouncilModeView), findsNothing, reason: '议会视图被换下，不是叠在下面');
+
+      await pick(ConversationMode.chat);
+      expect(find.byType(ChatScreen), findsOneWidget);
+      expect(find.byType(TeamModeView), findsNothing);
+      expect(find.byType(CouncilModeView), findsNothing);
     });
   });
 }

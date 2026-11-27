@@ -1,46 +1,41 @@
-// 左上角的聊天模式切换器（总方案 v3）。
+// 顶栏右侧的模式入口（总方案 v4）。
 //
-// 三个模式**一直摆在顶栏上**：聊天 / 议会 / 团队。点哪个就直接切，不再先弹
-// 菜单。选中背景是一枚会滑动的药丸（AnimatedAlign，220ms easeOutCubic），
-// 图标轻微缩放淡入，窄屏只留图标（每段仍是 44dp 触控）。
+// 三段式切换器已经删除：顶栏只摆一枚「当前模式」按钮（图标 + 名字 + 小箭头），
+// 点开是一张纵向三项的轻量悬浮面板（聊天 / 议会 / 团队，各带一句用途说明）。
+// 面板从按钮附近展开，点外面 / 系统返回键都能关，不进底部弹层。
 //
-// 三个页面（普通聊天 / 议会 / 团队）用的是同一个 [ConversationModeSwitcher]，
-// 一份控件、一份路由，不在各自的页面里各写一套。
-//
-// 切换规则：
-// - 普通聊天 → 议会/团队：回到上次那条，没有就恢复最近一条，仍没有才新建；
-// - 议会 ⇄ 团队：顶层页面**替换**，不往路由栈上叠第二张协作页；
-// - 议会/团队 → 普通聊天：回到原来的聊天根页，当前会话不动。
-//
-// 页面过场只有淡入 + 8dp 位移，210ms；系统要求减少动画时全部归零。
+// 切换不再 push 独立页面：三种模式共用同一个 ChatScreen 工作区，这里只改
+// [conversationModeProvider] 的状态——
+// - 切到议会/团队：像点「新建对话」一样开一条全新会话（成员配置继承最近一条）；
+// - 切回普通聊天：回到原来的聊天会话，不动它；
+// - 点当前模式：不重复创建。
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/conversation_mode_state.dart';
-import '../../state/hosts_state.dart';
-import '../council/council_page.dart';
 import '../shell/root_tab.dart';
-import '../team/team_page.dart';
 import '../theme/app_icons.dart';
 import '../theme/glass.dart';
 import '../theme/motion.dart';
 import '../theme/surfaces.dart';
 
-/// 「聊天 ｜ 议会 ｜ 团队」三段式切换器。三段常驻，点击即切换。
+/// 一枚紧凑的「当前模式」按钮。窄屏 / 大字号只留图标 + 小箭头，触控区仍 44dp。
 class ConversationModeSwitcher extends ConsumerWidget {
-  const ConversationModeSwitcher({super.key, required this.mode, this.onSelect, this.forceCompact = false});
+  ConversationModeSwitcher({super.key, required this.mode, this.onSelect, this.forceCompact = false});
 
   final ConversationMode mode;
 
-  /// 选中后的动作；不传就走统一路由（[switchConversationMode]）。
+  /// 选中后的动作；不传就走统一的状态切换（[switchConversationMode]）。
   final ValueChanged<ConversationMode>? onSelect;
 
   /// 测试或特殊版式里强制收起文字。
   final bool forceCompact;
 
-  /// 窄屏 / 大字号只留图标，给标题和模型让位。
+  final GlobalKey _anchor = GlobalKey();
+
+  /// 窄屏 / 大字号只留图标，给标题让位（方案 2.2：先缩辅助文字，不缩触控区）。
   static bool compactFor(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final label = MediaQuery.textScalerOf(context).scale(13);
@@ -53,141 +48,71 @@ class ConversationModeSwitcher extends ConsumerWidget {
     ConversationMode.team => AppIcons.team,
   };
 
+  static String descriptionOf(ConversationMode mode) => switch (mode) {
+    ConversationMode.chat => '普通 AI 对话',
+    ConversationMode.council => '多个模型共同参与议题',
+    ConversationMode.team => '主管与多位队友协作',
+  };
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final compact = forceCompact || compactFor(context);
     final colors = Theme.of(context).colorScheme;
-    final reduced = AppMotion.reduced(context);
-    final move = reduced ? Duration.zero : const Duration(milliseconds: 220);
-    final fade = reduced ? Duration.zero : const Duration(milliseconds: 160);
-    final segment = compact ? 44.0 : 64.0;
-    final index = mode.index;
+    final tint = colors.primary;
 
-    void select(ConversationMode target) {
-      if (target == mode) return;
+    void open() {
       HapticFeedback.selectionClick();
-      if (onSelect case final callback?) {
-        callback(target);
-      } else {
-        switchConversationMode(context, ref, target, from: mode);
-      }
+      showConversationModePanel(
+        context,
+        anchor: _anchor,
+        current: mode,
+        onSelect: (target) {
+          if (onSelect case final callback?) {
+            callback(target);
+          } else {
+            switchConversationMode(context, ref, target, from: mode);
+          }
+        },
+      );
     }
 
     return Semantics(
-      container: true,
+      button: true,
       label: '聊天模式，当前${mode.label}',
       child: GlassSurface(
+        key: const ValueKey('mode-chip'),
         tier: GlassTier.chrome,
         bare: true,
         stadium: true,
         grouped: true,
+        onTap: open,
         child: SizedBox(
+          key: _anchor,
           height: 44,
-          width: segment * ConversationMode.values.length + 6,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 3),
-            child: Stack(
-              children: [
-                // 选中背景：一整段宽的药丸，靠 AnimatedAlign 在三个位置间滑动。
-                AnimatedAlign(
-                  duration: move,
-                  curve: Curves.easeOutCubic,
-                  alignment: Alignment(-1 + index.toDouble(), 0),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: AnimatedContainer(
-                      duration: move,
-                      curve: Curves.easeOutCubic,
-                      width: segment,
-                      decoration: BoxDecoration(
-                        color: colors.primary.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: colors.primary.withValues(alpha: 0.18)),
-                      ),
-                    ),
-                  ),
-                ),
-                Row(
-                  children: [
-                    for (final option in ConversationMode.values)
-                      _ModeSegment(
-                        key: ValueKey('mode-${option.name}'),
-                        mode: option,
-                        selected: option == mode,
-                        width: segment,
-                        showLabel: !compact,
-                        duration: fade,
-                        onTap: () => select(option),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ModeSegment extends StatelessWidget {
-  const _ModeSegment({
-    super.key,
-    required this.mode,
-    required this.selected,
-    required this.width,
-    required this.showLabel,
-    required this.duration,
-    required this.onTap,
-  });
-
-  final ConversationMode mode;
-  final bool selected;
-  final double width;
-  final bool showLabel;
-  final Duration duration;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final tint = selected ? colors.primary : colors.onSurfaceVariant.withValues(alpha: 0.64);
-    final labelStyle = TextStyle(
-      fontSize: 13,
-      height: 1.2,
-      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-      color: tint,
-    );
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: mode.label,
-      excludeSemantics: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: SizedBox(
-          width: width,
-          height: 44,
-          child: Center(
+            padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AnimatedScale(
-                  scale: selected ? 1 : 0.94,
-                  duration: duration,
-                  curve: AppMotion.std,
-                  child: Icon(ConversationModeSwitcher.iconOf(mode), size: 18, color: tint),
+                AnimatedSwitcher(
+                  duration: AppMotion.of(context, AppMotion.quick),
+                  child: Icon(iconOf(mode), key: ValueKey(mode), size: 18, color: tint),
                 ),
-                if (showLabel) ...[
+                if (!compact) ...[
                   const SizedBox(width: 5),
-                  AnimatedDefaultTextStyle(
-                    duration: duration,
-                    curve: AppMotion.std,
-                    style: labelStyle,
-                    child: Text(mode.label, maxLines: 1),
+                  Text(
+                    mode.label,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.2,
+                      fontWeight: FontWeight.w600,
+                      color: tint,
+                    ),
                   ),
                 ],
+                const SizedBox(width: 2),
+                Icon(AppIcons.expand, size: 12, color: tint.withValues(alpha: 0.7)),
               ],
             ),
           ),
@@ -197,65 +122,199 @@ class _ModeSegment extends StatelessWidget {
   }
 }
 
-/// 模式切换的唯一路由入口：三处顶栏都走这里。
+/// 从按钮附近展开的纵向选择面板。
 ///
-/// [from] 是用户点菜单时所在的模式（页面自己最清楚）；不传则读全局状态。
-void switchConversationMode(BuildContext context, WidgetRef ref, ConversationMode target, {ConversationMode? from}) {
-  final host = ref.read(activeHostProvider);
-  final hostKey = conversationHostKey(host);
-  final controller = ref.read(conversationModeProvider.notifier);
-  final before = ref.read(conversationModeProvider).mode;
-  final current = from ?? before;
-
-  // 先落状态，再换页：页面 initState 里读到的就是新模式。即使点的就是当前
-  // 模式，也顺手把全局状态校准（用户可能用系统返回键回到聊天）。
-  controller.setMode(target);
-  if (target == current) return;
-
-  if (target == ConversationMode.chat) {
-    // popUntil 根页 + 切到聊天标签；currentSessionProvider 原样保留。
-    switchTab(context, RootTab.chat);
-    return;
+/// 走一条透明的 dialog 路由：点外面关、Android 返回键关，都是路由自带的；
+/// 过场只有淡入 + 轻微缩放 + 6dp 位移（约 200ms），系统减少动画时直接呈现。
+Future<void> showConversationModePanel(
+  BuildContext context, {
+  required GlobalKey anchor,
+  required ConversationMode current,
+  required ValueChanged<ConversationMode> onSelect,
+}) {
+  final reduced = AppMotion.reduced(context);
+  final duration = reduced ? Duration.zero : const Duration(milliseconds: 200);
+  // 按钮在屏幕上的位置：面板贴着它的下沿、右对齐。
+  Rect? anchorRect;
+  if (anchor.currentContext case final anchorContext?) {
+    final box = anchorContext.findRenderObject();
+    if (box is RenderBox && box.hasSize) {
+      final overlay = Navigator.of(context, rootNavigator: true).overlay!.context.findRenderObject();
+      if (overlay is RenderBox) {
+        anchorRect = MatrixUtils.transformRect(
+          box.getTransformTo(overlay),
+          Offset.zero & box.size,
+        );
+      }
+    }
   }
-
-  final id = ref.read(conversationModeProvider).idFor(target, hostKey);
-  final Widget page = switch (target) {
-    ConversationMode.council => CouncilPage(conversationId: id, createNew: true, resumeLatest: true),
-    ConversationMode.team => TeamPage(teamId: id, createNew: true, resumeLatest: true),
-    ConversationMode.chat => const SizedBox.shrink(),
-  };
-  final route = conversationModeRoute(context: context, page: page);
-  final navigator = Navigator.of(context, rootNavigator: true);
-  if (current == ConversationMode.chat) {
-    navigator.push(route);
-  } else {
-    // 同一时刻只留一张协作页：议会 ⇄ 团队替换掉顶层，返回仍直接回聊天。
-    navigator.pushReplacement(route);
-  }
-}
-
-/// 模式页的过场：淡入 + 8dp 横向位移，旧页在下层淡出得不突兀。
-///
-/// [immediate] 给「启动时恢复上次模式」用：不走动画，第一帧就是目标页。
-Route<T> conversationModeRoute<T>({required BuildContext context, required Widget page, bool immediate = false}) {
-  // 内容切换 210ms（方案要求 180–220），减少动画时归零。
-  final duration = immediate || AppMotion.reduced(context) ? Duration.zero : const Duration(milliseconds: 210);
-  final exit = AppMotion.reduced(context) ? Duration.zero : AppMotion.of(context, AppMotion.quick);
-  return PageRouteBuilder<T>(
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: '关闭模式选择',
+    barrierColor: Colors.transparent,
     transitionDuration: duration,
-    reverseTransitionDuration: exit,
-    pageBuilder: (context, animation, secondary) => page,
-    transitionsBuilder: (context, animation, secondary, child) {
+    pageBuilder: (dialogContext, animation, secondary) => _ModePanel(
+      anchorRect: anchorRect,
+      current: current,
+      onSelect: (mode) {
+        Navigator.of(dialogContext).pop();
+        onSelect(mode);
+      },
+    ),
+    transitionBuilder: (context, animation, secondary, child) {
       if (duration == Duration.zero) return child;
-      final curved = CurvedAnimation(parent: animation, curve: AppMotion.std);
+      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
       return FadeTransition(
         opacity: curved,
         child: AnimatedBuilder(
           animation: curved,
-          builder: (context, inner) => Transform.translate(offset: Offset(8 * (1 - curved.value), 0), child: inner),
+          builder: (context, inner) => Transform.translate(
+            offset: Offset(0, -6 * (1 - curved.value)),
+            child: Transform.scale(scale: 0.96 + 0.04 * curved.value, alignment: Alignment.topRight, child: inner),
+          ),
           child: child,
         ),
       );
     },
   );
+}
+
+class _ModePanel extends StatelessWidget {
+  const _ModePanel({required this.anchorRect, required this.current, required this.onSelect});
+
+  final Rect? anchorRect;
+  final ConversationMode current;
+  final ValueChanged<ConversationMode> onSelect;
+
+  static const _width = 272.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final padding = MediaQuery.paddingOf(context);
+    final rect = anchorRect;
+    final top = rect == null ? padding.top + 60 : rect.bottom + 6;
+    final right = rect == null ? 12.0 : (size.width - rect.right).clamp(12.0, size.width - _width - 12);
+    return Align(
+      alignment: Alignment.topLeft,
+      child: Padding(
+        padding: EdgeInsets.only(top: top.clamp(padding.top + 8, size.height - 240), right: right),
+        child: Material(
+          type: MaterialType.transparency,
+          child: GlassSurface(
+            tier: GlassTier.sheet,
+            borderRadius: BorderRadius.circular(20),
+            child: SizedBox(
+              width: _width,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final mode in ConversationMode.values)
+                      _ModeOption(
+                        key: ValueKey('mode-option-${mode.name}'),
+                        mode: mode,
+                        selected: mode == current,
+                        onTap: () => onSelect(mode),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ModeOption extends StatelessWidget {
+  const _ModeOption({super.key, required this.mode, required this.selected, required this.onTap});
+
+  final ConversationMode mode;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final tint = selected ? colors.primary : colors.onSurfaceVariant;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: mode.label,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onTap,
+            child: AnimatedContainer(
+              duration: AppMotion.of(context, AppMotion.standard),
+              curve: AppMotion.std,
+              padding: const EdgeInsets.fromLTRB(10, 10, 12, 10),
+              decoration: BoxDecoration(
+                color: selected ? colors.primary.withValues(alpha: 0.10) : Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  Icon(ConversationModeSwitcher.iconOf(mode), size: 20, color: tint),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          mode.label,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                            color: selected ? colors.primary : colors.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          ConversationModeSwitcher.descriptionOf(mode),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(color: colors.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (selected) Icon(AppIcons.done, size: 16, color: colors.primary),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 模式切换的唯一入口：只改状态，不再 push 任何整页路由（方案三）。
+///
+/// [from] 是用户点面板时所在的模式；不传则读全局状态。
+void switchConversationMode(BuildContext context, WidgetRef ref, ConversationMode target, {ConversationMode? from}) {
+  final controller = ref.read(conversationModeProvider.notifier);
+  final current = from ?? ref.read(conversationModeProvider).mode;
+  if (target == current) {
+    controller.setMode(target);
+    return;
+  }
+  HapticFeedback.selectionClick();
+  if (target == ConversationMode.chat) {
+    // 回普通聊天：原来的聊天会话原样保留（currentSessionProvider 不动）。
+    controller.setMode(target);
+  } else {
+    // 切到议会/团队 = 新建一条对应会话；旧会话留在历史里。
+    controller.startNew(target);
+  }
+  // 模式内容都在聊天工作区里：确保聊天标签在前台。
+  switchTab(context, RootTab.chat);
 }

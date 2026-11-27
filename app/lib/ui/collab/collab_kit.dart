@@ -1,61 +1,15 @@
-// 议会与团队共用的聊天外壳。
+// 议会与团队共用的聊天部件。
 //
-// 这里不再自己画一套：顶栏、用户气泡、助手消息、系统提示、输入栏全部转交给
-// `ui/chat/shared/conversation_kit.dart`——也就是普通聊天在用的那套部件与
-// 排版。本文件只保留两种协作模式自己的小东西（模式胶囊、成员头像、席位状态
-// 文案），以及把协作数据塞进公共部件的适配层。
+// 顶栏已由统一的 ChatHeader 承担（ui/chat/chat_header.dart），这里不再保留
+// 协作专用的顶栏外壳；只保留两种协作模式自己的小东西（模式胶囊、成员头像、
+// 席位状态文案），以及把协作数据塞进公共部件的适配层。
 
 import 'package:flutter/material.dart';
 
 import '../../council/collab_models.dart';
-import '../../state/conversation_mode_state.dart';
 import '../chat/model_brand_mark.dart';
 import '../chat/shared/conversation_kit.dart';
 import '../providers/provider_brand_icon.dart';
-
-/// 协作页顶栏：与普通聊天同一条透明行，只多一枚模式胶囊。
-class CollabHeader extends StatelessWidget {
-  const CollabHeader({
-    super.key,
-    required this.title,
-    required this.subtitle,
-    required this.badge,
-    required this.actions,
-    this.onTitleTap,
-    this.statusColor,
-    this.mode,
-    this.onModeSelected,
-  });
-
-  final String title;
-  final String subtitle;
-
-  /// 「议会」/「团队」的模式标识。
-  final Widget badge;
-  final List<Widget> actions;
-  final VoidCallback? onTitleTap;
-
-  /// 状态点颜色（正在跑的时候给主色）。
-  final Color? statusColor;
-
-  /// 左上角模式切换器：返回键之后、标题之前。
-  final ConversationMode? mode;
-  final ValueChanged<ConversationMode>? onModeSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return ConversationHeader(
-      title: title,
-      subtitle: subtitle,
-      badge: badge,
-      actions: actions,
-      onTitleTap: onTitleTap,
-      statusColor: statusColor,
-      mode: mode,
-      onModeSelected: onModeSelected,
-    );
-  }
-}
 
 /// 模式标识：一枚小胶囊，字是「议会」/「团队」。
 class CollabModeBadge extends StatelessWidget {

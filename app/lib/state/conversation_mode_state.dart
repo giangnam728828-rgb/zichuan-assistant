@@ -38,6 +38,10 @@ class ConversationModeState {
     this.councilIds = const {},
     this.teamIds = const {},
     this.drafts = const {},
+    this.requestNonce = 0,
+    this.openId,
+    this.openRunId,
+    this.createNew = false,
   });
 
   /// 当前看到的模式（页面自己也知道，这里给路由与测试一个单一事实）。
@@ -51,6 +55,19 @@ class ConversationModeState {
 
   /// '模式|hostKey|会话id' -> 输入框里没发出去的字。
   final Map<String, String> drafts;
+
+  /// 瞬时请求序号（不落盘）：用户主动切模式 / 从历史打开时 +1，
+  /// 工作区据此重建对应模式的视图。冷启动恢复时保持 0，不触发新建。
+  final int requestNonce;
+
+  /// 本次请求要显式打开的会话（历史 / 深链）；null 走启动规则。
+  final String? openId;
+
+  /// 深链只带 runId 的旧议会数据：视图启动后自己找回所属会话。
+  final String? openRunId;
+
+  /// true：本次请求要求新建一条会话（用户主动切换模式，方案 4.1）。
+  final bool createNew;
 
   String? councilIdFor(String host) => councilIds[host];
   String? teamIdFor(String host) => teamIds[host];
@@ -73,6 +90,10 @@ class ConversationModeState {
     councilIds: councilIds ?? this.councilIds,
     teamIds: teamIds ?? this.teamIds,
     drafts: drafts ?? this.drafts,
+    requestNonce: requestNonce,
+    openId: openId,
+    openRunId: openRunId,
+    createNew: createNew,
   );
 
   static String _draftKey(ConversationMode mode, String host, String? id) => '${mode.name}|$host|${id ?? ''}';
@@ -162,7 +183,66 @@ class ConversationModeController extends Notifier<ConversationModeState> {
   }
 
   void setMode(ConversationMode mode) {
-    if (state.mode != mode) _commit(state.copyWith(mode: mode));
+    if (state.mode == mode) return;
+    if (mode == ConversationMode.chat) {
+      // 回普通聊天：清掉协作侧的一次性打开请求，聊天会话原样保留。
+      _commit(
+        ConversationModeState(
+          mode: mode,
+          councilIds: state.councilIds,
+          teamIds: state.teamIds,
+          drafts: state.drafts,
+          requestNonce: state.requestNonce,
+        ),
+      );
+      return;
+    }
+    _commit(state.copyWith(mode: mode));
+  }
+
+  /// 用户主动切到议会/团队：像点「新建对话」一样开一条全新会话（方案 4.1）。
+  /// 旧会话留在各自历史里；成员配置由视图从最近一条继承。
+  void startNew(ConversationMode mode) {
+    assert(mode != ConversationMode.chat, '普通聊天没有「新建协作会话」请求');
+    _commit(
+      ConversationModeState(
+        mode: mode,
+        councilIds: state.councilIds,
+        teamIds: state.teamIds,
+        drafts: state.drafts,
+        requestNonce: state.requestNonce + 1,
+        createNew: true,
+      ),
+    );
+  }
+
+  /// 从历史/深链打开某条协作会话：恢复原会话，不新建、不覆盖（方案 4.3）。
+  void openExisting(ConversationMode mode, String id) {
+    assert(mode != ConversationMode.chat);
+    _commit(
+      ConversationModeState(
+        mode: mode,
+        councilIds: state.councilIds,
+        teamIds: state.teamIds,
+        drafts: state.drafts,
+        requestNonce: state.requestNonce + 1,
+        openId: id,
+      ),
+    );
+  }
+
+  /// 深链只带某次议会的 runId：视图启动后找回它所属的会话。
+  void openRun(String runId) {
+    _commit(
+      ConversationModeState(
+        mode: ConversationMode.council,
+        councilIds: state.councilIds,
+        teamIds: state.teamIds,
+        drafts: state.drafts,
+        requestNonce: state.requestNonce + 1,
+        openRunId: runId,
+      ),
+    );
   }
 
   void rememberCouncil(String host, String id) {
