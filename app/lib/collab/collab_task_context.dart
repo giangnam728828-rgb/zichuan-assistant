@@ -100,7 +100,7 @@ final class CollabTaskItem {
     title: json['title'] as String? ?? '',
     owner: json['owner'] as String?,
     deps: [
-      for (final dep in (json['deps'] as List? ?? const []))
+      for (final dep in _asList(json['deps']))
         if (dep is String) dep,
     ],
     status: CollabTaskStage.values.firstWhere((s) => s.name == json['status'], orElse: () => CollabTaskStage.planning),
@@ -268,18 +268,18 @@ final class CollabTaskContext {
     kind: json['kind'] as String? ?? 'council',
     goal: json['goal'] as String? ?? '',
     sourceMessageIds: [
-      for (final id in (json['sourceMessageIds'] as List? ?? const []))
+      for (final id in _asList(json['sourceMessageIds']))
         if (id is String && id.isNotEmpty) id,
     ],
     repo: json['repo'] as String?,
     branch: json['branch'] as String?,
     credentialRef: json['credentialRef'] as String?,
     memberIds: [
-      for (final id in (json['memberIds'] as List? ?? const []))
+      for (final id in _asList(json['memberIds']))
         if (id is String) id,
     ],
     items: [
-      for (final item in (json['items'] as List? ?? const []))
+      for (final item in _asList(json['items']))
         if (item is Map) CollabTaskItem.fromJson(item.cast<String, Object?>()),
     ],
     stage: CollabTaskStage.values.firstWhere(
@@ -288,11 +288,11 @@ final class CollabTaskContext {
     ),
     currentStep: json['currentStep'] as String? ?? '',
     done: [
-      for (final line in (json['done'] as List? ?? const []))
+      for (final line in _asList(json['done']))
         if (line is String) line,
     ],
     pending: [
-      for (final line in (json['pending'] as List? ?? const []))
+      for (final line in _asList(json['pending']))
         if (line is String) line,
     ],
     testStatus: json['testStatus'] as String? ?? '',
@@ -311,29 +311,34 @@ final class CollabTaskContext {
 /// 错误的仓库让人往别处提交。
 abstract final class CollabTaskFacts {
   static final _repoUrl = RegExp(r'https?://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)');
-  static final _repoSlug = RegExp(r'(?<![\w/])([A-Za-z0-9_.-]{2,})/([A-Za-z0-9_.-]{2,})(?![\w/])');
+  /// 没有完整 URL 时，只认「仓库」这类提示词旁边的 owner/repo。
+  ///
+  /// 裸的 `xxx/yyy` 不能当仓库：`docs/guide`、`lib/ui` 到处都是，猜错会让人
+  /// 往别的仓库提交。
+  static final _repoHinted = RegExp(
+    r'(?:仓库|repo(?:sitory)?|github)\s*[:：=]?\s*[`"\x27]?([A-Za-z0-9_.-]{1,})/([A-Za-z0-9_.-]{2,})',
+    caseSensitive: false,
+  );
   static final _branch = RegExp(
     r'(?:分支|branch)\s*[:：=]?\s*[`"\x27]?([A-Za-z0-9._/-]{2,60})',
     caseSensitive: false,
   );
   static final _branchFlag = RegExp(r'--branch[= ]([A-Za-z0-9._/-]{2,60})');
 
-  /// 仓库：优先完整 URL，其次 `owner/repo` 形式的 slug（避开路径里的斜杠）。
+  /// 仓库：优先完整 URL；其次是「仓库 owner/repo」这种带提示词的写法。
   static String? repo(String text) {
     final url = _repoUrl.firstMatch(text);
     if (url != null) {
       final name = url.group(2)!.replaceAll(RegExp(r'\.git$'), '');
       return '${url.group(1)}/$name';
     }
-    for (final match in _repoSlug.allMatches(text)) {
-      final owner = match.group(1)!;
-      final name = match.group(2)!;
-      // 排除 common 的假阳性（路径、版本号、时间）。
-      if (owner.contains('.') || RegExp(r'^\d+$').hasMatch(owner)) continue;
-      if (name.contains('.')) continue;
-      return '$owner/$name';
-    }
-    return null;
+    final hinted = _repoHinted.firstMatch(text);
+    if (hinted == null) return null;
+    final owner = hinted.group(1)!;
+    final name = hinted.group(2)!.replaceAll(RegExp(r'\.git$'), '');
+    // 版本号、域名这类别当仓库名。
+    if (owner.contains('.') || RegExp(r'^\d+$').hasMatch(owner)) return null;
+    return '$owner/$name';
   }
 
   /// 分支：`分支 xxx` / `branch: xxx` / `--branch xxx`。
@@ -352,7 +357,8 @@ abstract final class CollabTaskFacts {
   static String? credentialRef(String text) {
     final ghToken = RegExp(r'\b(ghp_[A-Za-z0-9]{10,})').firstMatch(text);
     if (ghToken != null) return 'github.token';
-    if (RegExp(r'(?i)(github\s*(token|令牌|凭据))').hasMatch(text)) return 'github.token';
+    // Dart 的 RegExp 不认内联 (?i)：用 caseSensitive 开关。
+    if (RegExp(r'github\s*(token|令牌|凭据)', caseSensitive: false).hasMatch(text)) return 'github.token';
     return null;
   }
 
@@ -526,3 +532,7 @@ class CollabTaskNotifier extends Notifier<Map<String, CollabTaskContext>> {
     }
   }
 }
+
+/// 宽容地读一个列表字段：坏数据（字符串、null、对象）一律当空，
+/// 不让一条坏记录把整份任务读废弃。
+List<Object?> _asList(Object? value) => value is List ? value : const <Object?>[];
