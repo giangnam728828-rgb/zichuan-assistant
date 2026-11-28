@@ -41,6 +41,7 @@ import '../remote/network_details_sheet.dart' show showRemoteNetworkDetails;
 import '../safe_mode/engine_failure_card.dart';
 import '../safe_mode/safe_mode_banner.dart';
 import '../../collab/collab_conversations.dart' show CollabKind, CollabHistoryEntry, collabHistoryProvider;
+import '../collab/conversation_nav.dart';
 import '../collab/collab_history.dart';
 import '../share/share_entry.dart';
 import '../theme/app_icons.dart';
@@ -574,7 +575,13 @@ class _SessionList extends ConsumerWidget {
             ref.read(drawerScopeProvider)?.sessions.any((s) => s.sessionId == id) != true) {
           return;
         }
-        ref.read(currentSessionProvider.notifier).select(id);
+        // v4.2 · P0-A：普通历史必须回到普通聊天模式再选中它；
+        // 只改 sessionId 会让页面停在议会/团队，看起来像「普通会话变成了团队」。
+        openConversationWith(
+          ProviderScope.containerOf(context, listen: false),
+          context,
+          ConversationRef(kind: ConversationKind.normal, conversationId: id),
+        );
         onClose();
       },
       onLongPress: (s) {

@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../collab/collab_task_context.dart';
 import '../../state/conversation_mode_state.dart';
+import '../collab/conversation_nav.dart';
 import '../shell/root_tab.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
@@ -110,19 +111,18 @@ class _TaskCenterPageState extends ConsumerState<TaskCenterPage> {
     );
   }
 
-  /// 打开原会话（议会用 conversationId，团队用 teamId 存在 conversationId 里）。
+  /// 打开原会话：与历史、顶部入口共用同一个类型化入口（v4.2 · P0-C）。
   void _openConversation(BuildContext context, WidgetRef ref, CollabTaskContext task) {
-    final controller = ref.read(conversationModeProvider.notifier);
-    if (task.kind == 'council') {
-      controller.rememberCouncil('', task.conversationId);
-    } else {
-      controller.rememberTeam('', task.conversationId);
-    }
-    controller.openExisting(
-      task.kind == 'council' ? ConversationMode.council : ConversationMode.team,
-      task.conversationId,
+    openConversation(
+      context,
+      ref,
+      ConversationRef(
+        kind: task.kind == 'council' ? ConversationKind.council : ConversationKind.team,
+        conversationId: task.conversationId,
+        title: task.goal,
+        runId: task.runId?.toString(),
+      ),
     );
-    switchTab(context, RootTab.chat);
   }
 }
 

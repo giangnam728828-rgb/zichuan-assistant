@@ -81,6 +81,12 @@ jobs:
       - name: Council sequential answers
         run: flutter test test/collab/council_sequential_test.dart --reporter expanded
 
+      - name: Conversation routing
+        run: flutter test test/collab/conversation_nav_test.dart --reporter expanded
+
+      - name: Run keepalive
+        run: flutter test test/collab/run_keepalive_test.dart --reporter expanded
+
       - name: Review and summarize serial
         run: flutter test test/collab/team_review_serial_test.dart --reporter expanded
 
