@@ -57,6 +57,9 @@ class ConversationModeState {
   /// '模式|hostKey|会话id' -> 输入框里没发出去的字。
   final Map<String, String> drafts;
 
+  /// '模式|hostKey|会话id' → 滚动位置（v4.2 · P0-D）。每个会话各自一份。
+  final Map<String, double> scrollOffsets;
+
   /// 瞬时请求序号（不落盘）：用户主动切模式 / 从历史打开时 +1，
   /// 工作区据此重建对应模式的视图。冷启动恢复时保持 0，不触发新建。
   final int requestNonce;

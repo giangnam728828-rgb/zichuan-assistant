@@ -12,6 +12,8 @@
 // - 顶部/底部渐隐与普通聊天同一套 [EdgeFade]，不额外盖色；
 // - 空状态、系统提示、失败行都作为行传进来，列表不再关心业务。
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
