@@ -912,8 +912,23 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
   // 成员管理
 
   Future<void> _openMembers() async {
-    final team = _team;
-    if (team == null) return;
+    // v3 · 7.2：空会话不是「点了没反应」——先建一条团队，再进成员配置流程。
+    var team = _team;
+    if (team == null) {
+      final store = _store;
+      if (store == null) {
+        if (mounted) setState(() => _error = '团队仓库还没准备好，稍等一下再改成员。');
+        return;
+      }
+      team = await _createLocal(store);
+      if (!mounted) return;
+      final created = team;
+      setState(() {
+        _team = created;
+        _loading = false;
+      });
+      _remember(created);
+    }
     await showTeamMembersSheet(
       context,
       team: team,

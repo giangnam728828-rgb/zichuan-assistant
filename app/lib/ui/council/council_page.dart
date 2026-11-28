@@ -985,8 +985,15 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
   // 成员管理
 
   Future<void> _openMembers() async {
-    final conversation = _conversation;
-    if (conversation == null) return;
+    // v3 · 7.2：还没有议会会话时，先建一条空议会再配置席位，而不是静默返回。
+    var conversation = _conversation;
+    if (conversation == null) {
+      conversation = _createLocal(ref.read(councilConversationsProvider.notifier));
+      if (!mounted) return;
+      final created = conversation;
+      setState(() => _conversation = created);
+      _remember(created);
+    }
     await showCouncilMembersSheet(
       context,
       seats: conversation.seats,

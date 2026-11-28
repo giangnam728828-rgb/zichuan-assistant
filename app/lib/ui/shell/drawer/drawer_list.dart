@@ -81,6 +81,8 @@ class DrawerConversationList extends ConsumerWidget {
         if (context.mounted) ref.read(sessionCreatedProvider.notifier).ensure(ids);
       });
     }
+    // 和分组用同一个「现在」，否则跨午夜时同一行会被算到不同的一天。
+    final clock = now ?? ref.watch(drawerClockProvider)();
     final selectionNotifier = ref.read(drawerSelectionProvider.notifier);
 
     Widget tile(SessionSummary s, {bool inFolder = false}) {
@@ -119,18 +121,6 @@ class DrawerConversationList extends ConsumerWidget {
     if (showLeading) {
       const key = ValueKey('leading');
       add(key, (_) => KeyedSubtree(key: key, child: leading!));
-    }
-    // 协作记录按更新时间混在置顶之后、日期分组之前的一行行里；不再有
-    // 「议会与团队」整块标题，也不让成员子会话单独出现。
-    final collabSorted = [...collabEntries]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    for (final entry in collabSorted) {
-      add(
-        ValueKey('collab-${entry.kind.name}-${entry.id}'),
-        (_) => CollabHistoryTile(
-          entry: entry,
-          onTap: () => onOpenCollab?.call(entry),
-        ),
-      );
     }
     var foldersLabelled = false;
     for (final block in blocks) {
@@ -175,7 +165,26 @@ class DrawerConversationList extends ConsumerWidget {
         case DayBlock(:final day, :final items):
           final key = ValueKey('day-${day.name}');
           add(key, (_) => DrawerEyebrow(sessionDayLabels[day]!, key: key));
-          addSessions(items);
+          // v3 · 6.2：同一天里，普通会话与协作主会话按更新时间逐条穿插，
+          // 不再把协作记录堆在列表最前面。
+          final merged = <({DateTime at, Key key, WidgetBuilder builder})>[
+            for (final s in items)
+              (
+                at: s.updatedAt,
+                key: ValueKey('session-${s.sessionId}'),
+                builder: ((_) => tile(s)),
+              ),
+            for (final entry in collabEntries)
+              if (sessionDayOf(entry.updatedAt, clock) == day)
+                (
+                  at: entry.updatedAt,
+                  key: ValueKey('collab-${entry.kind.name}-${entry.id}'),
+                  builder: ((_) => CollabHistoryTile(entry: entry, onTap: () => onOpenCollab?.call(entry))),
+                ),
+          ]..sort((a, b) => b.at.compareTo(a.at));
+          for (final row in merged) {
+            add(row.key, row.builder);
+          }
       }
     }
     // Preserve keyed row/folder state when pinning, sorting or hiding the
