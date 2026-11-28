@@ -131,7 +131,10 @@ void main() {
     addTearDown(orchestrator.dispose);
 
     final sending = orchestrator.send('t1', '依次处理');
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    // 等第一位真的开始（落盘 + 调度都需要几毫秒），再断言只有它一个。
+    for (var i = 0; i < 60 && driver.started.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
     expect(driver.started, hasLength(1), reason: '第一位还在跑时第二位不能启动');
     await sending;
     expect(driver.peak, 1);
@@ -144,7 +147,9 @@ void main() {
     addTearDown(orchestrator.dispose);
 
     final sending = orchestrator.send('t1', '三个人依次做');
-    await Future<void>.delayed(const Duration(milliseconds: 15));
+    for (var i = 0; i < 60 && driver.started.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
     expect(driver.started, hasLength(1));
     await orchestrator.cancel('t1');
     await sending.timeout(const Duration(seconds: 5), onTimeout: () => _team());
