@@ -74,6 +74,8 @@ final class _MemConversationStore extends CouncilConversationStore {
 /// 慢驱动：每个席位停 120ms，记下每席调用次数。
 final class _SlowDriver implements CollabSessionDriver {
   final calls = <String, int>{};
+  /// 每次调用的顺序（诊断用）：seat:attempt:snapshotPhase
+  final log = <String>[];
   int _seq = 0;
   final _seatOf = <String, String>{};
 
@@ -93,6 +95,7 @@ final class _SlowDriver implements CollabSessionDriver {
   }) async {
     final seat = _seatOf[sessionId] ?? '?';
     calls[seat] = (calls[seat] ?? 0) + 1;
+    log.add('$seat#${calls[seat]}');
     await Future<void>.delayed(const Duration(milliseconds: 120));
     return TurnOutcome(kind: TurnKind.completed, text: '${_nameOf(seat)} 的完整回答');
   }
@@ -208,7 +211,13 @@ void main() {
     await _waitForTerminal(tester, runs, orchestrator);
     final finished = runs.runs[runId]!;
     expect(finished.phase, CollabPhase.done, reason: '页面卸载不能取消运行');
-    expect(driver.calls['seat0'], callsBeforeCut['seat0'], reason: '已答过的席位不重复调用');
+    expect(
+      driver.calls['seat0'],
+      callsBeforeCut['seat0'],
+      reason: '已答过的席位不重复调用；调用顺序=${driver.log}；'
+          'run 状态=${runs.runs[runId]?.seats.values.map((s) => s.status.name).toList()}；'
+          '被切走前的调用=${callsBeforeCut}',
+    );
     expect(driver.calls['seat1'], 1);
     expect(driver.calls['seat2'] ?? 1, 1);
 
