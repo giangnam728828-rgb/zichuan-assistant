@@ -55,7 +55,8 @@ class _CountingDriver implements CollabSessionDriver {
     Duration? timeout,
     List<CollabAttachment> attachments = const [],
   }) async {
-    final who = _who(text);
+    // 群聊提示词里含所有成员名，不能从正文猜；用 openSession 时记下的 owner。
+    final who = _sessionOwner[sessionId] ?? _who(text);
     running++;
     if (running > peak) peak = running;
     started.add(who);
