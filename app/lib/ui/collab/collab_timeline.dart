@@ -18,6 +18,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../chat/shared/conversation_workspace.dart';
+import '../chat/shared/follow_scroll.dart';
 import '../theme/edge_fade.dart';
 
 /// 一条时间线里的一行。
@@ -34,8 +35,16 @@ class CollabTimelineRow {
   final double bottomGap;
 }
 
-/// 没有输入栏时的常量高度（[EdgeFade] 只读 value）。
-const _staticZero = AlwaysStoppedAnimation<double>(0);
+/// 列表底部留白：最后一行与视口下沿之间的距离。
+///
+/// 视口本身停在输入栏上沿（[ConversationWorkspace] 把消息区裁在输入栏之上），
+/// 所以这里只需要一个小的呼吸位，不需要「输入栏高度」那一大块。
+const _bottomGap = 14.0;
+
+/// 底部渐隐只留很短的一截：内容已经在输入栏上方，长尾会把合法正文淡掉。
+const _bottomFadeTail = 8.0;
+
+const _bottomFade = AlwaysStoppedAnimation<double>(_bottomFadeTail);
 
 class CollabTimeline extends StatefulWidget {
   const CollabTimeline({
@@ -100,6 +109,10 @@ class CollabTimelineState extends State<CollabTimeline> {
   bool _restored = false;
   Timer? _offsetTimer;
 
+  /// 贴底跟随：内容高度一变就在同一次布局里贴住末尾（包括同一条消息里的
+  /// 正文增长、代码块/表格变高、输入栏高度变化）。v4.3 · P0-D · 5.3。
+  late final _physics = FollowScrollPhysics(() => _pinned, glides: () => false);
+
   @override
   void initState() {
     super.initState();
@@ -120,6 +133,8 @@ class CollabTimelineState extends State<CollabTimeline> {
     if (!widget.followOnNewRows) return;
     if (oldWidget.rows.length != widget.rows.length && _pinned) {
       // 行数变了（新消息/新状态行）且用户在底部：下一帧跟到底。
+      // 行数没变但正文变长的情况由 [_physics] 在同一次布局里处理，
+      // 不靠这里判断（以前只看行数，正是最后几行看不见的原因）。
       _scheduleFollow();
     }
   }
@@ -172,6 +187,26 @@ class CollabTimelineState extends State<CollabTimeline> {
     });
   }
 
+  /// 内容尺寸变了（同一条消息变长、代码块/表格展开、输入栏变高、键盘弹起）：
+  /// 贴着底部就补一次，保证最后一行始终在可见区域里。
+  ///
+  /// 物理规则已经在布局里贴住绝大多数情况；这里是兜底——拖动中、惯性中、
+  /// 或者布局被外部因素改过（视口高度变化）时，物理规则故意不插手。
+  bool _onMetrics(ScrollMetricsNotification notification) {
+    if (!widget.followOnNewRows || !_pinned) return false;
+    if (!_scroll.hasClients) return false;
+    final target = notification.metrics.maxScrollExtent;
+    if (target <= 0) return false;
+    if ((_scroll.position.pixels - target).abs() <= 0.5) return false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients || !_pinned) return;
+      final end = _scroll.position.maxScrollExtent;
+      if ((_scroll.position.pixels - end).abs() <= 0.5) return;
+      _scroll.jumpTo(end);
+    });
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final rows = widget.rows;
@@ -194,8 +229,9 @@ class CollabTimelineState extends State<CollabTimeline> {
     final list = ListView.builder(
       key: const ValueKey('collab-timeline-list'),
       controller: _scroll,
+      physics: _physics,
       // 正序：最新的内容在底部，和普通聊天一致。
-      padding: EdgeInsets.fromLTRB(widget.horizontalPadding, 4, widget.horizontalPadding, 12),
+      padding: EdgeInsets.fromLTRB(widget.horizontalPadding, 4, widget.horizontalPadding, _bottomGap),
       itemCount: rows.length + (widget.footer == null ? 0 : 1),
       itemBuilder: (context, index) {
         if (index >= rows.length) {
@@ -213,10 +249,21 @@ class CollabTimelineState extends State<CollabTimeline> {
         );
       },
     );
-    // 底部渐隐按输入栏实测高度走（和普通聊天同一条规则）：滚到输入栏
-    // 后面的字自己淡掉，而不是被一块色块盖住。
-    final bottom =
-        widget.composerHeight ?? ConversationComposerInset.maybeOf(context) ?? _staticZero;
-    return EdgeFade(top: widget.topFade, topHold: 0, bottom: bottom, child: list);
+    // v4.3 · P0-D · 5.4：消息区已经被 ConversationWorkspace 裁在输入栏之上，
+    // 不再按「输入栏高度」做底部渐隐——那条规则是给「列表铺到输入栏下面」的
+    // 普通聊天用的，照搬过来会把最后 150–250dp 的正文整段淡成看不见。
+    final composer = widget.composerHeight ?? ConversationComposerInset.maybeOf(context);
+    Widget faded() => NotificationListener<ScrollMetricsNotification>(
+      onNotification: _onMetrics,
+      child: EdgeFade(top: widget.topFade, topHold: 0, bottom: _bottomFade, bottomTail: 0, child: list),
+    );
+    if (composer == null) return faded();
+    // 输入栏高度变化（多行、附件托盘、键盘）时重建一次：视口高度跟着变，
+    // 贴底的用户由物理规则重新贴住末尾。
+    return ValueListenableBuilder<double>(
+      valueListenable: composer,
+      builder: (context, _, _) => faded(),
+    );
   }
 }
+

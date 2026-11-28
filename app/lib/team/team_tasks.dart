@@ -136,6 +136,7 @@ final class TeamRun {
     this.goal = '',
     this.summary = '',
     this.note = '',
+    this.context = '',
   });
 
   factory TeamRun.fromJson(Map<String, Object?> json) => TeamRun(
@@ -150,6 +151,7 @@ final class TeamRun {
     goal: json['goal'] as String? ?? '',
     summary: json['summary'] as String? ?? '',
     note: json['note'] as String? ?? '',
+    context: json['context'] as String? ?? '',
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
     updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? DateTime.now(),
   );
@@ -170,6 +172,12 @@ final class TeamRun {
 
   /// 给用户看的一句话：例如「达到返工上限，用已有结果汇总」。
   final String note;
+
+  /// 这一轮随用户消息带来的资料（只有那句话明确指代此前内容时才非空）。
+  ///
+  /// 任务执行与恢复都靠它：进程被杀后接着跑，队友仍能看到当初交代的方案与
+  /// 仓库要求。它**不会**污染之后的新消息——新消息只带自己的资料。
+  final String context;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -200,6 +208,7 @@ final class TeamRun {
     goal: goal,
     summary: summary ?? this.summary,
     note: note ?? this.note,
+    context: context,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -220,6 +229,7 @@ final class TeamRun {
     'goal': goal,
     'summary': summary,
     'note': note,
+    if (context.isNotEmpty) 'context': context,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };

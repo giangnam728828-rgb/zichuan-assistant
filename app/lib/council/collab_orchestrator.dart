@@ -22,8 +22,10 @@ import 'dart:convert';
 import 'package:dsh_client/dsh_client.dart';
 
 import '../collab/collab_activity.dart';
+import '../collab/collab_intent.dart';
 import '../collab/collab_session_book.dart';
 import 'collab_models.dart';
+import 'council_request.dart';
 import 'collab_store.dart';
 
 /// 单次 turn 的收尾方式。
@@ -71,7 +73,14 @@ sealed class CollabTurnEvent {
 
 /// 进入某个阶段：思考 / 调工具 / 开始写正文。`detail` 是真实的工具名等。
 final class CollabTurnStage extends CollabTurnEvent {
-  const CollabTurnStage(this.stage, {this.detail = '', this.summary = '', this.toolStatus = ''});
+  const CollabTurnStage(
+    this.stage, {
+    this.detail = '',
+    this.summary = '',
+    this.toolStatus = '',
+    this.toolId = '',
+    this.failed = false,
+  });
 
   /// `thinking` / `tool` / `replying`。
   final String stage;
@@ -82,12 +91,32 @@ final class CollabTurnStage extends CollabTurnEvent {
 
   /// 工具执行状态（调用中 / 完成 / 失败）。
   final String toolStatus;
+
+  /// 工具调用的 callId：同一次调用的开始与结果靠它对上。
+  final String toolId;
+
+  /// 这次工具调用是不是失败了（[detail] 是真实错误）。
+  final bool failed;
+}
+
+/// 这一轮到目前为止的思考正文（与普通聊天同源的 reasoning 增量）。
+///
+/// 只用于「用户可见的思考」展示：驱动拿不到就一个字都不发，界面只显示
+/// 真实的「正在思考」。
+final class CollabTurnThought extends CollabTurnEvent {
+  const CollabTurnThought(this.text);
+  final String text;
 }
 
 /// 正文增量（逐 token）。只来自 Host 的 assistant-stream。
 final class CollabTurnText extends CollabTurnEvent {
-  const CollabTurnText(this.delta);
+  const CollabTurnText(this.delta, {this.replace = false});
+
   final String delta;
+
+  /// true 表示这是一条**完整消息**（assistant/message 落盘的那一份），
+  /// 用来校准/替换前面逐段拼出来的正文，而不是再追加一遍。
+  final bool replace;
 }
 
 /// 这一轮结束。
@@ -189,13 +218,16 @@ final class CollabOrchestrator {
     String? runId,
   }) async {
     _validate(spec);
+    // v4.3 · P0-A：资料只跟着「明确指代此前内容」的那一句。
+    // 问候、闲聊、独立提问即使被调用方塞了资料，也一个字都不进提示词。
+    final effective = withGatedContext(spec);
     final now = _clock();
     final id = (runId == null || runId.trim().isEmpty) ? _newId() : runId.trim();
     final run = CollabRun(
       id: id,
-      spec: spec,
+      spec: effective,
       phase: CollabPhase.queued,
-      seats: {for (final s in spec.seats) s.id: SeatState(sessionId: seedSessions[s.id])},
+      seats: {for (final s in effective.seats) s.id: SeatState(sessionId: seedSessions[s.id])},
       createdAt: now,
       updatedAt: now,
     );
@@ -263,6 +295,12 @@ final class CollabOrchestrator {
     _disposed = true;
     await _events.close();
   }
+
+  /// 进程内的最新快照（不读盘）：页面首屏与「切回来」先用它。
+  ///
+  /// v4.3 · P0-J：切回正在跑的议会时，当前成员、已生成的正文与工具状态
+  /// 都在这里，不必等盘上的旧回合读完。
+  CollabRun? peek(String runId) => _latest[runId];
 
   /// 最近一次快照（内存优先，没有则读盘）。
   Future<CollabRun?> snapshot(String runId) async => _latest[runId] ?? await _store.load(runId);
@@ -386,6 +424,12 @@ final class CollabOrchestrator {
     if (latest.cancelRequested) throw _Cancelled();
     if (latest.answeredCount == 0) {
       await _transition(runId, CollabPhase.failed, failure: '所有席位都没能给出答案');
+      return;
+    }
+    // 社交轮（问候/闲聊/半个字）：各席位回应完就结束，不再让主席写一篇
+    // 「结论 / 共识 / 分歧」——那不是用户要的（v4.3 · P0-A · 2.6）。
+    if (!CouncilRequestRules.of(latest.spec.question).synthesizes) {
+      await _transition(runId, CollabPhase.done);
       return;
     }
     final next = switch (latest.spec.mode) {
@@ -623,14 +667,38 @@ final class CollabOrchestrator {
   // 提示词
 
   String _roundPrompt(CollabRun run, SeatSpec seat) {
-    final buffer = StringBuffer()
+    final kind = CouncilRequestRules.of(run.spec.question);
+    // 资料只在「明确指代此前内容」时存在（submit 已按策略收口）；社交轮
+    // 即使旧会话里存着资料也不再重复，避免把问候答成上一次的工程任务。
+    final context = kind == CouncilRequestKind.social ? '' : run.spec.context.trim();
+    final buffer = StringBuffer();
+    if (kind == CouncilRequestKind.social) {
+      buffer
+        ..writeln('你是议会中的一员。用户这句话只是打招呼或简短互动。')
+        ..writeln()
+        ..writeln('【用户说的话】')
+        ..writeln(run.spec.question)
+        ..writeln();
+      if (seat.role.briefing.isNotEmpty) {
+        buffer
+          ..writeln('【你的角色】')
+          ..writeln(seat.role.briefing)
+          ..writeln();
+      }
+      buffer
+        ..writeln('【要求】')
+        ..writeln('- 用一两句话自然回应，像群聊里打招呼。')
+        ..writeln('- 不要提以前的工程任务、仓库、提交或结论。')
+        ..writeln('- 不要写结论/共识/分歧这类格式，也不要长篇分析。')
+        ..writeln('- 你是议会成员之一，别人也会回应；只说你自己这一句。');
+      return buffer.toString();
+    }
+    buffer
       ..writeln('你是议会中的一员，正在独立回答下面的议题。')
       ..writeln();
-    // 此前对话的检索结果（方案、仓库、执行要求）：用户常常只用一句
-    // 「按前面那个方案做」指代它们，光看议题会以为没有任务。
-    if (run.spec.context.trim().isNotEmpty) {
+    if (context.isNotEmpty) {
       buffer
-        ..writeln(run.spec.context.trim())
+        ..writeln(context)
         ..writeln();
     }
     buffer
@@ -646,6 +714,7 @@ final class CollabOrchestrator {
     buffer
       ..writeln('【要求】')
       ..writeln('- 直接给出你的答案，不要复述议题，不要客套。')
+      ..writeln('- 只回答【议题】里这一句；以前的讨论只能当背景，不能盖过它。')
       ..writeln('- 议题引用前面资料时（例如「上面那一大段」），先把资料里的目标任务说清楚，再作答。')
       ..writeln('- 资料里已经给出的仓库、分支、步骤直接采用，不要要求用户再贴一遍。')
       ..writeln('- 结论先行，理由随后；不确定的地方明确标注「不确定」。')
@@ -707,7 +776,19 @@ final class CollabOrchestrator {
   }
 
   String _synthPrompt(CollabRun run, List<({String label, String text})> answers) {
-    final buffer = StringBuffer()
+    final buffer = StringBuffer();
+    if (!CouncilRequestRules.of(run.spec.question).synthesizes) {
+      // 兜底：社交轮正常不会进综合（见 _roundOne）。真进来了也只写一句
+      // 自然回应，不套「结论 / 共识 / 分歧」。
+      buffer
+        ..writeln('你是议会主席。用户刚才只是打招呼或简短互动，成员们各自回应了几句。')
+        ..writeln('用一两句话接住这场对话即可：不要写结论/共识/分歧，不要提旧任务。')
+        ..writeln()
+        ..writeln('【用户说的话】')
+        ..writeln(run.spec.question);
+      return buffer.toString();
+    }
+    buffer
       ..writeln('你是议会主席。下面是同一个议题的所有成员答案，请综合出最终裁决。')
       ..writeln();
     if (run.spec.context.trim().isNotEmpty) {
@@ -752,6 +833,28 @@ final class CollabOrchestrator {
 
   Future<void> _transition(String runId, CollabPhase phase, {String? failure}) =>
       _update(runId, (r) => r.copyWith(phase: phase, failure: failure));
+
+  /// 把 spec 的资料按当前问题收口：不允许带历史时清空 context 与来源编号。
+  ///
+  /// 公开成静态方法：页面在提交前也用同一条规则算「这一轮到底带了什么」，
+  /// 界面上的任务记录与真正发出去的提示词不会各说一套。
+  static CouncilSpec withGatedContext(CouncilSpec spec) {
+    final context = spec.context.trim();
+    if (context.isEmpty) return spec;
+    if (CollabContextPolicy.allowsHistory(spec.question)) return spec;
+    return CouncilSpec(
+      question: spec.question,
+      seats: spec.seats,
+      mode: spec.mode,
+      chairId: spec.chairId,
+      maxConcurrency: spec.maxConcurrency,
+      seatTimeout: spec.seatTimeout,
+      budgetCalls: spec.budgetCalls,
+      workspaceId: spec.workspaceId,
+      context: '',
+      sourceMessageIds: const [],
+    );
+  }
 
   void _validate(CouncilSpec spec) {
     if (spec.question.trim().isEmpty) throw ArgumentError('议题不能为空');
@@ -954,11 +1057,25 @@ final class DshCollabDriver implements CollabSessionDriver, CollabStreamingDrive
     StreamSubscription<DshEvent>? subscription;
     Timer? timer;
     var answer = '';
+    var reasoning = '';
     var tokensIn = 0;
     var tokensOut = 0;
     var baseline = 0; // 快照之前的旧事件（历史回放）不参与本轮
     var sawSnapshot = false;
     var finished = false;
+
+    /// 这次 turn 真正在跑的 attempt：只有它之后的增量才算数。
+    /// 会话是复用的，重新订阅时 Host 会把旧事件回放一遍；不挡住就会把上一次
+    /// 的思考与正文当成这一次的（v4.3 · P0-C · 4.4）。
+    final attempts = <String, bool>{};
+
+    /// callId → 工具名：tool/result 只带 callId，名字从 tool/call 记下来。
+    final toolNames = <String, String>{};
+
+    bool accepting(String attemptId) {
+      if (attemptId.isEmpty) return true;
+      return attempts[attemptId] ?? false;
+    }
 
     void emit(CollabTurnEvent event) {
       if (!controller.isClosed) controller.add(event);
@@ -987,33 +1104,76 @@ final class DshCollabDriver implements CollabSessionDriver, CollabStreamingDrive
                   return;
                 }
                 if (event is AssistantStreamStarted) {
-                  emit(const CollabTurnStage('thinking'));
+                  // 这次 attempt 是否发生在本轮开始之后：决定了它的增量算不算。
+                  attempts[event.attemptId] = !sawSnapshot || event.startedAfterSeq >= baseline;
+                  if (accepting(event.attemptId)) emit(const CollabTurnStage('thinking'));
                   return;
                 }
                 if (event is AssistantChunkEvent) {
+                  if (!accepting(event.attemptId)) return;
                   final chunk = event.chunk;
                   if (chunk is TextDeltaChunk) {
                     emit(const CollabTurnStage('replying'));
                     emit(CollabTurnText(chunk.text));
                   } else if (chunk is ReasoningDeltaChunk) {
-                    // 只报「在思考」，不把推理正文当可见内容。
-                    emit(const CollabTurnStage('thinking'));
-                  } else if (chunk is ToolCallDeltaChunk && (chunk.name?.isNotEmpty ?? false)) {
-                    emit(CollabTurnStage('tool', detail: chunk.name!));
+                    // 与普通聊天同一份数据：累积起来交给 ThinkingPill。
+                    reasoning += chunk.text;
+                    emit(CollabTurnStage('thinking'));
+                    emit(CollabTurnThought(reasoning));
+                  } else if (chunk is ToolCallDeltaChunk) {
+                    final name = chunk.name?.trim() ?? '';
+                    if (name.isNotEmpty) {
+                      toolNames[chunk.id] = name;
+                      emit(CollabTurnStage('tool', detail: name, toolId: chunk.id, toolStatus: '准备调用'));
+                    }
                   }
                   return;
                 }
                 if (event is! SessionLogEvent || event.seq <= baseline) return;
                 if (event is ToolCallEvent) {
-                  emit(CollabTurnStage('tool', detail: event.name));
+                  toolNames[event.callId] = event.name;
+                  emit(CollabTurnStage('tool', detail: event.name, toolId: event.callId, toolStatus: '执行中'));
                 } else if (event is ToolResultEvent) {
+                  final name = toolNames[event.callId] ?? '';
+                  final failure = event.failure;
+                  final reason = event.isError
+                      ? (failure?.reason ??
+                          failure?.code ??
+                          [
+                            for (final part in event.message.parts)
+                              if (part is TextPart) part.text,
+                          ].join(' ').trim())
+                      : '';
+                  emit(
+                    CollabTurnStage(
+                      'tool',
+                      detail: reason.isEmpty ? name : reason,
+                      toolId: event.callId,
+                      toolStatus: event.isError ? '失败' : '完成',
+                      failed: event.isError,
+                    ),
+                  );
+                  // 工具结束、正文还没开始：回到思考态，让状态如实变化。
                   emit(const CollabTurnStage('thinking'));
                 } else if (event is AssistantMessageEvent) {
                   final texts = [
                     for (final part in event.message.parts)
                       if (part is TextPart) part.text,
                   ];
-                  if (texts.isNotEmpty) answer = texts.join('\n');
+                  final partsReasoning = [
+                    for (final part in event.message.parts)
+                      if (part is ReasoningPart) part.text,
+                  ].join();
+                  if (partsReasoning.isNotEmpty && partsReasoning.length > reasoning.length) {
+                    reasoning = partsReasoning;
+                    emit(CollabTurnThought(reasoning));
+                  }
+                  if (texts.isNotEmpty) {
+                    answer = texts.join('\n');
+                    // 完整消息立即进入 UI 数据流：模型不给增量、只给终稿时，
+                    // 用户也能当场看到正文，而不是等这一轮结束才「啪」地出现。
+                    emit(CollabTurnText(answer, replace: true));
+                  }
                   tokensIn += event.usage?.inputTokens ?? 0;
                   tokensOut += event.usage?.outputTokens ?? 0;
                   emit(const CollabTurnStage('replying'));

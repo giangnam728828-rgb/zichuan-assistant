@@ -74,6 +74,57 @@ enum CollabActivityPhase {
   failed,
 }
 
+/// 一次工具调用的真实状态（名称来自事件，不编造）。
+enum CollabToolStatus {
+  /// 已开始调用（模型发出了 tool/call）。
+  calling,
+
+  /// 执行完成。
+  done,
+
+  /// 执行失败，[CollabToolStep.detail] 是真实错误。
+  failed;
+
+  String get label => switch (this) {
+    CollabToolStatus.calling => '执行中',
+    CollabToolStatus.done => '完成',
+    CollabToolStatus.failed => '失败',
+  };
+}
+
+/// 成员消息下面的一行工具记录（v4.3 · P0-C · 4.3）。
+final class CollabToolStep {
+  const CollabToolStep({
+    required this.id,
+    required this.name,
+    this.status = CollabToolStatus.calling,
+    this.detail = '',
+  });
+
+  /// 事件里的 callId（同一次调用的开始与结果靠它对上）。
+  final String id;
+
+  /// 真实工具名（tool/call 事件的 name）。
+  final String name;
+  final CollabToolStatus status;
+
+  /// 真实补充：失败原因等。
+  final String detail;
+
+  CollabToolStep copyWith({String? name, CollabToolStatus? status, String? detail}) => CollabToolStep(
+    id: id,
+    name: name ?? this.name,
+    status: status ?? this.status,
+    detail: detail ?? this.detail,
+  );
+
+  String get label => switch (status) {
+    CollabToolStatus.calling => '正在调用 $name',
+    CollabToolStatus.done => '$name · 完成',
+    CollabToolStatus.failed => detail.isEmpty ? '$name · 失败' : '$name · 失败：$detail',
+  };
+}
+
 /// 一位成员此刻的执行状态（不落盘）。
 final class CollabActivity {
   const CollabActivity({
@@ -84,6 +135,8 @@ final class CollabActivity {
     this.thoughtSummary = '',
     this.toolName = '',
     this.toolStatus = '',
+    this.reasoning = '',
+    this.tools = const [],
     this.at,
   });
 
@@ -102,9 +155,19 @@ final class CollabActivity {
 
   /// 提供方明确标为「用户可见」的思考摘要。
   ///
-  /// 只有这个字段可以喂给 ThinkingPill；原始 reasoning delta 永远不落这里，
-  /// 没有公开摘要时就留空，界面只显示真实的阶段状态（v3 · 3.3）。
+  /// 只有这个字段可以喂给 ThinkingPill；没有公开摘要时就留空，
+  /// 界面只显示真实的阶段状态（v3 · 3.3）。
   final String thoughtSummary;
+
+  /// 与普通聊天同源的思考正文（reasoning 增量累积）。
+  ///
+  /// 普通聊天把 reasoning 直接交给 ThinkingPill 展示；协作模式以前把它压成
+  /// 一个「思考中」标记，用户看不到内容。这里保存同一份数据，界面用同一个
+  /// ThinkingPill 渲染——既不多透一点，也不少透一点（v4.3 · P0-C · 4.2）。
+  final String reasoning;
+
+  /// 这一轮真实发生过的工具调用（按发生顺序，同一 callId 就地更新状态）。
+  final List<CollabToolStep> tools;
 
   /// 当前工具名与执行状态（都来自真实事件）。
   final String toolName;
@@ -132,6 +195,8 @@ final class CollabActivity {
     String? text,
     String? attemptId,
     String? thoughtSummary,
+    String? reasoning,
+    List<CollabToolStep>? tools,
     String? toolName,
     String? toolStatus,
     DateTime? at,
@@ -142,6 +207,8 @@ final class CollabActivity {
       text: text ?? this.text,
       attemptId: attemptId ?? this.attemptId,
       thoughtSummary: thoughtSummary ?? this.thoughtSummary,
+      reasoning: reasoning ?? this.reasoning,
+      tools: tools ?? this.tools,
       toolName: toolName ?? this.toolName,
       toolStatus: toolStatus ?? this.toolStatus,
       at: at ?? this.at,

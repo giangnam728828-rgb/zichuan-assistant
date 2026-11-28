@@ -262,16 +262,18 @@ void main() {
       expect(state.messages.where((m) => m.teammateId == 'lead').last.text, contains('最终汇总'));
     });
 
-    test('主管不拆分时直接给答案，不建任务', () async {
+    test('主管不拆分时直接在群里答，不建任务图', () async {
       driver.plan = '{"tasks":[],"summary":"这个问题不用分工，直接答。"}';
       final created = await team();
       await orch.send(created.id, '今天几号');
       final state = await orch.load(created.id);
 
-      expect(state!.run, isNotNull);
-      expect(state.run!.tasks, isEmpty);
-      expect(state.run!.status, TeamRunStatus.done);
-      expect(state.messages.last.text, contains('不用分工'));
+      // v4.3 · P0-B：「今天几号」没有执行动作，不进任务规划（_planPrompt）。
+      // 主管作为普通成员先答一句，群里只有聊天，没有任务图。
+      expect(state!.run, isNull, reason: '这类开放提问不该被拆成任务');
+      expect(state.messages.where((m) => m.role == TeamMsgRole.teammate).length, 1);
+      expect(state.messages.last.text, isNotEmpty);
+      expect(driver.prompts.any((p) => p.contains('把用户这件事拆成任务图')), isFalse);
     });
 
     test('计划不合法时退回群聊分派，并留一句说明', () async {

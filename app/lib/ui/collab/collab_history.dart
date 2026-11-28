@@ -8,14 +8,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../collab/collab_conversations.dart';
 import '../../collab/collab_export.dart';
-import '../../state/conversation_mode_state.dart';
+import '../common/app_sheet.dart';
+import '../shell/drawer/session_tile.dart' show SessionTile;
+import '../workspace/text_prompt.dart' show showTextPrompt;
 import '../../state/history_kind_state.dart';
-import '../../state/hosts_state.dart';
 import '../common/capsule_chip.dart';
-import '../shell/root_tab.dart';
 import 'conversation_nav.dart';
 import '../theme/app_icons.dart';
-import '../theme/theme.dart';
 
 /// 一行分类胶囊：全部 | 普通 | 议会 | 团队。
 class HistoryKindBar extends ConsumerWidget {
@@ -61,115 +60,30 @@ class HistoryKindBar extends ConsumerWidget {
   }
 }
 
-/// 历史里的一条协作会话：模式图标 + 标题 + 成员数/时间。
+/// 历史里的一条协作会话：**就是普通会话那一行**，只多一枚类型标签。
+///
+/// v4.3 · P0-G：以前这里是一张独立的大图标卡片（图标更大、行高不同、
+/// 描述另占一行，选中高亮也没有同步过来）。现在直接复用 [SessionTile]：
+/// 三类记录同一行高、同一字号与基线、同一标题位置、同一选中背景。
 class CollabHistoryTile extends StatelessWidget {
-  const CollabHistoryTile({super.key, required this.entry, required this.onTap, this.onLongPress});
+  const CollabHistoryTile({super.key, required this.entry, required this.onTap, this.onLongPress, this.current = false});
 
   final CollabHistoryEntry entry;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
+  /// 是不是当前打开的那一条（历史页里也用同一套高亮）。
+  final bool current;
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final isCouncil = entry.kind == CollabKind.council;
-    final accent = isCouncil ? colors.primary : colors.tertiary;
-    final icon = isCouncil ? AppIcons.team : AppIcons.groupChat;
-    // 状态如实显示：进行中 / 可恢复 / 已完成 / 已失败 / 已取消。
-    // 不再只靠「有没有人在跑」二选一——落盘的任务图还在跑或还能续跑，
-    // 这里就要说清楚，而不是显示成一条安静的旧记录。
-    final statusLabel = switch (entry.status) {
-      CollabRunStatus.running => '进行中',
-      CollabRunStatus.recoverable => '可恢复',
-      CollabRunStatus.done => null,
-      CollabRunStatus.failed => '已失败',
-      CollabRunStatus.cancelled => '已取消',
-    };
-    final subtitle = [
-      entry.subtitle,
-      if (statusLabel != null) statusLabel else collabStamp(entry.updatedAt),
-      if (entry.status == CollabRunStatus.recoverable || entry.status == CollabRunStatus.cancelled)
-        collabStamp(entry.updatedAt),
-    ].join(' · ');
-    return Semantics(
-      button: true,
-      label: '${entry.title}，$subtitle',
-      excludeSemantics: true,
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          onTap: onTap,
-          onLongPress: onLongPress,
-          borderRadius: BorderRadius.circular(AppShape.panel),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: accent.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  alignment: Alignment.center,
-                  child: Icon(icon, size: 18, color: accent),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              entry.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          CollabKindTag(kind: entry.kind),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${entry.memberLabel} · $subtitle',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelSmall?.copyWith(color: colors.onSurfaceVariant),
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(left: 6, top: 8),
-                  child: switch (entry.status) {
-                    CollabRunStatus.running => SizedBox(
-                      width: 8,
-                      height: 8,
-                      child: CircularProgressIndicator(strokeWidth: 1.6, color: accent),
-                    ),
-                    CollabRunStatus.recoverable => Tooltip(
-                      message: '还有没跑完的任务，点开可以继续',
-                      child: Icon(AppIcons.play, size: 16, color: accent),
-                    ),
-                    CollabRunStatus.failed => Tooltip(
-                      message: entry.failure ?? '上一次运行失败',
-                      child: Icon(AppIcons.info, size: 16, color: colors.error),
-                    ),
-                    _ => const SizedBox.shrink(),
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return SessionTile(
+      title: entry.title,
+      kindTag: collabKindLabel(entry.kind),
+      running: entry.status == CollabRunStatus.running,
+      current: current,
+      onTap: onTap,
+      onLongPress: onLongPress,
     );
   }
 }
@@ -188,7 +102,7 @@ class CollabKindTag extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
       child: Text(
-        kind == CollabKind.council ? '议会' : '团队',
+        collabKindLabel(kind),
         style: theme.textTheme.labelSmall?.copyWith(color: color, height: 1.4),
       ),
     );
@@ -234,6 +148,7 @@ class CollabHistoryList extends ConsumerWidget {
         ),
       );
     }
+    final currentRef = currentConversationRef(ref);
     return ListView(
       padding: const EdgeInsets.fromLTRB(10, 4, 10, 16),
       children: [
@@ -241,8 +156,9 @@ class CollabHistoryList extends ConsumerWidget {
           CollabHistoryTile(
             key: ValueKey('collab-${entry.kind.name}-${entry.id}'),
             entry: entry,
+            current: _isCurrent(currentRef, entry),
             onTap: () => openCollabEntry(context, entry, onClose: onClose),
-            onLongPress: () => confirmDeleteCollab(context, ref, entry),
+            onLongPress: () => showCollabEntrySheet(context, ref, entry),
           ),
       ],
     );
@@ -273,11 +189,173 @@ class CollabHistorySection extends ConsumerWidget {
           CollabHistoryTile(
             key: ValueKey('collab-${entry.kind.name}-${entry.id}'),
             entry: entry,
+            current: _isCurrent(currentConversationRef(ref), entry),
             onTap: () => openCollabEntry(context, entry, onClose: onClose),
-            onLongPress: () => confirmDeleteCollab(context, ref, entry),
+            onLongPress: () => showCollabEntrySheet(context, ref, entry),
           ),
         const Divider(height: 20, indent: 10, endIndent: 10),
       ],
+    );
+  }
+}
+
+/// 长按一条协作记录：详情 + 操作面板（v4.3 · P0-H）。
+///
+/// 与普通会话同一个 [showAppSheet] 容器、圆角与按压反馈，只换数据与操作项：
+/// 标题、类型、成员数、创建/更新时间、当前状态、最近一条提问与回答，以及
+/// 打开、重命名、导出 Markdown、继续运行、删除（二次确认）。
+Future<void> showCollabEntrySheet(BuildContext context, WidgetRef ref, CollabHistoryEntry entry) async {
+  final theme = Theme.of(context);
+  final action = await showAppSheet<String>(
+    context,
+    isScrollControlled: true,
+    builder: (sheet) => SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheet).height * 0.82),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SheetHeader(entry.title, maxLines: 2),
+              _DetailBlock(entry: entry),
+              SheetGroup(
+                children: [
+                  ListTile(
+                    key: const ValueKey('collab-sheet-open'),
+                    leading: const Icon(AppIcons.chat),
+                    title: const Text('打开原会话'),
+                    subtitle: Text(entry.status == CollabRunStatus.running ? '正在运行，打开就能接着看' : '恢复原来的会话，不新建'),
+                    onTap: () => Navigator.pop(sheet, 'open'),
+                  ),
+                  ListTile(
+                    key: const ValueKey('collab-sheet-rename'),
+                    leading: const Icon(AppIcons.rename),
+                    title: const Text('重命名'),
+                    onTap: () => Navigator.pop(sheet, 'rename'),
+                  ),
+                  ListTile(
+                    key: const ValueKey('collab-sheet-export'),
+                    leading: const Icon(AppIcons.share),
+                    title: const Text('导出 Markdown'),
+                    onTap: () => Navigator.pop(sheet, 'export'),
+                  ),
+                  if (entry.resumable)
+                    ListTile(
+                      key: const ValueKey('collab-sheet-resume'),
+                      leading: const Icon(AppIcons.play),
+                      title: const Text('继续未完成的运行'),
+                      subtitle: const Text('已完成的成员不会重跑，原问题不会重发'),
+                      onTap: () => Navigator.pop(sheet, 'resume'),
+                    ),
+                  ListTile(
+                    key: const ValueKey('collab-sheet-delete'),
+                    leading: Icon(AppIcons.delete, color: theme.colorScheme.error),
+                    title: Text('删除', style: TextStyle(color: theme.colorScheme.error)),
+                    subtitle: const Text('需要再确认一次；其他会话不受影响'),
+                    onTap: () => Navigator.pop(sheet, 'delete'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+  if (!context.mounted || action == null) return;
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  switch (action) {
+    case 'open':
+      openCollabEntry(context, entry);
+    case 'rename':
+      final next = await showTextPrompt(
+        context,
+        title: '重命名${collabKindLabel(entry.kind)}会话',
+        initial: entry.title,
+        hint: '会话名称',
+        maxLength: 80,
+      );
+      if (next == null || next.trim().isEmpty || next.trim() == entry.title) return;
+      await renameCollabEntry(ref, entry, next);
+    case 'export':
+      try {
+        final content = await collabMarkdownFor(ref, entry);
+        await shareMarkdownFile(fileName: '${collabKindLabel(entry.kind)}-${entry.title}.md', content: content);
+      } on Object catch (error) {
+        messenger?.showSnackBar(SnackBar(content: Text('导出失败：$error')));
+      }
+    case 'resume':
+      final ok = await resumeCollabEntry(ref, entry);
+      if (!ok) messenger?.showSnackBar(const SnackBar(content: Text('还连不上引擎，稍后再试。')));
+    case 'delete':
+      if (!context.mounted) return;
+      await confirmDeleteCollab(context, ref, entry);
+  }
+}
+
+/// 详情面板里的事实区：类型、成员、时间、状态、最近一问一答。
+class _DetailBlock extends StatelessWidget {
+  const _DetailBlock({required this.entry});
+
+  final CollabHistoryEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final rows = <(String, String)>[
+      ('类型', collabKindLabel(entry.kind)),
+      ('成员', entry.memberLabel),
+      ('创建时间', collabStamp(entry.createdAt)),
+      ('最近更新', collabStamp(entry.updatedAt)),
+      ('当前状态', entry.status.label),
+      if (entry.failure case final failure? when failure.trim().isNotEmpty) ('上次的问题', failure.trim()),
+    ];
+    Widget label(String text) => SizedBox(
+      width: 64,
+      child: Text(text, style: theme.textTheme.labelSmall?.copyWith(color: muted)),
+    );
+    Widget body(String text) => Expanded(
+      child: Text(text, style: theme.textTheme.bodySmall, maxLines: 3, overflow: TextOverflow.ellipsis),
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final (name, value) in rows)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [label(name), body(value)]),
+            ),
+          if (entry.lastQuestion.trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text('最近的提问', style: theme.textTheme.labelSmall?.copyWith(color: muted)),
+            const SizedBox(height: 2),
+            Text(
+              entry.lastQuestion.trim(),
+              key: const ValueKey('collab-sheet-question'),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+          if (entry.lastAnswer.trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text('最近的回答', style: theme.textTheme.labelSmall?.copyWith(color: muted)),
+            const SizedBox(height: 2),
+            Text(
+              entry.lastAnswer.trim(),
+              key: const ValueKey('collab-sheet-answer'),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(color: muted),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -329,4 +407,14 @@ Future<void> confirmDeleteCollab(BuildContext context, WidgetRef ref, CollabHist
   );
   if (confirmed != true) return;
   await deleteCollabEntry(ref, entry);
+}
+
+/// 这一条是不是当前打开的协作会话（类型 + id 同时对上才算）。
+bool _isCurrent(ConversationRef? ref, CollabHistoryEntry entry) {
+  if (ref == null) return false;
+  return switch ((ref.kind, entry.kind)) {
+    (ConversationKind.team, CollabKind.team) => ref.conversationId == entry.id,
+    (ConversationKind.council, CollabKind.council) => ref.conversationId == entry.id,
+    _ => false,
+  };
 }

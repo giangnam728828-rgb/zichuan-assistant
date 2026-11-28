@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../../council/collab_models.dart';
 import '../chat/model_brand_mark.dart';
+import '../theme/app_icons.dart';
 import '../chat/widgets/thinking_pill.dart';
 import '../chat/shared/conversation_kit.dart';
 import '../providers/provider_brand_icon.dart';
@@ -65,6 +66,8 @@ class CollabMessage extends StatelessWidget {
     this.streaming = false,
     this.thinking = false,
     this.thoughtSummary = '',
+    this.reasoning = '',
+    this.tools = const [],
     this.toolName = '',
     this.trailing,
     this.animate = true,
@@ -90,6 +93,12 @@ class CollabMessage extends StatelessWidget {
   /// 提供方公开的用户可见思考摘要；原始 reasoning 不进这里。
   final String thoughtSummary;
 
+  /// 与普通聊天同源的思考正文（reasoning 增量），喂给同一个 ThinkingPill。
+  final String reasoning;
+
+  /// 这一轮真实发生过的工具调用（名称与结果都来自事件）。
+  final List<CollabToolStep> tools;
+
   /// 真实工具名（有就显示，不编）。
   final String toolName;
 
@@ -102,6 +111,22 @@ class CollabMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final config = model ?? _modelLine(brand, name);
+    // 思考正文：公开摘要优先，其次是与普通聊天同源的 reasoning。
+    final thought = thoughtSummary.trim().isNotEmpty ? thoughtSummary : reasoning;
+    final footer = <Widget>[
+      if (thinking || thought.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: ThinkingPill(reasoning: thought, active: thinking, streaming: streaming),
+        ),
+      // 工具轨迹挂在这位成员自己的消息下面：谁调的、调了什么、成没成，
+      // 一眼对得上人（v4.3 · P0-C · 4.3）。绝不编造工具名。
+      if (tools.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: CollabToolTrace(tools: tools),
+        ),
+    ];
     return ConversationAssistantMessage(
       brand: brand,
       name: name,
@@ -114,18 +139,12 @@ class CollabMessage extends StatelessWidget {
       streaming: streaming,
       onNameTap: onNameTap,
       animate: animate,
-      // 思考行挂在这位成员自己的消息下面，复用普通聊天的 ThinkingPill；
-      // 没有公开摘要时不给正文，只显示真实阶段。
-      footer: (thinking || thoughtSummary.isNotEmpty)
-          ? Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: ThinkingPill(
-                reasoning: thoughtSummary,
-                active: thinking,
-                streaming: streaming,
-              ),
-            )
-          : null,
+      footer: footer.isEmpty
+          ? null
+          : Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: footer),
+            ),
     );
   }
 
@@ -133,6 +152,74 @@ class CollabMessage extends StatelessWidget {
   static String? _modelLine(ModelBrand brand, String name) {
     final label = brandLabel(brand);
     return label.isEmpty || label == name ? null : label;
+  }
+}
+
+/// 一位成员的工具调用轨迹：每行一次真实调用，状态跟着事件走。
+///
+/// 视觉与普通聊天的工具行同一套解剖：小图标 + 工具名 + 状态，次级色、不抢正文。
+class CollabToolTrace extends StatelessWidget {
+  const CollabToolTrace({super.key, required this.tools, this.limit = 4});
+
+  final List<CollabToolStep> tools;
+
+  /// 最多画几行：更早的收成一句「另有 N 次调用」，不刷屏。
+  final int limit;
+
+  @override
+  Widget build(BuildContext context) {
+    if (tools.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final shown = tools.length <= limit ? tools : tools.sublist(tools.length - limit);
+    final hidden = tools.length - shown.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (hidden > 0)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Text(
+              '另有 $hidden 次工具调用',
+              style: theme.textTheme.labelSmall?.copyWith(color: colors.outline, fontSize: 11),
+            ),
+          ),
+        for (final step in shown)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 1),
+                  child: Icon(
+                    switch (step.status) {
+                      CollabToolStatus.calling => AppIcons.tool,
+                      CollabToolStatus.done => AppIcons.done,
+                      CollabToolStatus.failed => AppIcons.info,
+                    },
+                    size: 12,
+                    color: step.status == CollabToolStatus.failed ? colors.error : colors.outline,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    step.label,
+                    key: ValueKey('collab-tool-${step.id}'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontSize: 11,
+                      color: step.status == CollabToolStatus.failed ? colors.error : colors.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
   }
 }
 

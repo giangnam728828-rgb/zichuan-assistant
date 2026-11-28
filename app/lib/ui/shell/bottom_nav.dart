@@ -114,7 +114,8 @@ class BottomNav extends ConsumerWidget {
               child: GlassSurface(
                 tier: GlassTier.chrome,
                 borderRadius: const BorderRadius.all(Radius.circular(AppShape.float)),
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                // 上下 4 + 触控 48 = 56（[ShellMetrics.navHeight] 同一个公式）。
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: ShellMetrics.navPadding),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [

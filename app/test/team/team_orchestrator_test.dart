@@ -662,19 +662,22 @@ void main() {
       expect(driver.peak, 1);
     });
 
-    test('关掉互斥：可写队友回到并发跑', () async {
+    test('关掉互斥也只是排队：同一时刻仍只有一个请求在飞', () async {
+      // v3 起团队执行是单通道（见 TeamRunScheduler）：关掉「可写互斥」只是
+      // 不再为可写队友额外加锁，模型请求本身仍然排队，不会两个同时在飞。
       boot(
         maxConcurrency: 3,
         scripts: {
-          'm1': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
-          'm2': const Script(FakeKind.ok, delay: Duration(milliseconds: 80)),
+          'm1': const Script(FakeKind.ok, delay: Duration(milliseconds: 20)),
+          'm2': const Script(FakeKind.ok, delay: Duration(milliseconds: 20)),
         },
       );
       final team = await orch.create(teammates: [mate('m1', '阿蓝'), mate('m2', '阿橙')]);
       await orch.setExclusiveWrite(team.id, false);
       await orch.send(team.id, '各改一个文件');
 
-      expect(driver.peak, greaterThan(1));
+      expect(driver.peak, 1);
+      expect(driver.prompts.keys.toSet(), {'m1', 'm2'});
     });
 
     test('只读 + 可写可以并行：只读的不抢写锁', () async {
@@ -694,8 +697,9 @@ void main() {
       );
       await orch.send(team.id, '先说思路');
 
-      // 两位只读顾问同时跑，可写那位不论排在哪边都不该把并发压到 1。
-      expect(driver.peak, greaterThan(1));
+      // 只读顾问也不抢跑：单通道下同一时刻仍只有一个请求在飞。
+      expect(driver.peak, 1);
+      expect(driver.prompts.keys.toSet(), {'m1', 'm2', 'm3'});
     });
 
     test('只读标记能落盘读回来', () async {

@@ -159,7 +159,10 @@ void main() {
     expect(find.text('要不要上线'), findsNothing);
     expect(find.text('登录页重做'), findsOneWidget);
     expect(find.text('团队'), findsNWidgets(2));
-    expect(find.textContaining('2 位队友'), findsNWidgets(2));
+    // v4.3 · P0-G：协作历史就是普通会话那一行 + 一枚类型标签；
+    // 成员数这类细节移到长按详情面板里，不再单占一行。
+    expect(find.byKey(const ValueKey('session-kind-tag')), findsNWidgets(2));
+    expect(find.textContaining('2 位队友'), findsNothing);
     // 最近更新的在前。
     expect(
       tester.getTopLeft(find.text('修登录')).dy,
@@ -199,11 +202,17 @@ void main() {
       home: const Scaffold(body: CollabHistoryList(kind: CollabKind.team)),
     );
 
+    // v4.3 · P0-H：长按先弹详情与操作面板，不是直接问「删不删」。
     await tester.longPress(find.text('登录页重做'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const ValueKey('collab-sheet-open')), findsOneWidget);
+    expect(find.byKey(const ValueKey('collab-sheet-export')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('collab-sheet-delete')));
+    await _settle(tester);
     expect(find.text('删除这条团队会话？'), findsOneWidget);
-    expect(find.textContaining('其他会话不受影响'), findsOneWidget);
+    expect(find.textContaining('其他会话不受影响'), findsAtLeastNWidgets(1));
 
     // 先取消：什么都不删。
     await tester.tap(find.text('取消'));
@@ -213,7 +222,9 @@ void main() {
     await tester.longPress(find.text('登录页重做'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('删除'));
+    await tester.tap(find.byKey(const ValueKey('collab-sheet-delete')));
+    await _settle(tester);
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
     await _settle(tester);
 
     expect(teams.teams.keys, ['t2']);

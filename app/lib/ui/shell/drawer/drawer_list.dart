@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../collab/collab_conversations.dart';
-import '../../collab/collab_history.dart' show CollabHistoryTile;
+import '../../collab/collab_history.dart' show collabKindLabel, showCollabEntrySheet;
 import '../../../l10n/l10n.dart';
 import '../../../state/drawer_view_state.dart';
 import '../../../state/session_attention_state.dart';
@@ -16,6 +16,7 @@ import '../../../state/session_created_state.dart';
 import '../../../state/sessions_state.dart';
 import '../../../state/workspaces_state.dart';
 import '../../common/empty_view.dart';
+import '../../collab/conversation_nav.dart' show ConversationKind, currentConversationRef;
 import '../../theme/app_icons.dart';
 import '../../theme/motion.dart';
 import '../sessions_drawer.dart' show sessionTitle;
@@ -33,6 +34,7 @@ class DrawerConversationList extends ConsumerWidget {
     this.now,
     this.collabEntries = const [],
     this.onOpenCollab,
+    this.onLongPressCollab,
     this.readOnly = false,
   });
 
@@ -55,6 +57,9 @@ class DrawerConversationList extends ConsumerWidget {
   /// 协作主会话（议会 / 团队）：作为普通高度的一行混进历史，不再单独成一节。
   final List<CollabHistoryEntry> collabEntries;
   final ValueChanged<CollabHistoryEntry>? onOpenCollab;
+
+  /// 长按协作记录：与普通会话同一套操作面板（详情、重命名、导出、删除）。
+  final ValueChanged<CollabHistoryEntry>? onLongPressCollab;
 
   /// The list's padding: rows' edges on the drawer's 10 line.
   static const padding = EdgeInsets.fromLTRB(10, 4, 10, 16);
@@ -84,6 +89,30 @@ class DrawerConversationList extends ConsumerWidget {
     // 和分组用同一个「现在」，否则跨午夜时同一行会被算到不同的一天。
     final clock = now ?? ref.watch(drawerClockProvider)();
     final selectionNotifier = ref.read(drawerSelectionProvider.notifier);
+
+    // 当前打开的是哪一条协作主会话：和普通会话用同一个「类型 + id」判断，
+    // 点击后高亮必须立刻出现（v4.3 · P0-G · 8.3）。
+    final currentRef = currentConversationRef(ref);
+
+    Widget collabTile(CollabHistoryEntry entry) {
+      final isCurrent = switch ((currentRef?.kind, currentRef?.conversationId)) {
+        (ConversationKind.team, final id) => entry.kind == CollabKind.team && id == entry.id,
+        (ConversationKind.council, final id) => entry.kind == CollabKind.council && id == entry.id,
+        _ => false,
+      };
+      return SessionTile(
+        key: ValueKey('collab-${entry.kind.name}-${entry.id}'),
+        title: entry.title,
+        kindTag: collabKindLabel(entry.kind),
+        // 运行状态沿用普通会话的两种表达：在跑 = 呼吸点，其余不打扰。
+        running: entry.status == CollabRunStatus.running,
+        current: isCurrent,
+        selecting: false,
+        selected: false,
+        onTap: () => onOpenCollab?.call(entry),
+        onLongPress: readOnly ? null : () => onLongPressCollab?.call(entry),
+      );
+    }
 
     Widget tile(SessionSummary s, {bool inFolder = false}) {
       final id = s.sessionId;
@@ -179,7 +208,7 @@ class DrawerConversationList extends ConsumerWidget {
                 (
                   at: entry.updatedAt,
                   key: ValueKey('collab-${entry.kind.name}-${entry.id}'),
-                  builder: ((_) => CollabHistoryTile(entry: entry, onTap: () => onOpenCollab?.call(entry))),
+                  builder: ((_) => collabTile(entry)),
                 ),
           ]..sort((a, b) => b.at.compareTo(a.at));
           for (final row in merged) {

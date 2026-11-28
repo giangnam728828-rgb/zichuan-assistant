@@ -14,11 +14,13 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../collab/collab_activity.dart';
+import '../collab/collab_intent.dart';
 import '../collab/collab_session_book.dart';
 import '../council/collab_models.dart';
 import '../council/collab_orchestrator.dart';
 import 'team_models.dart';
 import 'team_run_scheduler.dart';
+import 'team_request.dart';
 import 'team_store.dart';
 import 'team_tasks.dart';
 
@@ -260,21 +262,28 @@ final class TeamOrchestrator {
       _aborted.remove(teamId);
       _abortedAt.remove(teamId);
       final targets = <String>[];
+      TeamRequestPlan? routed;
       final after = await _update(teamId, (current) {
         final parsed = parseMentions(current.teammates, body);
-        final picked = parsed.targets.isNotEmpty
-            ? parsed.targets
-            : switch (current.lead) {
-                final lead? => [lead],
-                null => current.teammates,
-              };
+        // v4.3 · P0-B：先分流，再决定谁答、要不要出任务图。
+        // 问候/讨论不会再因为「没点名 + 有主管」被送进任务规划。
+        final plan = routeTeamRequest(
+          text: parsed.text.trim().isEmpty ? body : parsed.text.trim(),
+          teammates: current.teammates,
+          leadId: current.leadId,
+          mentioned: parsed.targets,
+        );
+        routed = plan;
         targets
           ..clear()
-          ..addAll([for (final mate in picked) mate.id]);
+          ..addAll([
+            for (final id in plan.targetIds)
+              if (current.mate(id) != null) id,
+          ]);
+        // 资料只跟着**这一条**用户消息（v4.3 · P0-A · 2.4）：
+        // 这一句没有明确指代此前内容，就一个字都不带，哪怕调用方传了。
+        final bound = CollabContextPolicy.gate(parsed.text.trim().isEmpty ? body : parsed.text, context);
         return current.copyWith(
-          // 用户上一条交代的方案/仓库/要求：这一轮起一直随提示词带给队友。
-          // 只在真有检索结果时替换，空串保留上一次的资料。
-          context: context.trim().isEmpty ? current.context : context.trim(),
           messages: [
             ...current.messages,
             TeamMsg(
@@ -282,6 +291,7 @@ final class TeamOrchestrator {
               role: TeamMsgRole.user,
               text: parsed.text.isEmpty ? '（附件）' : parsed.text,
               at: _clock(),
+              context: bound,
             ),
           ],
         );
@@ -290,11 +300,18 @@ final class TeamOrchestrator {
       _active.add(teamId);
       try {
         final lead = after.lead;
-        // 有主管且这一条就是发给主管的：先让他出任务图（S8）。
-        // 出不来就退回群聊分派：他刚才那段回答已经落进群里，接着 @ 人跑。
-        final planning = lead != null && targets.length == 1 && targets.first == lead.id;
+        final plan = routed;
+        // 只有「执行类」才交给主管出任务图；其余一律按成员顺序各答一句。
+        final planning = plan != null && plan.plan && lead != null && targets.length == 1 && targets.first == lead.id;
         if (!planning) {
-          await _drive(teamId, targets, attachments: attachments);
+          await _drive(
+            teamId,
+            targets,
+            attachments: attachments,
+            intent: plan?.intent ?? CollabIntent.discussion,
+            // 只有寒暄不级联（不需要 @ 转交）；讨论/执行仍按原有分派继续。
+            cascade: plan?.kind != TeamRequestKind.social,
+          );
           return _latest[teamId] ?? after;
         }
         final planned = await _planAndRun(teamId, after, lead, attachments);
@@ -373,6 +390,8 @@ final class TeamOrchestrator {
     int depth = 0,
     Set<String>? seen,
     List<CollabAttachment> attachments = const [],
+    CollabIntent intent = CollabIntent.discussion,
+    bool cascade = true,
   }) async {
     final visited = seen ?? <String>{};
     final pending = [
@@ -383,9 +402,12 @@ final class TeamOrchestrator {
     visited.addAll(pending);
     final answers = <String, ({String text, String? toId})>{};
     await _each(pending, (mateId) async {
-      final answer = await _runMate(teamId, mateId, attachments);
+      final answer = await _runMate(teamId, mateId, attachments, intent: intent);
       if (answer != null) answers[mateId] = answer;
+      // 严格一个接一个：所有模型请求都从 [_scheduler] 的单通道走，群聊回合
+      // 也不抢跑（用户看到的就是「上一位说完，下一位再开口」）。
     });
+    if (!cascade) return;
     if (depth >= 2 || _aborted.contains(teamId) || answers.isEmpty) return;
 
     final state = await load(teamId);
@@ -409,7 +431,17 @@ final class TeamOrchestrator {
       }
     }
     if (next.isEmpty) return;
-    await _drive(teamId, next, depth: depth + 1, seen: visited, attachments: attachments);
+    // 递归分派沿用这一轮的意图与级联开关：执行类后续仍是执行语气，
+    // 问候/讨论不会因为「有人被 @」就转成任务。
+    await _drive(
+      teamId,
+      next,
+      depth: depth + 1,
+      seen: visited,
+      attachments: attachments,
+      intent: intent,
+      cascade: cascade,
+    );
   }
 
   /// 停掉这一轮：置标志 + 尽力停掉在飞的子会话，群里留一句提示。
@@ -472,6 +504,7 @@ final class TeamOrchestrator {
       return false;
     }
     final now = _clock();
+    final ask = _lastAsk(state.messages);
     final run = TeamRun(
       id: 'run${now.microsecondsSinceEpoch.toRadixString(36)}',
       sessionId: teamId,
@@ -479,6 +512,8 @@ final class TeamOrchestrator {
       supervisorId: lead.id,
       tasks: bound.tasks!,
       goal: _lastUserText(state),
+      // 任务本身带着当初交代的资料：恢复时队友还看得到方案与仓库要求。
+      context: ask == null ? '' : CollabContextPolicy.gate(ask.text, ask.context),
       summary: plan.summary,
       createdAt: now,
       updatedAt: now,
@@ -503,9 +538,11 @@ final class TeamOrchestrator {
       for (final mate in state.teammates)
         if (mate.id != lead.id) '${mate.name}${mate.brief.trim().isEmpty ? '' : '（${mate.brief.trim()}）'}',
     ];
+    final ask = _lastAsk(state.messages);
+    final askContext = ask == null ? '' : CollabContextPolicy.gate(ask.text, ask.context);
     return [
       '你是团队的主管。把用户这件事拆成任务图，交给队友执行；能一个人做完就不要拆。',
-      if (state.context.trim().isNotEmpty) ...['', state.context.trim(), ''],
+      if (askContext.isNotEmpty) ...['', askContext, ''],
       '用户的这句话是在交代要做什么（若用了「上面/前面/那个方案」，指的就在上面的资料里）：',
       if (members.isNotEmpty) '可用的队友：${members.join('、')}。',
       '规则：每个任务一个负责人，负责人必须写队友的名字；deps 填依赖的任务编号，没有依赖就写 []；',
@@ -527,6 +564,11 @@ final class TeamOrchestrator {
         ..writeln()
         ..writeln('【主管的返工意见】')
         ..writeln(task.review.trim());
+    }
+    if (run.context.trim().isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln(run.context.trim());
     }
     final upstream = [
       for (final other in run.tasks)
@@ -877,6 +919,11 @@ final class TeamOrchestrator {
   // ---------------------------------------------------------------------------
   // 读取
 
+  /// 进程内的最新快照（不读盘、不同步）：页面首屏与「切回来」先用它。
+  ///
+  /// 返回 null 表示这个进程里还没有这条团队的实时状态，调用方再走 [load]。
+  TeamState? peek(String teamId) => _latest[teamId];
+
   Future<TeamState?> load(String teamId) async {
     final loaded = _latest[teamId] ?? await _store.load(teamId);
     if (loaded == null) return null;
@@ -929,14 +976,15 @@ final class TeamOrchestrator {
   Future<({String text, String? toId})?> _runMate(
     String teamId,
     String mateId,
-    List<CollabAttachment> attachments,
-  ) async {
+    List<CollabAttachment> attachments, {
+    CollabIntent intent = CollabIntent.discussion,
+  }) async {
     try {
       final state = await load(teamId);
       final mate = state?.mate(mateId);
       final gated = mate != null && !mate.readOnly && (state?.exclusiveWrite ?? true);
-      if (!gated) return await _runMateOnce(teamId, mateId, attachments);
-      return await _withWriteGate(teamId, () => _runMateOnce(teamId, mateId, attachments));
+      if (!gated) return await _runMateOnce(teamId, mateId, attachments, intent: intent);
+      return await _withWriteGate(teamId, () => _runMateOnce(teamId, mateId, attachments, intent: intent));
     } catch (_) {
       // 落盘失败等内部错误不该拖垮其他队友；这个队友这一轮没结果就是没结果。
       return null;
@@ -961,13 +1009,14 @@ final class TeamOrchestrator {
   Future<({String text, String? toId})?> _runMateOnce(
     String teamId,
     String mateId,
-    List<CollabAttachment> attachments,
-  ) async {
+    List<CollabAttachment> attachments, {
+    CollabIntent intent = CollabIntent.discussion,
+  }) async {
     final snapshot = await load(teamId);
     if (snapshot == null || _aborted.contains(teamId)) return null;
     final mate = snapshot.mate(mateId);
     if (mate == null) return null;
-    return _runMateTurn(teamId, snapshot, mate, attachments);
+    return _runMateTurn(teamId, snapshot, mate, attachments, intent: intent);
   }
 
   /// 「谁在跑」：内存 + 广播，不排队写盘。结束时顺手擦掉这一位的实时过程。
@@ -1004,12 +1053,14 @@ final class TeamOrchestrator {
     TeamState snapshot,
     Teammate mate,
     List<CollabAttachment> attachments, {
-
     /// 任务图执行时用任务专属说明；空则用群聊上下文。
     String? promptOverride,
 
     /// 规划/审核/汇总这类内部调用不把原文写进群聊。
     bool append = true,
+
+    /// 这一轮的意图：问候/讨论不套执行口吻（v4.3 · P0-B）。
+    CollabIntent intent = CollabIntent.discussion,
   }) {
     return _scheduler.run(
       teamId,
@@ -1025,6 +1076,7 @@ final class TeamOrchestrator {
             attachments,
             promptOverride: promptOverride,
             append: append,
+            intent: intent,
           );
         } finally {
           _setRunning(teamId, mate.id, on: false);
@@ -1041,8 +1093,9 @@ final class TeamOrchestrator {
     List<CollabAttachment> attachments, {
     String? promptOverride,
     bool append = true,
+    CollabIntent intent = CollabIntent.discussion,
   }) async {
-    final prompt = promptOverride ?? _prompt(snapshot, mate);
+    final prompt = promptOverride ?? _prompt(snapshot, mate, intent: intent);
     var sessionId = snapshot.sessions[mate.id];
     String? lastError;
     for (var attempt = 1; attempt <= 2; attempt++) {
@@ -1162,7 +1215,7 @@ final class TeamOrchestrator {
 
   /// 拼一个队友这一轮看到的全部内容：自己是谁、别人是谁、群里新发生了什么、
   /// 现在要回应的那句话。
-  String _prompt(TeamState state, Teammate mate) {
+  String _prompt(TeamState state, Teammate mate, {CollabIntent intent = CollabIntent.discussion}) {
     final isLead = state.leadId == mate.id;
     final buffer = StringBuffer()..writeln('你是团队里的「${mate.name}」。');
     if (mate.brief.trim().isNotEmpty) buffer.writeln('你的角色：${mate.brief.trim()}');
@@ -1191,15 +1244,29 @@ final class TeamOrchestrator {
     buffer
       ..writeln('你们在一个群聊里，各答各的那一份：不要假装别人已经回答。')
       ..writeln('直接说内容，不要复述这段说明。');
-    // 用户此前交代的资料（方案、仓库、执行要求）：用户常只用一句「按前面
-    // 那个方案做」指代它们，没有这段就只剩最后一句话可看。
-    if (state.context.trim().isNotEmpty) {
+    if (intent.isSocial) {
+      // 问候/短互动：自然接一句就好，不展开工作、不写报告（v4.3 · P0-B · 3.3）。
       buffer
-        ..writeln()
-        ..writeln(state.context.trim());
+        ..writeln('用户这句只是打招呼或简短互动：用一两句话自然回应，不要提以前的工程任务，')
+        ..writeln('不要写分析报告，也不要假装有任务要执行。');
     }
 
     final ask = _lastAsk(state.messages);
+    // 资料只属于带着它的那条用户消息（v4.3 · P0-A · 2.4）：这一句没有指代
+    // 此前内容时，一个字都不补——上一次交代的仓库/方案不再污染新消息。
+    final askContext = ask == null
+        ? ''
+        : CollabContextPolicy.gate(ask.text, ask.context);
+    if (askContext.isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln(askContext);
+    }
+    if (intent == CollabIntent.execution && ask != null) {
+      buffer
+        ..writeln()
+        ..writeln('用户这一句要求真的动手做事：给出你能直接交付的结果或方案，不要只复述计划。');
+    }
     final from = (state.cursors[mate.id] ?? 0).clamp(0, state.messages.length);
     final relay = <TeamMsg>[];
     for (var i = from; i < state.messages.length; i++) {

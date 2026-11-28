@@ -96,7 +96,9 @@ void main() {
 
     expect(outcome.isCompleted, isTrue);
     final finalActivity = activities.last;
-    expect(finalActivity.text, '我完成了布局');
+    // v4.3 · P0-C：有完整消息时以终稿为准（替换，不追加）。这里增量拼出
+    // 「我完成了布局」、终稿是「完成了布局」，界面只显示终稿这一份。
+    expect(finalActivity.text, '完成了布局');
     expect(finalActivity.text, isNot(contains(privateReasoning)));
     expect(finalActivity.thoughtSummary, publicSummary);
     expect(activities.any((a) => a.toolName == 'read_file'), isTrue);

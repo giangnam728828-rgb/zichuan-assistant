@@ -15,7 +15,7 @@ import 'feather.dart';
 /// 顶底边缘渐隐(Claude 式):消息滚到顶栏 / 输入栏后面时,文字自己淡出,
 /// 而不是被一块背景色盖住,所以浅色、深色、有光斑的背景下都没有色差。
 ///
-/// 用 [ShaderMask](dstIn) 裁内容:顶部 [top]、底部(输入栏高度 + [_bottomTail])
+/// 用 [ShaderMask](dstIn) 裁内容:顶部 [top]、底部(输入栏高度 + [bottomTail])
 /// 各一段缓动渐变,每段 3 个以上 stops 做出「慢慢淡出」,中间保持不透明,只有
 /// 边缘淡出、没有硬边。渐隐层单独 [RepaintBoundary],滚动时 shader 只应用一次。
 ///
@@ -26,7 +26,14 @@ import 'feather.dart';
 /// 光斑)。系统高对比度下渐隐缩短到 [highContrastFade],避免长尾糊字。
 /// 减少动画不影响渐隐:它是静态的。
 class EdgeFade extends ConsumerWidget {
-  const EdgeFade({super.key, required this.top, required this.bottom, this.topHold = 0, required this.child});
+  const EdgeFade({
+    super.key,
+    required this.top,
+    required this.bottom,
+    this.topHold = 0,
+    this.bottomTail = defaultBottomTail,
+    required this.child,
+  });
 
   /// 顶部渐隐高度:状态栏安全区 + 顶栏高度 + 24dp。
   final double top;
@@ -39,9 +46,16 @@ class EdgeFade extends ConsumerWidget {
   /// 底边以下 20dp 里淡入,标题底下就是干净的背景。
   final double topHold;
 
-  /// 输入栏高度(动态)。底部渐隐高度 = 它 + [_bottomTail](32dp),随输入栏
-  /// 多行 / 键盘弹起一起变。
+  /// 输入栏高度(动态)。底部渐隐高度 = 它 + [bottomTail],随输入栏多行 /
+  /// 键盘弹起一起变。
+  ///
+  /// 只适用于「列表铺到输入栏下面」的页面（普通聊天）。列表视口本来就停在
+  /// 输入栏上沿时（协作时间线），调用方传 [bottomTail] = 0，否则会把最后
+  /// 几行合法正文提前淡掉(v4.3 · P0-D · 5.4)。
   final ValueListenable<double> bottom;
+
+  /// 渐隐在输入栏高度之外多留的长度。
+  final double bottomTail;
 
   final Widget child;
 
@@ -50,7 +64,7 @@ class EdgeFade extends ConsumerWidget {
 
   /// 底部渐隐在输入栏高度之外再留的长度(48dp)。短尾(32)时透明度在
   /// 中间段骤降，看起来仍像一条带子；拉长后是连续的「慢慢没了」。
-  static const _bottomTail = 48.0;
+  static const defaultBottomTail = 48.0;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -63,8 +77,8 @@ class EdgeFade extends ConsumerWidget {
       builder: (context, composerHeight, _) {
         final topFade = highContrast ? math.min(top, highContrastFade) : top;
         final bottomFade = highContrast
-            ? math.min(composerHeight + _bottomTail, highContrastFade)
-            : composerHeight + _bottomTail;
+            ? math.min(composerHeight + bottomTail, highContrastFade)
+            : composerHeight + bottomTail;
         if (topFade <= 0 && bottomFade <= 0) return child;
 
         if (lightweight) {

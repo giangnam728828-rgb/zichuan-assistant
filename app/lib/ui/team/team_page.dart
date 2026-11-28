@@ -26,6 +26,7 @@ import '../../collab/collab_task_context.dart';
 import '../../collab/github_delivery.dart';
 import '../../collab/collab_approvals.dart';
 import '../../collab/collab_export.dart';
+import '../../collab/collab_runtime.dart' show sharedTeamOrchestrator;
 import '../../collab/collab_session_book.dart';
 import '../../council/collab_models.dart';
 import '../../council/collab_orchestrator.dart';
@@ -198,6 +199,10 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       if (widget.teamId case final id?) team = await store.load(id);
       if (team == null && widget.resumeLatest) team = await store.latest();
       if (team == null) team = await _createLocal(store);
+      // v4.3 · P0-J：进程内已有这一轮的实时快照（切走再切回来 / 从历史打开），
+      // 先用它出首屏——正在生成的正文、正在答的队友立刻可见，不等引擎。
+      final live = _shared?.peek(team.id);
+      if (live != null && live.rev >= team.rev) team = live;
       if (!mounted) return;
       setState(() {
         _team = team;
@@ -479,6 +484,8 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     if (existing != null) unawaited(existing.dispose());
     _shared = created;
     _sharedClient = conn.client;
+    // 历史抽屉/任务中心要复用同一个实例（重命名、继续运行），登记到全局。
+    sharedTeamOrchestrator = created;
     return _orchestrator = created;
   }
 
@@ -1264,6 +1271,8 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       streaming: true,
       thinking: activity.phase == CollabActivityPhase.thinking,
       thoughtSummary: activity.thoughtSummary,
+      reasoning: activity.reasoning,
+      tools: activity.tools,
       toolName: activity.toolName,
     );
   }

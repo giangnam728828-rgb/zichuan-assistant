@@ -41,6 +41,7 @@ import 'media/media_paths.dart';
 import 'composer_toast.dart';
 import 'dsh_ui/dsh_ui.dart';
 import 'render/markdown_image.dart';
+import 'shared/follow_scroll.dart';
 import 'trajectory_sheet.dart';
 import 'turn_summary.dart' show forgetToolSummaries;
 import 'widgets/approval_card.dart';
@@ -81,7 +82,7 @@ typedef ResendPrompt = Future<void> Function(String sessionId, String text, List
 /// - [CustomScrollView.anchor] 设为"输入条上沿"在视口里的比例:零偏移
 ///   正好让 before 段的最后一行贴着输入条,打开会话不需要先跳一次。
 /// - 跟随 = 贴底时内容一变,**同一次布局**里就把位置挪到新的末尾
-///   ([_FollowPhysics]):新内容不会先藏在输入条后面一帧再跳上来,内容
+///   ([FollowScrollPhysics]):新内容不会先藏在输入条后面一帧再跳上来,内容
 ///   变矮时也不会先露一道缝再弹回去。离底较远时(刚发了消息)由帧后的
 ///   `jumpTo(maxScrollExtent)` 追过去,追到底之后同样由它接手。
 /// - 列表的下沿由页面跟着输入条在同一帧里排好(见 ChatScreen),所以
@@ -224,7 +225,7 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
   /// 解除。
   bool _held = false;
 
-  late final _physics = _FollowPhysics(() => _pinned && !_held && _fingers == 0, glides: () => _glidable);
+  late final _physics = FollowScrollPhysics(() => _pinned && !_held && _fingers == 0, glides: () => _glidable);
 
   /// Fingers on the list. Any `jumpTo` ends the drag under them for good (it goes idle,
   /// and the rest of that gesture moves nothing), so while one rests here or the list is
@@ -1704,46 +1705,7 @@ class _JumpToBottom extends StatelessWidget {
   }
 }
 
-/// 贴底跟随:跟随中(且这一刻本来就停在末尾)内容高度一变,在同一次布局
-/// 里把位置放到新的末尾。拖动、惯性滚动中不插手。
-///
-/// 默认的 [RangeMaintainingScrollPhysics] 只在"变矮且越界"时夹回范围,而
-/// 且上一帧刚 `jumpTo` 过就不夹:那一帧末尾露出一道缝,再由回弹动画收回,
-/// 看起来像被往上推了一下。
-class _FollowPhysics extends ScrollPhysics {
-  const _FollowPhysics(this.follows, {required this.glides, super.parent});
-
-  final bool Function() follows;
-
-  /// A taller list is left for the glide to catch up with. Shorter still lands at once:
-  /// a gap at the bottom can't wait.
-  final bool Function() glides;
-
-  @override
-  _FollowPhysics applyTo(ScrollPhysics? ancestor) =>
-      _FollowPhysics(follows, glides: glides, parent: buildParent(ancestor));
-
-  @override
-  double adjustPositionForNewDimensions({
-    required ScrollMetrics oldPosition,
-    required ScrollMetrics newPosition,
-    required bool isScrolling,
-    required double velocity,
-  }) {
-    final adjusted = super.adjustPositionForNewDimensions(
-      oldPosition: oldPosition,
-      newPosition: newPosition,
-      isScrolling: isScrolling,
-      velocity: velocity,
-    );
-    if (isScrolling || velocity != 0 || !follows()) return adjusted;
-    // 上一帧之后可能刚追过底(帧后 jumpTo):看当前位置,也看上次记下的。
-    final at = newPosition.pixels > oldPosition.pixels ? newPosition.pixels : oldPosition.pixels;
-    if (oldPosition.maxScrollExtent - at > 1 && !glides()) return adjusted;
-    if (glides() && newPosition.maxScrollExtent >= at) return adjusted;
-    return newPosition.maxScrollExtent;
-  }
-}
+// 贴底跟随的物理规则已抽到 shared/follow_scroll.dart（三种会话共用）。
 
 /// Keeps the center anchor while removing the viewport's artificial leading
 /// gap using the same (possibly estimated) sliver geometry as the viewport.

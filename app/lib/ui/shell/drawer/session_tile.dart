@@ -28,6 +28,7 @@ class SessionTile extends StatelessWidget {
     this.indent = 0,
     this.selecting = false,
     this.selected = false,
+    this.kindTag,
   });
 
   final String title;
@@ -47,6 +48,12 @@ class SessionTile extends StatelessWidget {
   final double indent;
   final bool selecting;
   final bool selected;
+
+  /// 会话类型标签（「团队」/「议会」）。
+  ///
+  /// 普通聊天不传，外观与以前一模一样；协作会话只多这一枚小标签，
+  /// 行高、字号、基线与普通会话完全相同（v4.3 · P0-G）。
+  final String? kindTag;
 
   static const height = 44.0;
 
@@ -150,16 +157,26 @@ class SessionTile extends StatelessWidget {
               children: [
                 _CheckSlot(selecting: selecting, selected: selected),
                 Expanded(
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontSize: 15,
-                      height: 1.4,
-                      color: scheme.onSurface,
-                      fontWeight: current && !selecting ? FontWeight.w600 : FontWeight.w400,
-                    ),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            fontSize: 15,
+                            height: 1.4,
+                            color: scheme.onSurface,
+                            fontWeight: current && !selecting ? FontWeight.w600 : FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                      if (kindTag case final tag? when tag.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        _KindTag(label: tag),
+                      ],
+                    ],
                   ),
                 ),
                 if (pinned) ...[
@@ -178,6 +195,32 @@ class SessionTile extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 「团队」/「议会」：12 号的紧凑标签，不抢标题的宽度与基线。
+class _KindTag extends StatelessWidget {
+  const _KindTag({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.onSurfaceVariant;
+    return Container(
+      key: const ValueKey('session-kind-tag'),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 0.5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        style: theme.textTheme.labelSmall?.copyWith(fontSize: 10, height: 1.3, color: color),
       ),
     );
   }

@@ -10,10 +10,13 @@ import 'package:flutter/material.dart';
 abstract final class ShellMetrics {
   /// 导航本体高度（不含安全区）。
   ///
-  /// 48（标签触控高度）+ 6×2（玻璃上下内边距）。A2 之前写的是 64，
-  /// 比实际多 4dp；加上输入栏自己的 8dp 底距，输入栏与导航的间隙成了
-  /// 12dp。改成实测值后正好 8dp，「底部浮岛」才归得成一组。
-  static const navHeight = 60.0;
+  /// 48（标签触控高度，不再往下压）+ 4×2（玻璃上下内边距）。A2 之前写的是
+  /// 64，比实际多 4dp；v4.3 · P1-B 把玻璃内边距从 6 收到 4，视觉占位再少
+  /// 4dp，触控高度仍是 48。
+  static const navHeight = 56.0;
+
+  /// 玻璃上下内边距（与 [navHeight] 是同一套算法：navHeight = 48 + 2 × 这个）。
+  static const navPadding = 4.0;
 
   /// 导航离屏幕底边的距离：手势条安全区 + 8dp。
   static const navGap = 8.0;

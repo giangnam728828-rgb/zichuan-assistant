@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../council/collab_models.dart';
+import 'collab_conversations.dart';
 
 /// 议会一次运行的完整 Markdown：议题、裁决、每个席位的答案。
 String councilMarkdown(CollabRun run) {
@@ -46,6 +47,60 @@ String councilMarkdown(CollabRun run) {
       ..writeln(body.isEmpty ? '（${_seatStatus(state)}，没有内容）' : body);
   }
   return buffer.toString();
+}
+
+/// 一整条议会会话的 Markdown：标题、每个回合的问题与结论。
+///
+/// 只写会话记录里真实存在的内容（回合的问题、阶段、裁决首段），不把运行
+/// 目录里的细节硬凑进来。
+String councilConversationMarkdown(CouncilConversation conversation) {
+  final buffer = StringBuffer()
+    ..writeln('# 议会 · ${conversation.displayTitle}')
+    ..writeln()
+    ..writeln('- 成员：${conversation.seats.length} 位')
+    ..writeln('- 方式：${_modeLabel(conversation.mode)}')
+    ..writeln('- 创建：${collabStamp(conversation.createdAt)}')
+    ..writeln('- 最近更新：${collabStamp(conversation.updatedAt)}');
+  for (final (index, turn) in conversation.turns.indexed) {
+    buffer
+      ..writeln()
+      ..writeln('## 第 ${index + 1} 轮')
+      ..writeln()
+      ..writeln('- 提问时间：${collabStamp(turn.at)}')
+      ..writeln('- 状态：${_turnStatus(turn)}')
+      ..writeln()
+      ..writeln(turn.question.trim().isEmpty ? '（只发了附件）' : turn.question.trim());
+    if ((turn.summary ?? '').trim().isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln('### 结论')
+        ..writeln()
+        ..writeln(turn.summary!.trim());
+    }
+    if ((turn.failure ?? '').trim().isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln('### 未完成的原因')
+        ..writeln()
+        ..writeln(turn.failure!.trim());
+    }
+  }
+  return buffer.toString();
+}
+
+String _turnStatus(CouncilTurn turn) {
+  if (turn.phase == null) return '未知';
+  final phase = CollabPhase.values.firstWhere((p) => p.name == turn.phase, orElse: () => CollabPhase.done);
+  return switch (phase) {
+    CollabPhase.queued => '排队中',
+    CollabPhase.round1 => '成员作答中',
+    CollabPhase.reviewing => '互相审议中',
+    CollabPhase.verifying => '校验补漏中',
+    CollabPhase.synthesizing => '主席综合中',
+    CollabPhase.done => '已完成',
+    CollabPhase.cancelled => '已取消',
+    CollabPhase.failed => '失败',
+  };
 }
 
 /// `2026-11-25 09:20`：落款用的本地时间。

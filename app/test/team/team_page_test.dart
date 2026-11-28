@@ -469,12 +469,19 @@ void main() {
     await _settle(tester);
 
     final entries = probe.currentState!.entries;
-    // 最近说过话的在前。
-    expect(entries.first.id, talkedId);
-    expect(entries.first.kind, CollabKind.team);
-    expect(entries.first.title, '历史里的问题');
-    expect(entries.first.memberLabel, '2 位队友');
-    expect(entries.last.title, '留下来的');
+    // v4.3 · P0-F：没说过话的团队不占历史位置（成员配置与草稿仍在盘上），
+    // 说过一句的立刻出现在历史里。
+    expect(entries.length, 1);
+    expect(entries.single.id, talkedId);
+    expect(entries.single.kind, CollabKind.team);
+    expect(entries.single.title, '历史里的问题');
+    expect(entries.single.memberLabel, '2 位队友');
+    expect(store.teams.containsKey(talkedId), isTrue);
+    expect(
+      store.teams.values.where((t) => t.messages.isEmpty).length,
+      1,
+      reason: '空会话不删，只是不占历史位置',
+    );
 
     // 删掉说过话的那条：另一条还在，登记表里也没了。
     final doomed = entries.first;

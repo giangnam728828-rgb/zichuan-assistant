@@ -24,12 +24,20 @@ ProviderContainer _c(WidgetTester tester) => ProviderScope.containerOf(tester.el
 RootTab _tab(WidgetTester tester) => _c(tester).read(rootTabProvider);
 
 Future<void> _tapTab(WidgetTester tester, RootTab tab) async {
-  await tester.tap(find.descendant(of: find.byType(BottomNav), matching: find.text(_label(tab))));
+  final key = find.descendant(of: find.byType(BottomNav), matching: find.text(_label(tab)));
+  if (key.evaluate().isNotEmpty) {
+    await tester.tap(key);
+  } else {
+    // v4.2 IA：历史已从底栏移到「历史抽屉」，不再是底部入口。
+    // 这类用例只关心「切过去以后状态对不对」，直接切标签即可。
+    _c(tester).read(rootTabProvider.notifier).select(tab);
+  }
   await pumpFrames(tester, 8);
 }
 
 String _label(RootTab tab) => switch (tab) {
   RootTab.chat => '对话',
+  RootTab.tasks => '任务',
   RootTab.history => '历史',
   RootTab.tools => '工具',
   RootTab.settings => '设置',
@@ -142,7 +150,9 @@ void main() {
   });
 
   testWidgets('⑤ 往下翻时导航收起，往上翻/停下后回来（方案第 3 步 IA）', (tester) async {
-    useWindow(tester, const Size(390, 844));
+    // 窗口压矮一点，历史列表才有可滚的余量：外壳已经把页面抬到导航之上，
+    // 页面自己不再额外垫一整条导航高度（v4.3 · P0-E）。
+    useWindow(tester, const Size(390, 620));
     mockClipboard(tester);
     await tester.pumpWidget(homeApp());
     await pumpFrames(tester, 8);

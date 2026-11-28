@@ -117,5 +117,26 @@ jobs:
       - name: Mode switching keeps session
         run: flutter test test/chat/conversation_mode_switcher_test.dart --reporter expanded
 
+      - name: v4.3 greeting keeps no old context / request routing
+        run: flutter test test/collab/v43_intent_routing_test.dart --reporter expanded
+
+      - name: v4.3 team & council social dialogue
+        run: flutter test test/collab/v43_social_dialogue_test.dart --reporter expanded
+
+      - name: v4.3 streaming, thinking and tool trace
+        run: flutter test test/collab/v43_stream_activity_test.dart --reporter expanded
+
+      - name: v4.3 history visibility and fast resume
+        run: flutter test test/collab/v43_history_and_recover_test.dart --reporter expanded
+
+      - name: v4.3 collab history detail sheet
+        run: flutter test test/collab/v43_collab_sheet_test.dart --reporter expanded
+
+      - name: v4.3 timeline follows growing messages
+        run: flutter test test/collab/v43_scroll_follow_test.dart --reporter expanded
+
+      - name: Team core
+        run: flutter test test/team --reporter expanded
+
       - name: Existing council tests
         run: flutter test test/council --reporter expanded

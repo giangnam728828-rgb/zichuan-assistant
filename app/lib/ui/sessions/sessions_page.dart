@@ -31,15 +31,10 @@ class SessionsPage extends ConsumerWidget {
               },
             ),
           ),
-          // 底部留白随导航高度连续变化，最后一行不会被悬浮导航盖住。
-          if (insets != null)
-            AnimatedBuilder(
-              animation: insets.progress,
-              builder: (context, _) => SizedBox(
-                height:
-                    insets.extentAt(insets.progress.value, safeBottom: MediaQuery.paddingOf(context).bottom) + 8,
-              ),
-            ),
+          // 外壳（TabShell）已经把整页抬到「导航 + 间隙 + 安全区」之上，
+          // 这里再加一份同样的高度就是重复计算：历史列表底部会空出一整条
+          // 导航高度的空白（v4.3 · P0-E · 6.2）。只留 8dp 呼吸位。
+          if (insets != null) const SizedBox(height: 8),
         ],
       ),
     );

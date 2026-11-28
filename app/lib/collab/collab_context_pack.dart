@@ -16,6 +16,8 @@
 
 import 'dart:convert';
 
+import 'collab_intent.dart';
+
 /// 历史消息的角色（只区分「用户说的」和「助手说的」）。
 enum CollabContextRole { user, assistant, system }
 
@@ -148,13 +150,21 @@ final class CollabContextPack {
   /// - [history] 按时间从早到晚（乱序也可以，给了 [CollabContextMessage.at]
   ///   就按时间排）。
   /// - [currentText] 是这一次要发送的话：它可能已经写进历史，别重复带一份。
+  ///   同时它决定**要不要带**：问候、闲聊、独立提问一律返回空包
+  ///   （v4.3 · P0-A：上下文按当前消息意图选择，见 [CollabContextPolicy]）。
+  ///   null/空串表示「不知道当前这句是什么」，保持原来的检索行为。
+  /// - [allowHistory] 显式覆盖上面的意图判断（测试与特殊入口用）。
   static CollabContextPack build({
     required List<CollabContextMessage> history,
     String? currentText,
     int maxAnchors = 3,
     int maxRecent = 6,
     int budget = defaultBudget,
+    bool? allowHistory,
   }) {
+    final current = currentText?.trim() ?? '';
+    final allowed = allowHistory ?? (current.isEmpty || CollabContextPolicy.allowsHistory(current));
+    if (!allowed) return const CollabContextPack();
     final cleaned = <CollabContextMessage>[];
     for (final message in history) {
       final text = message.text.trim();
@@ -165,7 +175,6 @@ final class CollabContextPack {
         CollabContextMessage(id: message.id, text: text, role: message.role, at: message.at),
       );
     }
-    final current = currentText?.trim() ?? '';
     if (current.isNotEmpty && cleaned.isNotEmpty && cleaned.last.text.trim() == current) {
       cleaned.removeLast();
     }

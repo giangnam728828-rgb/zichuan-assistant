@@ -570,6 +570,8 @@ class _SessionList extends ConsumerWidget {
       leading: leading,
       collabEntries: collab,
       onOpenCollab: (entry) => openCollabEntry(context, entry, onClose: onClose),
+      // v4.3 · P0-H：长按协作记录与普通会话同一个入口，弹出详情操作面板。
+      onLongPressCollab: (entry) => showCollabEntrySheet(context, ref, entry),
       onOpen: (id) {
         if (ref.read(readListIdentityProvider) != identity ||
             ref.read(drawerScopeProvider)?.sessions.any((s) => s.sessionId == id) != true) {
@@ -1053,14 +1055,18 @@ class IdentityBar extends ConsumerWidget {
       // avatar on the 20 text line, the last button's edge at 10. The host
       // pill is as tall as the round keys beside it (44; taller only for
       // large text).
-      padding: const EdgeInsets.fromLTRB(10, 9, 10, 13),
+      //
+      // v4.3 · P1-A：上下留白从 9 / 13 收到 4 / 7，圆形图标 36 → 33，
+      // 44 的触控区一个都不少（功能、设置、主机切换都还在原位）。
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 7),
       child: Row(
         children: [
           Expanded(
             child: Row(
               key: const ValueKey('identity-host-controls'),
               children: [
-                const SizedBox(width: 6),
+                // 图标 36 → 33、触控仍是 44：左边补 4.5，头像仍然落在 20 线上。
+                const SizedBox(width: 4.5),
                 IconButton(
                   key: const ValueKey('identity-host-details'),
                   tooltip: host.isLocal ? l10n.phoneEngineTitle : l10n.remoteNetworkDetails,
@@ -1071,8 +1077,8 @@ class IdentityBar extends ConsumerWidget {
                   icon: DecoratedBox(
                     decoration: ShapeDecoration(color: colors.identity[tint], shape: const CircleBorder()),
                     child: SizedBox.square(
-                      dimension: 36,
-                      child: Icon(hostKindIcon(host.kind), size: 19, color: colors.onIdentity[tint]),
+                      dimension: 33,
+                      child: Icon(hostKindIcon(host.kind), size: 18, color: colors.onIdentity[tint]),
                     ),
                   ),
                 ),

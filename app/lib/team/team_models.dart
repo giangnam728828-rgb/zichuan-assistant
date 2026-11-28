@@ -91,6 +91,7 @@ final class TeamMsg {
     required this.at,
     this.failed = false,
     this.handoffTo,
+    this.context = '',
   });
 
   factory TeamMsg.fromJson(Map<String, Object?> json) => TeamMsg(
@@ -101,6 +102,7 @@ final class TeamMsg {
     at: DateTime.tryParse(json['at'] as String? ?? '') ?? DateTime.now(),
     failed: json['failed'] as bool? ?? false,
     handoffTo: json['handoffTo'] as String?,
+    context: json['context'] as String? ?? '',
   );
 
   final String id;
@@ -113,6 +115,24 @@ final class TeamMsg {
   /// 这条答复把活交给了谁（队友 id）。非空时界面上是一张移交卡。
   final String? handoffTo;
 
+  /// 用户发这句话时**随它一起**带上的历史资料（v4.3 · P0-A · 2.4）。
+  ///
+  /// 只属于这一条消息：下一句「你们好」不会继承它。旧版本把资料存在
+  /// [TeamState.context] 上，一次交代就污染之后所有消息；现在改成按消息绑定。
+  /// 空串表示这句话没有带资料（绝大多数情况）。
+  final String context;
+
+  TeamMsg copyWith({String? context}) => TeamMsg(
+    id: id,
+    role: role,
+    teammateId: teammateId,
+    text: text,
+    at: at,
+    failed: failed,
+    handoffTo: handoffTo,
+    context: context ?? this.context,
+  );
+
   Map<String, Object?> toJson() => {
     'id': id,
     'role': role.name,
@@ -121,6 +141,8 @@ final class TeamMsg {
     'at': at.toIso8601String(),
     'failed': failed,
     'handoffTo': ?handoffTo,
+    // 只有真带了资料才写，旧版本读到也不会多一个字段。
+    if (context.isNotEmpty) 'context': context,
   };
 }
 
@@ -149,35 +171,50 @@ final class TeamState {
   /// 定时唤醒默认说什么。
   static const defaultWakePrompt = '继续推进，汇报一下现在的进展。';
 
-  factory TeamState.fromJson(Map<String, Object?> json) => TeamState(
-    id: json['id'] as String? ?? '',
-    title: json['title'] as String? ?? '',
-    teammates: [
-      for (final t in (json['teammates'] as List? ?? const []))
-        if (t is Map) Teammate.fromJson(t.cast<String, Object?>()),
-    ],
-    sessions: {for (final e in (json['sessions'] as Map? ?? const {}).entries) '${e.key}': e.value as String?},
-    cursors: {
-      for (final e in (json['cursors'] as Map? ?? const {}).entries) '${e.key}': (e.value as num?)?.toInt() ?? 0,
-    },
-    messages: [
+  factory TeamState.fromJson(Map<String, Object?> json) {
+    var messages = [
       for (final m in (json['messages'] as List? ?? const []))
         if (m is Map) TeamMsg.fromJson(m.cast<String, Object?>()),
-    ],
-    leadId: json['leadId'] as String?,
-    wakeMinutes: (json['wakeMinutes'] as num?)?.toInt(),
-    wakePrompt: json['wakePrompt'] as String? ?? defaultWakePrompt,
-    exclusiveWrite: json['exclusiveWrite'] as bool? ?? true,
-    running: [
-      for (final id in (json['running'] as List? ?? const []))
-        if (id is String && id.isNotEmpty) id,
-    ],
-    run: json['run'] is Map ? TeamRun.fromJson((json['run'] as Map).cast<String, Object?>()) : null,
-    context: json['context'] as String? ?? '',
-    createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
-    updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? DateTime.now(),
-    rev: (json['rev'] as num?)?.toInt() ?? 0,
-  );
+    ];
+    // 旧数据迁移（v4.3 · P0-A · 2.4）：v4.2 及以前把资料存在会话级的
+    // `context` 上，一次交代就会污染之后所有消息。这里把它**归到当时那条
+    // 用户消息**身上（最后一条还没带资料的用户消息），然后清空会话级字段，
+    // 之后的消息不再继承。原始消息与任务记录一条都不删。
+    final legacy = (json['context'] as String? ?? '').trim();
+    if (legacy.isNotEmpty) {
+      for (var i = messages.length - 1; i >= 0; i--) {
+        final message = messages[i];
+        if (message.role != TeamMsgRole.user || message.context.isNotEmpty) continue;
+        messages = [...messages]..[i] = message.copyWith(context: legacy);
+        break;
+      }
+    }
+    return TeamState(
+      id: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      teammates: [
+        for (final t in (json['teammates'] as List? ?? const []))
+          if (t is Map) Teammate.fromJson(t.cast<String, Object?>()),
+      ],
+      sessions: {for (final e in (json['sessions'] as Map? ?? const {}).entries) '${e.key}': e.value as String?},
+      cursors: {
+        for (final e in (json['cursors'] as Map? ?? const {}).entries) '${e.key}': (e.value as num?)?.toInt() ?? 0,
+      },
+      messages: messages,
+      leadId: json['leadId'] as String?,
+      wakeMinutes: (json['wakeMinutes'] as num?)?.toInt(),
+      wakePrompt: json['wakePrompt'] as String? ?? defaultWakePrompt,
+      exclusiveWrite: json['exclusiveWrite'] as bool? ?? true,
+      running: [
+        for (final id in (json['running'] as List? ?? const []))
+          if (id is String && id.isNotEmpty) id,
+      ],
+      run: json['run'] is Map ? TeamRun.fromJson((json['run'] as Map).cast<String, Object?>()) : null,
+      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? DateTime.now(),
+      rev: (json['rev'] as num?)?.toInt() ?? 0,
+    );
+  }
 
   final String id;
 
@@ -214,9 +251,29 @@ final class TeamState {
 
   /// 用户上一次交代的完整资料（方案、仓库、执行要求）的检索结果。
   ///
-  /// 队友的会话里只有群聊的新消息；「按前面那个方案做」指代的内容靠这一段
-  /// 随每一轮提示词一起补上（见 lib/collab/collab_context_pack.dart）。
+  /// **已废弃，不再参与任何提示词**（v4.3 · P0-A · 2.4）。旧版本把它挂在会话
+  /// 上，一句「你们好」也会带着上一次的工程任务；现在资料按消息存在
+  /// [TeamMsg.context] 里。字段只保留读取旧数据的能力（[TeamState.fromJson]
+  /// 会把它迁到对应消息上并清空）。
   final String context;
+
+  /// 最后一条用户消息：这一轮要回应的话。
+  TeamMsg? get lastAsk {
+    for (var i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role == TeamMsgRole.user) return messages[i];
+    }
+    return null;
+  }
+
+  /// 这一轮随消息带来的资料（只有那句话明确指代此前内容时才非空）。
+  String get askContext => lastAsk?.context.trim() ?? '';
+
+  /// 有没有**真正**产生过一次用户发言。
+  ///
+  /// 历史列表只显示有真实对话的团队：刚建好、只配了成员的空团队不占位置。
+  /// 只发附件的那条消息落盘时正文是「（附件）」，同样算真实发言。
+  bool get hasUserMessage =>
+      messages.any((message) => message.role == TeamMsgRole.user && message.text.trim().isNotEmpty);
 
   /// 正在跑的队友 id（按开始顺序）。每次开始/结束都落盘，重开页面还能
   /// 看到「谁在做」；进程重启后由编排器清掉（那已经不是在跑了）。
@@ -308,7 +365,6 @@ final class TeamState {
     if (!exclusiveWrite) 'exclusiveWrite': false,
     if (running.isNotEmpty) 'running': running,
     if (run case final run?) 'run': run.toJson(),
-    if (context.isNotEmpty) 'context': context,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
     'rev': rev,

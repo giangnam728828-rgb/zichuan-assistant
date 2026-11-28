@@ -27,7 +27,9 @@ import '../../collab/github_delivery.dart';
 import '../../collab/collab_approvals.dart';
 import '../../collab/collab_conversations.dart';
 import '../../collab/collab_export.dart';
+import '../../collab/collab_runtime.dart' show sharedCouncilOrchestrator;
 import '../../collab/collab_session_book.dart';
+import '../../collab/seat_sessions.dart';
 import '../../council/collab_models.dart';
 import '../../council/collab_orchestrator.dart';
 import '../../council/collab_store.dart';
@@ -460,14 +462,44 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
   }
 
   /// 把会话里的回合对应的运行读进内存；没跑完的接着驱动。
+  ///
+  /// 恢复分两层（v4.3 · P0-J）：
+  /// 1. **立即显示**：先只看「正在跑的那一轮」，从进程级编排器的内存快照取，
+  ///    已生成的正文、当前成员与工具状态当场就在屏幕上；
+  /// 2. **后台补齐**：再依次读其它回合（含盘上的旧记录），补完不回滚第 1 步。
   Future<void> _loadTurns(CouncilConversation conversation) async {
     final orchestrator = _orchestrator;
     if (orchestrator == null) {
       setState(() => _error = '还没连上引擎，稍等一下再发。');
       return;
     }
+    CouncilTurn? active;
+    for (final turn in conversation.turns.reversed) {
+      if (turn.running) {
+        active = turn;
+        break;
+      }
+    }
+    active ??= conversation.turns.isEmpty ? null : conversation.turns.last;
+    if (active != null) {
+      _seenTurns.add(active.runId);
+      final live = orchestrator.peek(active.runId) ??
+          await _limit<CollabRun?>(orchestrator.snapshot(active.runId), const Duration(seconds: 2));
+      if (live != null && mounted) {
+        setState(() {
+          _runs[live.id] = live;
+          if (!live.phase.isTerminal) _busy = true;
+        });
+        _scrollToBottom();
+      }
+    }
     var live = false;
     for (final turn in conversation.turns) {
+      if (turn.runId == active?.runId) {
+        final current = _runs[turn.runId];
+        if (current != null && !current.phase.isTerminal) live = true;
+        continue;
+      }
       _seenTurns.add(turn.runId);
       // snapshot 先看内存：切回来时还在跑的席位、流式正文都在。
       final run = await orchestrator.snapshot(turn.runId);
@@ -523,6 +555,8 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     if (shared != null) unawaited(shared.dispose());
     _shared = created;
     _sharedClient = conn.client;
+    // 历史抽屉/任务中心复用同一个实例（继续运行、导出），登记到全局。
+    sharedCouncilOrchestrator = created;
     return _orchestrator = created;
   }
 
@@ -544,6 +578,7 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
         if (run.phase.isTerminal) _busy = false;
       });
       _syncTurn(run);
+      _rememberSeatSessions(run);
       _armWaitTicker();
     });
   }
@@ -762,6 +797,53 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     return '$sessionId#${seq ?? 'draft'}';
   }
 
+  /// 这一轮可以复用的席位子会话。
+  ///
+  /// 两个来源，都带边界：
+  /// 1. 会话记录里落盘的 [SeatSessions]（重启后仍在）；
+  /// 2. 内存里这一条会话已有回合的席位 sessionId（本会话内，且模型没换）。
+  /// 别的议会/团队/普通聊天的子会话永远不会出现在这里。
+  Map<String, String> _seedSessions(CouncilConversation conversation) {
+    final seeds = conversation.seatSessions.seedsFor(
+      conversationId: conversation.id,
+      seats: conversation.seats,
+    );
+    for (final turn in conversation.turns.reversed) {
+      final run = _runs[turn.runId];
+      if (run == null) continue;
+      for (final seat in conversation.seats) {
+        if (seeds.containsKey(seat.id)) continue;
+        SeatSpec? used;
+        for (final candidate in run.spec.seats) {
+          if (candidate.id == seat.id) used = candidate;
+        }
+        // 换了模型/供应商就是另一个成员：不复用旧会话。
+        if (used == null || used.provider != seat.provider || used.model != seat.model) continue;
+        final sessionId = run.seatOf(seat.id).sessionId;
+        if (sessionId == null || sessionId.isEmpty) continue;
+        seeds[seat.id] = sessionId;
+      }
+    }
+    return seeds;
+  }
+
+  /// 记下各席位这一轮真正用的子会话（连同父会话与模型边界一起落盘）。
+  void _rememberSeatSessions(CollabRun run) {
+    final conversation = _conversation;
+    if (conversation == null) return;
+    var sessions = conversation.seatSessions;
+    for (final seat in run.spec.seats) {
+      final sessionId = run.seatOf(seat.id).sessionId;
+      if (sessionId == null || sessionId.isEmpty) continue;
+      if (sessions.seedFor(conversationId: conversation.id, seat: seat) == sessionId) continue;
+      sessions = sessions.record(conversationId: conversation.id, seat: seat, sessionId: sessionId);
+    }
+    if (identical(sessions, conversation.seatSessions)) return;
+    final next = conversation.copyWith(seatSessions: sessions);
+    _conversation = next;
+    unawaited(ref.read(councilConversationsProvider.notifier).save(next));
+  }
+
   /// 预留一个运行 id（与 [CollabOrchestrator] 的默认格式同源：c + 时间）。
   ///
   /// 页面先拿它写进父会话的回合、落盘，再把同一个 id 交给编排器提交，
@@ -802,19 +884,10 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     setState(() => _drafts = const []);
     ref.read(conversationModeProvider.notifier).clearDraft(ConversationMode.council, _hostKey, conversation.id);
     try {
-      // 下一轮沿用上一轮各席位的子会话：模型自己记得上文。
-      final seeds = <String, String>{};
-      for (final turn in conversation.turns.reversed) {
-        final run = _runs[turn.runId];
-        if (run == null) continue;
-        for (final seat in run.spec.seats) {
-          final sessionId = run.seatOf(seat.id).sessionId;
-          if (sessionId != null && sessionId.isNotEmpty) {
-            seeds.putIfAbsent(seat.id, () => sessionId);
-          }
-        }
-        if (seeds.isNotEmpty) break;
-      }
+      // 下一轮沿用**本会话自己**各席位的子会话：模型自己记得上文。
+      // v4.3 · P0-A · 2.5：复用必须带父会话 + 席位 + provider + model 边界，
+      // 不能只看 seatId 相同就当同一个成员。
+      final seeds = _seedSessions(conversation);
       // 资料在上面已经检索过（pack）：指代能不能对上，自检时就说清楚了。
       final spec = CouncilSpec(
         question: question.isEmpty ? '（附件）' : question,
@@ -1314,6 +1387,9 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
             // 思考/工具状态属于这位成员自己的消息。
             thinking: live && activity?.phase == CollabActivityPhase.thinking,
             thoughtSummary: live ? (activity?.thoughtSummary ?? '') : '',
+            // 思考正文与工具轨迹都只属于这一位成员，绝不串到别人消息下面。
+            reasoning: live ? (activity?.reasoning ?? '') : '',
+            tools: live ? (activity?.tools ?? const []) : const [],
             toolName: live ? (activity?.toolName ?? '') : '',
             trailing: seat.id == run.spec.chairId
                 ? CollabModeBadge(label: '主席', color: Theme.of(context).colorScheme.primary)
