@@ -122,8 +122,8 @@ void main() {
     await o.dispose();
   });
 
-  test('显式并行仍然可用（底层能力没被拆掉）', () async {
-    // 单独一份 store + 驱动：只提交一条 4 席、上限 4 的 spec。
+  test('显式并行配置在 v3 里也被规范成严格一位', () async {
+    // 单独一份 store + 驱动：提交一条 4 席、旧写法 maxConcurrency: 4 的 spec。
     final tmp2 = Directory.systemTemp.createTempSync('collab_par');
     addTearDown(() {
       if (tmp2.existsSync()) tmp2.deleteSync(recursive: true);
@@ -135,11 +135,15 @@ void main() {
       newId: () => 'run-par',
       retryDelay: (_, _) => Duration.zero,
     );
-    await parallel.submit(_spec(seats: 4, maxConcurrency: 4));
+    // v3 · 2.5：即使显式传 4，逐席位执行、峰值仍为 1。
+    final oldStyle = _spec(seats: 4, maxConcurrency: 4);
+    final normalized = CouncilSpec.fromJson(oldStyle.toJson());
+    expect(normalized.maxConcurrency, 1);
+    await parallel.submit(oldStyle);
     await for (final run in parallel.events) {
       if (run.phase.isTerminal) break;
     }
-    expect(driver.peak, greaterThan(1), reason: '显式 maxConcurrency: 4 时应当真的并行');
+    expect(driver.peak, 1, reason: 'v3 要求实际模型请求并发始终为 1');
     await parallel.dispose();
   });
 
