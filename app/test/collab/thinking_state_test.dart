@@ -29,6 +29,9 @@ final class _StreamingFake implements CollabSessionDriver, CollabStreamingDriver
   }) async => const TurnOutcome(kind: TurnKind.completed, text: 'fallback');
 
   @override
+  Future<void> cancel(String sessionId) async {}
+
+  @override
   Stream<CollabTurnEvent> streamTurn(
     String sessionId,
     String text, {

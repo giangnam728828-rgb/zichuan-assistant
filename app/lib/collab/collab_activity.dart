@@ -77,18 +77,18 @@ Future<TurnOutcome> runTurnObserved({
       .listen(
         (event) {
           switch (event) {
-            case CollabTurnStage(:final stage, :final detail stageDetail, :final summary, :final toolStatus status):
-              detail = stageDetail;
+            case final CollabTurnStage stage:
+              detail = stage.detail;
               // 摘要只接受提供方明确公开的那一份；reasoning delta 在上游就被丢掉。
-              if (summary.isNotEmpty) thoughtSummary = summary;
-              phase = switch (stage) {
+              if (stage.summary.isNotEmpty) thoughtSummary = stage.summary;
+              phase = switch (stage.stage) {
                 'tool' => CollabActivityPhase.tool,
                 'replying' => CollabActivityPhase.replying,
                 _ => CollabActivityPhase.thinking,
               };
               if (phase == CollabActivityPhase.tool) {
                 toolName = detail;
-                toolStatus = status;
+                toolStatus = stage.toolStatus;
               }
               // 阶段变化不节流：工具/思考只来一两次，漏了界面就停在上一句。
               push(force: true);

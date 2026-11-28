@@ -76,6 +76,12 @@ final class CollabTurnStage extends CollabTurnEvent {
   /// `thinking` / `tool` / `replying`。
   final String stage;
   final String detail;
+
+  /// 提供方**明确标为用户可见**的思考摘要；原始 reasoning delta 不写这里。
+  final String summary;
+
+  /// 工具执行状态（调用中 / 完成 / 失败）。
+  final String toolStatus;
 }
 
 /// 正文增量（逐 token）。只来自 Host 的 assistant-stream。
