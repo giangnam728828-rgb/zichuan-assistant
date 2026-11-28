@@ -7,6 +7,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dsh_client/dsh_client.dart';
 import 'package:dsh_app/collab/collab_conversations.dart';
 import 'package:dsh_app/council/collab_models.dart';
 import 'package:dsh_app/council/collab_orchestrator.dart';
