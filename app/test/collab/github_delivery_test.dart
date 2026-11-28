@@ -286,7 +286,7 @@ void main() {
       );
       final next = collabTaskWithDelivery(task, result);
       expect(next.buildStatus, '构建成功');
-      expect(next.runUrl, contains('/actions/runs/11'));
+      expect(next.runUrl, contains('/actions/runs/12'));
       expect(next.commitSha, 'abc123');
       expect(next.artifactUrl, isNotNull);
     });
