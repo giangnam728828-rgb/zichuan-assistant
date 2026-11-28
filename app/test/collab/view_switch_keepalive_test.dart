@@ -201,7 +201,6 @@ void main() {
     final conversationId = conversations.conversations.keys.single;
     final runId = conversations.conversations.values.single.turns.single.runId;
     expect(find.textContaining('甲 的完整回答'), findsWidgets, reason: '第一位的结果已经在时间线里');
-    final callsBeforeCut = Map.of(driver.calls);
 
     // 切走：整棵视图卸载（页面 State dispose）。
     await tester.pumpWidget(const SizedBox.shrink());
@@ -228,7 +227,10 @@ void main() {
     expect(again.id, conversationId);
     expect(again.turns.single.runId, runId, reason: 'runId 不能变');
     expect(find.textContaining('甲 的完整回答'), findsWidgets, reason: '已生成的正文必须恢复');
-    expect(driver.calls['seat0'], callsBeforeCut['seat0'], reason: '重新进入不能再调一次');
+    // 重新进入不能再产生新的模型调用（主席共 2 次、其余各 1 次，和退出前一致）。
+    expect(driver.calls['seat0'], 2, reason: '重新进入不能让主席再跑一次：${driver.log}');
+    expect(driver.calls['seat1'], 1);
+    expect(driver.log, hasLength(3));
     expect(conversations.conversations, hasLength(1), reason: '不能新建第二条议会');
   });
 
