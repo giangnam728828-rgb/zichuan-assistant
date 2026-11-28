@@ -44,7 +44,7 @@ class _CountingDriver implements CollabSessionDriver {
   @override
   Future<String> openSession(SeatSpec seat, {String? workspaceId}) async {
     final id = 's${_seq++}';
-    _sessionOwner[id] = seat.label.isEmpty ? seat.id : seat.label;
+    _sessionOwner[id] = (seat.label?.isNotEmpty ?? false) ? seat.label! : seat.id;
     return id;
   }
 
@@ -146,7 +146,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 15));
     expect(driver.started, hasLength(1));
     await orchestrator.cancel('t1');
-    await sending.timeout(const Duration(seconds: 5), onTimeout: () {});
+    await sending.timeout(const Duration(seconds: 5), onTimeout: () => _team());
     await Future<void>.delayed(const Duration(milliseconds: 120));
     expect(driver.started, hasLength(1), reason: '取消后排队的乙丙不能启动');
   });
