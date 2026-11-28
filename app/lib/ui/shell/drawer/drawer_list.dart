@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../collab/collab_conversations.dart';
-import '../../../collab/collab_history.dart' show CollabHistoryTile;
+import '../../collab/collab_history.dart' show CollabHistoryTile;
 import '../../../l10n/l10n.dart';
 import '../../../state/drawer_view_state.dart';
 import '../../../state/session_attention_state.dart';
