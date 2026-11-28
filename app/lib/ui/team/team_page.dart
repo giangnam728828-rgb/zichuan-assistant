@@ -725,6 +725,13 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
   /// 正在触发 / 等待构建的 task。
   String? _buildingTaskId;
 
+  /// 打开凭据面板；保存成功后任务条上的「配置」会消失（下次构建读到新 token）。
+  Future<void> _configureCredential() async {
+    final changed = await showGitHubCredentialSheet(context);
+    if (!mounted || !changed) return;
+    setState(() {});
+  }
+
   /// 触发仓库里的 Actions，真实结果写回任务（失败也写，不伪造成功）。
   Future<void> _triggerBuild(CollabTaskContext task) async {
     setState(() => _buildingTaskId = task.id);
