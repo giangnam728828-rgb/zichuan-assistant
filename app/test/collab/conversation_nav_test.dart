@@ -6,7 +6,6 @@
 import 'package:dsh_app/state/conversation_mode_state.dart';
 import 'package:dsh_app/state/sessions_state.dart';
 import 'package:dsh_app/state/hosts_state.dart';
-import 'package:dsh_app/ui/collab/collab_conversations.dart';
 import 'package:dsh_app/ui/collab/conversation_nav.dart';
 import 'package:dsh_app/collab/collab_conversations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

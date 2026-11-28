@@ -38,6 +38,7 @@ class ConversationModeState {
     this.councilIds = const {},
     this.teamIds = const {},
     this.drafts = const {},
+    this.scrollOffsets = const {},
     this.requestNonce = 0,
     this.openId,
     this.openRunId,
@@ -80,16 +81,22 @@ class ConversationModeState {
 
   String draftOf(ConversationMode mode, String host, String? id) => drafts[_draftKey(mode, host, id)] ?? '';
 
+  /// 每个会话各自记住的滚动位置（v4.2 · P0-D）：切走再回来接着看，
+  /// 不会把 A 的位置用到 B 上。
+  double? scrollOf(ConversationMode mode, String host, String? id) => scrollOffsets[_draftKey(mode, host, id)];
+
   ConversationModeState copyWith({
     ConversationMode? mode,
     Map<String, String>? councilIds,
     Map<String, String>? teamIds,
     Map<String, String>? drafts,
+    Map<String, double>? scrollOffsets,
   }) => ConversationModeState(
     mode: mode ?? this.mode,
     councilIds: councilIds ?? this.councilIds,
     teamIds: teamIds ?? this.teamIds,
     drafts: drafts ?? this.drafts,
+    scrollOffsets: scrollOffsets ?? this.scrollOffsets,
     requestNonce: requestNonce,
     openId: openId,
     openRunId: openRunId,
@@ -98,7 +105,13 @@ class ConversationModeState {
 
   static String _draftKey(ConversationMode mode, String host, String? id) => '${mode.name}|$host|${id ?? ''}';
 
-  Map<String, Object?> toJson() => {'mode': mode.name, 'council': councilIds, 'team': teamIds, 'drafts': drafts};
+  Map<String, Object?> toJson() => {
+    'mode': mode.name,
+    'council': councilIds,
+    'team': teamIds,
+    'drafts': drafts,
+    if (scrollOffsets.isNotEmpty) 'scroll': scrollOffsets,
+  };
 
   /// 坏数据不炸启动：认不出的模式回聊天，字段类型不对就当空。
   factory ConversationModeState.fromJson(Map<String, Object?> json) {
@@ -117,11 +130,20 @@ class ConversationModeState {
       };
     }
 
+    Map<String, double> doubles(Object? value) {
+      if (value is! Map) return const {};
+      return {
+        for (final entry in value.entries)
+          if (entry.key is String && entry.value is num) entry.key as String: (entry.value as num).toDouble(),
+      };
+    }
+
     return ConversationModeState(
       mode: mode,
       councilIds: strings(json['council']),
       teamIds: strings(json['team']),
       drafts: strings(json['drafts']),
+      scrollOffsets: doubles(json['scroll']),
     );
   }
 }
@@ -254,6 +276,14 @@ class ConversationModeController extends Notifier<ConversationModeState> {
   void rememberTeam(String host, String id) {
     if (state.teamIds[host] == id) return;
     _commit(state.copyWith(teamIds: {...state.teamIds, host: id}));
+  }
+
+  /// 记下某个会话的滚动位置（节流调用；值不变就跳过）。
+  void saveScroll(ConversationMode mode, String host, String? id, double offset) {
+    final key = ConversationModeState._draftKey(mode, host, id);
+    final current = state.scrollOffsets[key];
+    if (current != null && (current - offset).abs() < 1.0) return;
+    _commit(state.copyWith(scrollOffsets: {...state.scrollOffsets, key: offset}));
   }
 
   /// 记下某个会话没发出去的草稿；空串等于删除。

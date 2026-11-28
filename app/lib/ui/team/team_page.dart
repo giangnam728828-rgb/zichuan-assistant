@@ -1243,6 +1243,9 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       key: ValueKey('team-timeline-${team.id}'),
       rows: rows,
       controller: _scroll,
+      initialOffset: ref.read(conversationModeProvider).scrollOf(ConversationMode.team, _hostKey, team.id),
+      onOffsetChanged: (offset) =>
+          ref.read(conversationModeProvider.notifier).saveScroll(ConversationMode.team, _hostKey, team.id, offset),
     );
   }
 

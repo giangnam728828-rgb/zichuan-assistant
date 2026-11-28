@@ -46,6 +46,8 @@ class CollabTimeline extends StatefulWidget {
     this.controller,
     this.followOnNewRows = true,
     this.footer,
+    this.initialOffset,
+    this.onOffsetChanged,
   });
 
   /// 从上到下的行；最后一行就是「最新的内容」。
@@ -74,6 +76,12 @@ class CollabTimeline extends StatefulWidget {
   /// 列表末尾（输入栏之上）的常驻内容，例如「正在召集成员…」的一行。
   final Widget? footer;
 
+  /// 这条会话上次看到的位置（v4.2 · P0-D）。有就回到那里，没有就贴底。
+  final double? initialOffset;
+
+  /// 滚动位置变化（节流 300ms 一次），页面按会话存起来。
+  final ValueChanged<double>? onOffsetChanged;
+
   /// 判定「贴着底部」的容差：小于这个距离就算用户在底部。
   static const pinnedTolerance = 48.0;
 
@@ -88,6 +96,7 @@ class CollabTimelineState extends State<CollabTimeline> {
   /// 用户是否贴在底部。往上翻历史时为 false：新内容不再抢滚动。
   bool _pinned = true;
   bool _restored = false;
+  Timer? _offsetTimer;
 
   @override
   void initState() {
@@ -115,6 +124,7 @@ class CollabTimelineState extends State<CollabTimeline> {
 
   @override
   void dispose() {
+    _offsetTimer?.cancel();
     _scroll.removeListener(_onScroll);
     if (_ownsController) _scroll.dispose();
     super.dispose();
@@ -126,6 +136,14 @@ class CollabTimelineState extends State<CollabTimeline> {
     final distance = position.maxScrollExtent - position.pixels;
     final pinned = distance <= CollabTimeline.pinnedTolerance;
     if (pinned != _pinned) _pinned = pinned;
+    // 节流：滚动每一帧都写 provider 会让整棵树重建。
+    if (widget.onOffsetChanged != null) {
+      _offsetTimer ??= Timer(const Duration(milliseconds: 300), () {
+        _offsetTimer = null;
+        if (!mounted || !_scroll.hasClients) return;
+        widget.onOffsetChanged!(_scroll.position.pixels);
+      });
+    }
   }
 
   /// 「贴底」状态：议会/团队页在流式增量后据此决定要不要跟随。
@@ -156,9 +174,19 @@ class CollabTimelineState extends State<CollabTimeline> {
   Widget build(BuildContext context) {
     final rows = widget.rows;
     if (!_restored) {
-      // 第一次铺出来就在底部（恢复旧会话看到的是最新一轮，而不是列表顶）。
       _restored = true;
-      _scheduleFollow();
+      final remembered = widget.initialOffset;
+      if (remembered != null && remembered > 0) {
+        // 回到上次看的位置（P0-D）；越界由 clamp 兜住。
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_scroll.hasClients) return;
+          final max = _scroll.position.maxScrollExtent;
+          _scroll.jumpTo(remembered.clamp(0.0, max));
+        });
+      } else {
+        // 没有记录：恢复旧会话时看到的是最新一轮，而不是列表顶。
+        _scheduleFollow();
+      }
     }
     if (rows.isEmpty) return widget.empty ?? const SizedBox.shrink();
     final list = ListView.builder(

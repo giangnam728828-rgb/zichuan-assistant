@@ -15,7 +15,7 @@ import '../../state/conversation_mode_state.dart';
 import '../../state/hosts_state.dart';
 import '../../state/sessions_state.dart';
 import '../shell/root_tab.dart';
-import 'collab_conversations.dart';
+import '../../collab/collab_conversations.dart';
 
 /// 会话的真实类型。**永远**由数据源给出，不由当前模式推断。
 enum ConversationKind {

@@ -1345,6 +1345,13 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       key: ValueKey('council-timeline-${conversation.id}'),
       rows: rows,
       controller: _scroll,
+      // 每个会话记住自己的位置（P0-D）：切走再回来接着看，不借用别人的。
+      initialOffset: ref
+          .read(conversationModeProvider)
+          .scrollOf(ConversationMode.council, _hostKey, conversation.id),
+      onOffsetChanged: (offset) => ref
+          .read(conversationModeProvider.notifier)
+          .saveScroll(ConversationMode.council, _hostKey, conversation.id, offset),
     );
   }
 
