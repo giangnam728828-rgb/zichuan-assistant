@@ -216,7 +216,16 @@ final class CollabOrchestrator {
       final live = _latest[runId];
       if (live != null) return live;
     }
-    final run = await _store.load(runId);
+    // 内存比盘新：所有更新都先写内存再落盘，正在跑的 run 不能被盘上的旧快照
+    // 覆盖（否则会把 running 席位重置成 pending，导致同一位被问两次）。
+    final memory = _latest[runId];
+    final disk = await _store.load(runId);
+    final run = switch ((memory, disk)) {
+      (final m?, final d?) => m.updatedAt.isBefore(d.updatedAt) ? d : m,
+      (final m?, null) => m,
+      (null, final d?) => d,
+      _ => null,
+    };
     if (run == null) return null;
     _latest[run.id] = run;
     if (run.phase.isTerminal) return run;

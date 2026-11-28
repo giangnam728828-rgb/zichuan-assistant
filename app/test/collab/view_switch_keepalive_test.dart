@@ -143,19 +143,31 @@ Future<void> _pump(
   await _settle(tester);
 }
 
-/// 等到会话里所有回合都收尾。
+/// 等编排器把这一轮跑完。
+///
+/// 判据是**运行仓库里的 run**（编排器自己的状态），不是会话记录里的 turn：
+/// 页面卸载后没有视图去回写 turn 的 phase，用它当判据会永远等不到。
 Future<void> _waitForTerminal(
   WidgetTester tester,
-  _MemConversationStore store, {
+  _MemRunStore runs,
+  CollabOrchestrator orchestrator, {
   int frames = 300,
 }) async {
+  final runId = runs.runs.keys.isEmpty ? null : runs.runs.keys.first;
   for (var i = 0; i < frames; i++) {
     await tester.pump(const Duration(milliseconds: 20));
-    final turns = store.conversations.values.expand((c) => c.turns).toList();
-    if (turns.isNotEmpty && turns.every((turn) => !turn.running)) return;
+    if (runId == null) {
+      if (runs.runs.isNotEmpty) return _waitForTerminal(tester, runs, orchestrator, frames: frames - i);
+      continue;
+    }
+    final snap = await orchestrator.snapshot(runId);
+    if (snap?.phase.isTerminal ?? false) return;
   }
-  final turns = store.conversations.values.expand((c) => c.turns).toList();
-  fail('运行没有在限定时间内结束：${turns.map((t) => t.phase).toList()}');
+  final detail = [
+    for (final run in runs.runs.values)
+      '${run.phase.name} seats=${run.seats.values.map((s) => s.status.name).toList()}',
+  ];
+  fail('运行没有在限定时间内结束：$detail');
 }
 
 void main() {
@@ -193,7 +205,7 @@ void main() {
     await tester.pump();
 
     // 没有页面在看：运行必须自己跑完。
-    await _waitForTerminal(tester, conversations);
+    await _waitForTerminal(tester, runs, orchestrator);
     final finished = runs.runs[runId]!;
     expect(finished.phase, CollabPhase.done, reason: '页面卸载不能取消运行');
     expect(driver.calls['seat0'], callsBeforeCut['seat0'], reason: '已答过的席位不重复调用');
@@ -229,7 +241,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     await _pump(tester, orchestrator, conversations, conversationId: conversationId);
-    await _waitForTerminal(tester, conversations);
+    await _waitForTerminal(tester, runs, orchestrator);
 
     expect(runs.runs[runId]?.phase, CollabPhase.done);
     expect(conversations.conversations.values.single.turns, hasLength(1), reason: '不能多出第二个回合');
