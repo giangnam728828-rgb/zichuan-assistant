@@ -23,6 +23,9 @@ import 'root_tab.dart';
 import 'shell_insets.dart';
 
 /// 导航角标：一次只显示一种，克制。
+/// 底部只显示这四页；history 是抽屉用的隐藏别名。
+const _visibleTabs = [RootTab.chat, RootTab.tasks, RootTab.tools, RootTab.settings];
+
 class NavBadges {
   const NavBadges({this.pending = 0, this.running = false, this.chatRunning = false});
 
