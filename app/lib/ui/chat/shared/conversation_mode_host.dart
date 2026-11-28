@@ -20,13 +20,31 @@ import 'conversation_transition.dart';
 
 /// ⋯ 菜单里的一项（成员管理、导出、设置……）。
 class CollabMenuAction {
-  const CollabMenuAction({required this.key, required this.label, required this.onTap, this.icon});
+  const CollabMenuAction({
+    required this.key,
+    required this.label,
+    required this.onTap,
+    this.icon,
+    this.enabled = true,
+    this.disabledReason,
+    this.scope = CollabMenuScope.current,
+  });
 
   final String key;
   final String label;
   final VoidCallback onTap;
   final IconData? icon;
+
+  /// false：菜单里仍显示（让用户知道功能在哪），但点击无效并说明原因。
+  final bool enabled;
+  final String? disabledReason;
+
+  /// global：不依赖当前会话（历史、模型管理、设置）。
+  final CollabMenuScope scope;
 }
+
+/// 菜单项是否需要当前会话。
+enum CollabMenuScope { global, current }
 
 /// 协作视图发布给统一顶栏的信息。
 class CollabHeaderInfo {
@@ -73,7 +91,7 @@ class CollabHeaderInfo {
 
   static bool _sameActions(List<CollabMenuAction> a, List<CollabMenuAction> b) {
     for (var i = 0; i < a.length; i++) {
-      if (a[i].key != b[i].key || a[i].label != b[i].label) return false;
+      if (a[i].key != b[i].key || a[i].label != b[i].label || a[i].enabled != b[i].enabled) return false;
     }
     return true;
   }

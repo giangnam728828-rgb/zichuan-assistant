@@ -7,6 +7,8 @@ import 'package:dsh_client/dsh_client.dart' show SessionSummary;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../collab/collab_conversations.dart';
+import '../../../collab/collab_history.dart' show CollabHistoryTile;
 import '../../../l10n/l10n.dart';
 import '../../../state/drawer_view_state.dart';
 import '../../../state/session_attention_state.dart';
@@ -29,6 +31,8 @@ class DrawerConversationList extends ConsumerWidget {
     this.onNewChat,
     this.leading,
     this.now,
+    this.collabEntries = const [],
+    this.onOpenCollab,
     this.readOnly = false,
   });
 
@@ -47,6 +51,10 @@ class DrawerConversationList extends ConsumerWidget {
   /// Clock override for the day groups (tests).
   final DateTime? now;
   final bool readOnly;
+
+  /// 协作主会话（议会 / 团队）：作为普通高度的一行混进历史，不再单独成一节。
+  final List<CollabHistoryEntry> collabEntries;
+  final ValueChanged<CollabHistoryEntry>? onOpenCollab;
 
   /// The list's padding: rows' edges on the drawer's 10 line.
   static const padding = EdgeInsets.fromLTRB(10, 4, 10, 16);
@@ -111,6 +119,18 @@ class DrawerConversationList extends ConsumerWidget {
     if (showLeading) {
       const key = ValueKey('leading');
       add(key, (_) => KeyedSubtree(key: key, child: leading!));
+    }
+    // 协作记录按更新时间混在置顶之后、日期分组之前的一行行里；不再有
+    // 「议会与团队」整块标题，也不让成员子会话单独出现。
+    final collabSorted = [...collabEntries]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    for (final entry in collabSorted) {
+      add(
+        ValueKey('collab-${entry.kind.name}-${entry.id}'),
+        (_) => CollabHistoryTile(
+          entry: entry,
+          onTap: () => onOpenCollab?.call(entry),
+        ),
+      );
     }
     var foldersLabelled = false;
     for (final block in blocks) {

@@ -140,19 +140,80 @@ Future<void> showConversationModePanel(
     transitionBuilder: (context, animation, secondary, child) {
       if (duration == Duration.zero) return child;
       final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+      // 面板位置和缩放原点都来自同一个锚点 Rect：不再用固定 Alignment.topRight。
+      final media = MediaQuery.of(context);
+      final panelRect = _ModePanelGeometry.rect(
+        screen: media.size,
+        padding: media.padding,
+        viewInsets: media.viewInsets,
+        anchor: anchorRect,
+      );
+      final origin = _ModePanelGeometry.origin(panelRect, anchorRect);
       return FadeTransition(
         opacity: curved,
         child: AnimatedBuilder(
           animation: curved,
-          builder: (context, inner) => Transform.translate(
-            offset: Offset(0, -6 * (1 - curved.value)),
-            child: Transform.scale(scale: 0.96 + 0.04 * curved.value, alignment: Alignment.topRight, child: inner),
+          builder: (context, inner) => Transform.scale(
+            scale: 0.84 + 0.16 * curved.value,
+            alignment: origin,
+            child: inner,
           ),
           child: child,
         ),
       );
     },
   );
+}
+
+/// 面板的几何：布局和展开动画共用同一份坐标（v3 · 8.2）。
+abstract final class _ModePanelGeometry {
+  static const maxWidth = 272.0;
+  static const margin = 12.0;
+  static const gap = 6.0;
+
+  /// 只在动画里估算高度（真实高度由布局量），用来算缩放原点；方向足够准。
+  static const estimatedHeight = 232.0;
+
+  static Rect rect({
+    required Size screen,
+    required EdgeInsets padding,
+    required EdgeInsets viewInsets,
+    Rect? anchor,
+  }) {
+    final safe = Rect.fromLTRB(
+      padding.left,
+      padding.top,
+      screen.width - padding.right,
+      screen.height - viewInsets.bottom - padding.bottom,
+    );
+    final width = maxWidth.clamp(0.0, (safe.width - margin * 2).clamp(0.0, maxWidth)).toDouble();
+    final leftMin = safe.left + margin;
+    final leftMax = safe.right - margin - width;
+    final left = anchor == null
+        ? leftMax
+        : (anchor.right - width).clamp(leftMin, leftMax < leftMin ? leftMin : leftMax);
+    final topMin = safe.top + margin;
+    final topMax = safe.bottom - margin - estimatedHeight;
+    final top = anchor == null
+        ? topMin
+        : () {
+            final below = anchor.bottom + gap;
+            if (below <= topMax) return below;
+            final above = anchor.top - gap - estimatedHeight;
+            if (above >= topMin) return above;
+            return topMax < topMin ? topMin : topMax;
+          }();
+    return Rect.fromLTWH(left, top, width, estimatedHeight);
+  }
+
+  /// 从按钮中心换算成 panel 的局部 alignment。
+  static Alignment origin(Rect panel, Rect? anchor) {
+    if (anchor == null) return Alignment.topRight;
+    final center = anchor.center;
+    final x = ((center.dx - panel.left) / panel.width.clamp(1.0, double.infinity)).clamp(-1.0, 1.0);
+    final y = ((center.dy - panel.top) / panel.height.clamp(1.0, double.infinity)).clamp(-1.0, 1.0);
+    return Alignment(x, y);
+  }
 }
 
 class _ModePanel extends StatelessWidget {

@@ -1128,10 +1128,36 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       onTitleTap: team == null ? null : _rename,
       onNew: _newTeam,
       actions: [
-        CollabMenuAction(key: 'team-members', label: '管理成员', icon: AppIcons.team, onTap: _openMembers),
-        CollabMenuAction(key: 'team-settings', label: '团队设置', onTap: _openSettings),
-        CollabMenuAction(key: 'team-export', label: '导出 Markdown', onTap: _export),
-        CollabMenuAction(key: 'team-history', label: '历史团队', onTap: () => switchTab(context, RootTab.history)),
+        CollabMenuAction(
+          key: 'team-members',
+          label: '管理成员',
+          icon: AppIcons.team,
+          onTap: _openMembers,
+          enabled: team != null,
+          disabledReason: '先新建一条团队会话',
+        ),
+        CollabMenuAction(
+          key: 'team-settings',
+          label: '团队设置',
+          onTap: _openSettings,
+          enabled: team != null,
+          disabledReason: '先新建一条团队会话',
+        ),
+        CollabMenuAction(
+          key: 'team-export',
+          label: '导出 Markdown',
+          onTap: _export,
+          enabled: team != null && team.messages.isNotEmpty,
+          disabledReason: team == null ? '还没有团队会话' : '还没有可导出的消息',
+        ),
+        // 全局入口：没有会话时也要能打开历史。
+        CollabMenuAction(
+          key: 'team-history',
+          label: '历史对话',
+          icon: AppIcons.history,
+          onTap: () => switchTab(context, RootTab.history),
+          scope: CollabMenuScope.global,
+        ),
       ],
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {

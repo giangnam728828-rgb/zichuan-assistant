@@ -1121,9 +1121,28 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       onTitleTap: conversation == null ? null : _rename,
       onNew: _newConversation,
       actions: [
-        CollabMenuAction(key: 'council-members', label: '管理成员', icon: AppIcons.team, onTap: _openMembers),
-        CollabMenuAction(key: 'council-export', label: '导出 Markdown', onTap: _export),
-        CollabMenuAction(key: 'council-history', label: '历史议会', onTap: () => switchTab(context, RootTab.history)),
+        CollabMenuAction(
+          key: 'council-members',
+          label: '管理成员',
+          icon: AppIcons.team,
+          onTap: _openMembers,
+          enabled: conversation != null,
+          disabledReason: '先新建一条议会会话',
+        ),
+        CollabMenuAction(
+          key: 'council-export',
+          label: '导出 Markdown',
+          onTap: _export,
+          enabled: conversation != null && conversation.turns.isNotEmpty,
+          disabledReason: conversation == null ? '还没有议会会话' : '还没有可导出的回合',
+        ),
+        CollabMenuAction(
+          key: 'council-history',
+          label: '历史对话',
+          icon: AppIcons.history,
+          onTap: () => switchTab(context, RootTab.history),
+          scope: CollabMenuScope.global,
+        ),
       ],
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {

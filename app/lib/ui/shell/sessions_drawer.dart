@@ -497,12 +497,16 @@ class _SessionList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
-    // 分类：议会 / 团队走各自的列表，不依赖 Host 的会话列表。
+    // v3 · 6.3：分类只是筛选同一套数据，不再切到另一套独立列表页。
     final kind = ref.watch(historyKindProvider);
-    if (kind == HistoryKind.council || kind == HistoryKind.team) {
-      return CollabHistoryList(kind: kind == HistoryKind.council ? CollabKind.council : CollabKind.team, onClose: onClose);
-    }
-    final collab = ref.watch(collabHistoryProvider).value ?? const <CollabHistoryEntry>[];
+    final allCollab = ref.watch(collabHistoryProvider).value ?? const <CollabHistoryEntry>[];
+    final collab = [
+      for (final entry in allCollab)
+        if (kind == HistoryKind.all ||
+            (kind == HistoryKind.council && entry.kind == CollabKind.council) ||
+            (kind == HistoryKind.team && entry.kind == CollabKind.team))
+        entry,
+    ];
     final sessions = ref.watch(sessionsProvider);
     final identity = ref.watch(readListIdentityProvider);
     final workspace = ref.watch(selectedWorkspaceProvider);
@@ -547,7 +551,6 @@ class _SessionList extends ConsumerWidget {
               Future<void>.delayed(AppMotion.slow, onClose);
             },
           ),
-          if (collab.isNotEmpty) CollabHistorySection(onClose: onClose),
         ],
       ),
       (true, _) => DsBotDrawerRow(
@@ -557,7 +560,6 @@ class _SessionList extends ConsumerWidget {
           Future<void>.delayed(AppMotion.slow, onClose);
         },
       ),
-      (false, HistoryKind.all) when collab.isNotEmpty => CollabHistorySection(onClose: onClose),
       _ => null,
     };
     return DrawerConversationList(
@@ -565,6 +567,8 @@ class _SessionList extends ConsumerWidget {
       onNewChat: onClose,
       readOnly: scope.readOnly,
       leading: leading,
+      collabEntries: collab,
+      onOpenCollab: (entry) => openCollabEntry(context, entry, onClose: onClose),
       onOpen: (id) {
         if (ref.read(readListIdentityProvider) != identity ||
             ref.read(drawerScopeProvider)?.sessions.any((s) => s.sessionId == id) != true) {

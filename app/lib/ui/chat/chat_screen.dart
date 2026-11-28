@@ -2535,12 +2535,21 @@ class _CollabMoreKey extends StatelessWidget {
         tooltip: '更多',
         padding: EdgeInsets.zero,
         position: PopupMenuPosition.under,
-        onSelected: (action) => action.onTap(),
+        onSelected: (action) {
+          if (!action.enabled) {
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              SnackBar(content: Text(action.disabledReason ?? '这个功能当前不可用')),
+            );
+            return;
+          }
+          action.onTap();
+        },
         itemBuilder: (context) => [
           for (final action in actions)
             PopupMenuItem<CollabMenuAction>(
               key: ValueKey(action.key),
               value: action,
+              enabled: action.enabled,
               child: Row(
                 children: [
                   if (action.icon case final icon?) ...[
@@ -2549,10 +2558,14 @@ class _CollabMoreKey extends StatelessWidget {
                   ],
                   Flexible(
                     child: Text(
-                      action.label,
+                      action.enabled
+                          ? action.label
+                          : '${action.label}（${action.disabledReason ?? '当前不可用'}）',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: action.enabled ? null : theme.colorScheme.outline,
+                      ),
                     ),
                   ),
                 ],
