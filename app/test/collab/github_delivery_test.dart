@@ -34,6 +34,7 @@ class _FakeGitHub {
     this.fileStatus = 200,
     this.dispatchStatus = 204,
     this.runs = const [],
+    this.nextRunId,
     this.runStatus = 200,
     this.artifactsStatus = 200,
   });
@@ -44,6 +45,9 @@ class _FakeGitHub {
   int fileStatus;
   int dispatchStatus;
   List<Map<String, Object?>> runs;
+
+  /// 触发后模拟 GitHub 生成一个新 run（真实 GitHub 一定会给新 id）。
+  final int? nextRunId;
   int runStatus;
   int artifactsStatus;
 
@@ -77,6 +81,7 @@ class _FakeGitHub {
     }
     if (path.endsWith('/dispatches')) {
       if (dispatchStatus >= 400) return _err(dispatchStatus, 'Bad Request');
+      if (nextRunId != null) runs = [_runJson(id: nextRunId!)];
       return http.Response('', dispatchStatus);
     }
     if (path.endsWith('/runs') || path.endsWith('/runs/')) {
@@ -252,7 +257,7 @@ void main() {
 
   group('触发构建并写回任务', () {
     test('成功链路：dispatch → 等到 run → artifacts → 写进任务', () async {
-      final fake = _FakeGitHub(runs: [_runJson(id: 11)]);
+      final fake = _FakeGitHub(runs: [_runJson(id: 11)], nextRunId: 12);
       final client = GitHubClient(credentials: _creds(), httpClient: fake.client);
       final delivery = CollabDelivery(client);
 
@@ -264,7 +269,7 @@ void main() {
       );
 
       expect(result.error, isNull);
-      expect(result.run?.id, 11);
+      expect(result.run?.id, 12);
       expect(result.ok, isTrue);
       expect(result.artifactUrl, contains('/artifacts/1/zip'));
       expect(fake.calls.any((c) => c.endsWith('/dispatches')), isTrue);
