@@ -76,18 +76,41 @@ enum CollabActivityPhase {
 
 /// 一位成员此刻的执行状态（不落盘）。
 final class CollabActivity {
-  const CollabActivity({required this.phase, this.detail = '', this.text = '', this.attemptId = '', this.at});
+  const CollabActivity({
+    required this.phase,
+    this.detail = '',
+    this.text = '',
+    this.attemptId = '',
+    this.thoughtSummary = '',
+    this.toolName = '',
+    this.toolStatus = '',
+    this.at,
+  });
 
   final CollabActivityPhase phase;
 
-  /// 工具名之类的补充说明。
+  /// 工具名之类的补充说明（保留字段，兼容旧调用）。
   final String detail;
 
-  /// 已经收到的正文（只来自流式增量）。
+  /// 已经收到的**回答正文**（只来自 assistant 的 TextDeltaChunk）。
+  ///
+  /// 思考摘要绝不写进这里：两者从数据结构上就是分开的（v3 · 3.2）。
   final String text;
 
   /// Host 的 attemptId：换了一次重试就换一个，用来丢弃旧请求的尾巴。
   final String attemptId;
+
+  /// 提供方明确标为「用户可见」的思考摘要。
+  ///
+  /// 只有这个字段可以喂给 ThinkingPill；原始 reasoning delta 永远不落这里，
+  /// 没有公开摘要时就留空，界面只显示真实的阶段状态（v3 · 3.3）。
+  final String thoughtSummary;
+
+  /// 当前工具名与执行状态（都来自真实事件）。
+  final String toolName;
+  final String toolStatus;
+
+  /// 最近一次状态变化时间。
   final DateTime? at;
 
   bool get isActive => phase != CollabActivityPhase.done && phase != CollabActivityPhase.failed;
@@ -95,18 +118,32 @@ final class CollabActivity {
   /// 界面上的那一句话。
   String get label => switch (phase) {
     CollabActivityPhase.thinking => '正在思考…',
-    CollabActivityPhase.tool => detail.isEmpty ? '正在用工具…' : '正在用 $detail…',
+    CollabActivityPhase.tool => toolName.isEmpty
+        ? (detail.isEmpty ? '正在调用工具…' : '正在用 $detail…')
+        : (toolStatus.isEmpty ? '正在用 $toolName…' : '$toolName · $toolStatus'),
     CollabActivityPhase.replying => '正在回答…',
     CollabActivityPhase.done => '已完成',
     CollabActivityPhase.failed => '这一轮没跑完',
   };
 
-  CollabActivity copyWith({CollabActivityPhase? phase, String? detail, String? text, String? attemptId, DateTime? at}) {
+  CollabActivity copyWith({
+    CollabActivityPhase? phase,
+    String? detail,
+    String? text,
+    String? attemptId,
+    String? thoughtSummary,
+    String? toolName,
+    String? toolStatus,
+    DateTime? at,
+  }) {
     return CollabActivity(
       phase: phase ?? this.phase,
       detail: detail ?? this.detail,
       text: text ?? this.text,
       attemptId: attemptId ?? this.attemptId,
+      thoughtSummary: thoughtSummary ?? this.thoughtSummary,
+      toolName: toolName ?? this.toolName,
+      toolStatus: toolStatus ?? this.toolStatus,
       at: at ?? this.at,
     );
   }

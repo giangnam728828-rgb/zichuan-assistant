@@ -1238,23 +1238,7 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     final rows = <CollabTimelineRow>[];
     void add(Key key, Widget child, {double gap = 0}) =>
         rows.add(CollabTimelineRow(key: key, child: child, bottomGap: gap));
-    // 任务上下文：这件事的目标、仓库、阶段。收起时只占一行。
-    final task = _taskId == null ? null : ref.watch(collabTaskProvider.select((all) => all[_taskId!]));
-    if (task != null) {
-      add(
-        const ValueKey('collab-task-context'),
-        CollabTaskBar(
-          task: task,
-          busy: _busy || (task.id == _taskId && (_latestRun(_conversation)?.phase.isTerminal == false)),
-          onResume: () => unawaited(_resumeTask(task.id)),
-          onOpenSource: _copySourceId,
-          onTriggerBuild: () => unawaited(_triggerBuild(task)),
-          onConfigureCredential: () => unawaited(_configureCredential()),
-          triggering: _buildingTaskId == task.id,
-        ),
-        gap: 4,
-      );
-    }
+    // v3 · 4.1：任务详情不进主聊天，只留在任务工作台。
     for (final turn in conversation.turns) {
       final animate = !_seenTurns.contains(turn.runId);
       _seenTurns.add(turn.runId);
@@ -1267,27 +1251,42 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
         );
         continue;
       }
-      // 各席位独立作答：一位一条，绝不混在一条消息里。
+      // v3 · 2.6：已完成的成员各自一条完整消息；正在运行的只画**一条**；
+      // 还没开始的成员不再生成大消息气泡，只留一行「接下来：…」。
+      final liveSeatIds = [
+        for (final seat in run.spec.seats)
+          if (run.activity[seat.id]?.isActive ?? false) seat.id,
+      ];
+      final liveSeatId = liveSeatIds.isEmpty ? null : liveSeatIds.first;
+      final waitingNames = <String>[];
       for (final seat in run.spec.seats) {
         final state = run.seatOf(seat.id);
+        final live = seat.id == liveSeatId;
         final activity = run.activity[seat.id];
-        final live = activity?.isActive ?? false;
+        final hasAnswer = (state.best ?? '').trim().isNotEmpty;
+        if (!live && !hasAnswer) {
+          if (state.status == SeatStatus.pending) waitingNames.add(seat.displayName);
+          continue;
+        }
         final (status, color) = live
             ? (activity!.label, Theme.of(context).colorScheme.primary)
             : seatStatus(run, seat, Theme.of(context).colorScheme);
-        final text = (live && (activity?.text.trim().isNotEmpty ?? false)) ? activity!.text : (state.best ?? '');
-        final waiting = state.status == SeatStatus.pending && !live;
+        final text = live && (activity?.text.trim().isNotEmpty ?? false) ? activity!.text : (state.best ?? '');
         add(
           ValueKey('seat-${run.id}-${seat.id}'),
           CollabMessage(
             brand: brandOf(seat.provider, seat.model),
             name: seat.displayName,
             model: '${brandLabel(brandOf(seat.provider, seat.model))} · ${shortModelName(seat.model)}',
-            text: text.isEmpty ? (waiting ? '等待作答' : '') : text,
+            text: text,
             status: status,
             statusColor: color,
             failed: state.status == SeatStatus.failed || state.status == SeatStatus.timedOut,
-            streaming: live || state.status == SeatStatus.running,
+            streaming: live,
+            // 思考/工具状态属于这位成员自己的消息。
+            thinking: live && activity?.phase == CollabActivityPhase.thinking,
+            thoughtSummary: live ? (activity?.thoughtSummary ?? '') : '',
+            toolName: live ? (activity?.toolName ?? '') : '',
             trailing: seat.id == run.spec.chairId
                 ? CollabModeBadge(label: '主席', color: Theme.of(context).colorScheme.primary)
                 : null,
@@ -1295,6 +1294,11 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
           ),
         );
       }
+      if (waitingNames.isNotEmpty && !run.phase.isTerminal)
+        add(
+          ValueKey('waiting-${run.id}'),
+          CollabSystemNote(text: '接下来：${waitingNames.join('、')}'),
+        );
       final verdict = run.verdict;
       if (verdict != null) {
         add(ValueKey('verdict-${run.id}'), _verdictCard(run, verdict), gap: 8);

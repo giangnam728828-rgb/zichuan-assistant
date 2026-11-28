@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../../council/collab_models.dart';
 import '../chat/model_brand_mark.dart';
+import '../chat/widgets/thinking_pill.dart';
 import '../chat/shared/conversation_kit.dart';
 import '../providers/provider_brand_icon.dart';
 
@@ -62,6 +63,9 @@ class CollabMessage extends StatelessWidget {
     this.failed = false,
     this.onNameTap,
     this.streaming = false,
+    this.thinking = false,
+    this.thoughtSummary = '',
+    this.toolName = '',
     this.trailing,
     this.animate = true,
   });
@@ -79,6 +83,15 @@ class CollabMessage extends StatelessWidget {
   final bool failed;
   final VoidCallback? onNameTap;
   final bool streaming;
+
+  /// 这位成员此刻正在思考（v3 · 3.4：状态属于这条消息自己）。
+  final bool thinking;
+
+  /// 提供方公开的用户可见思考摘要；原始 reasoning 不进这里。
+  final String thoughtSummary;
+
+  /// 真实工具名（有就显示，不编）。
+  final String toolName;
 
   /// 名字后面那枚小标签（主席 / 只读）。
   final Widget? trailing;
@@ -101,6 +114,18 @@ class CollabMessage extends StatelessWidget {
       streaming: streaming,
       onNameTap: onNameTap,
       animate: animate,
+      // 思考行挂在这位成员自己的消息下面，复用普通聊天的 ThinkingPill；
+      // 没有公开摘要时不给正文，只显示真实阶段。
+      footer: (thinking || thoughtSummary.isNotEmpty)
+          ? Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: ThinkingPill(
+                reasoning: thoughtSummary,
+                active: thinking,
+                streaming: streaming,
+              ),
+            )
+          : null,
     );
   }
 

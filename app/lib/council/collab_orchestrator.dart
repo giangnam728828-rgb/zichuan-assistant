@@ -71,7 +71,7 @@ sealed class CollabTurnEvent {
 
 /// 进入某个阶段：思考 / 调工具 / 开始写正文。`detail` 是真实的工具名等。
 final class CollabTurnStage extends CollabTurnEvent {
-  const CollabTurnStage(this.stage, {this.detail = ''});
+  const CollabTurnStage(this.stage, {this.detail = '', this.summary = '', this.toolStatus = ''});
 
   /// `thinking` / `tool` / `replying`。
   final String stage;

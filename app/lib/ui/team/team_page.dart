@@ -1181,39 +1181,7 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     ];
     final liveId = active.firstOrNull;
     final rows = <CollabTimelineRow>[];
-    // 任务图是辅助详情：放在时间线最上面，默认收起。
-    if (team.run case final run?) {
-      rows.add(
-        CollabTimelineRow(
-          key: const ValueKey('team-run-row'),
-          child: TeamRunCard(
-            team: team,
-            run: run,
-            busy: _busy,
-            onResume: () => unawaited(_resumeRun(team)),
-            onCancel: _stop,
-          ),
-        ),
-      );
-    }
-    // 任务上下文：目标、仓库、阶段、任务项。默认收起。
-    final task = _taskId == null ? null : ref.watch(collabTaskProvider.select((all) => all[_taskId!]));
-    if (task != null) {
-      rows.add(
-        CollabTimelineRow(
-          key: const ValueKey('collab-task-context'),
-          child: CollabTaskBar(
-            task: task,
-            busy: _busy || team.running.isNotEmpty,
-            onResume: () => unawaited(_resumeRun(team)),
-            onOpenSource: _copySourceId,
-            onTriggerBuild: () => unawaited(_triggerBuild(task)),
-            onConfigureCredential: () => unawaited(_configureCredential()),
-            triggering: _buildingTaskId == task.id,
-          ),
-        ),
-      );
-    }
+    // v3 · 4.1：任务图与任务目标不进聊天时间线，只留在任务工作台。
     for (final msg in messages) {
       rows.add(CollabTimelineRow(key: ValueKey('team-msg-${msg.id}'), child: _bubble(team, msg)));
     }
@@ -1232,11 +1200,6 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       key: ValueKey('team-timeline-${team.id}'),
       rows: rows,
       controller: _scroll,
-      footer: active.length > 1
-          // 旧数据里可能还有多位同时在跑：只留一句提示，不再让它们各占一个
-          // 活动气泡（方案：同一时间只有一个活动成员的主聊天流）。
-          ? CollabSystemNote(text: '还有 ${active.length - 1} 位队友在后台收尾')
-          : null,
     );
   }
 
@@ -1253,6 +1216,9 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       status: activity.label,
       statusColor: Theme.of(context).colorScheme.primary,
       streaming: true,
+      thinking: activity.phase == CollabActivityPhase.thinking,
+      thoughtSummary: activity.thoughtSummary,
+      toolName: activity.toolName,
     );
   }
 

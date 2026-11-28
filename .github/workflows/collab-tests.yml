@@ -79,6 +79,9 @@ jobs:
       - name: Council sequential answers
         run: flutter test test/collab/council_sequential_test.dart --reporter expanded
 
+      - name: Thinking state
+        run: flutter test test/collab/thinking_state_test.dart --reporter expanded
+
       - name: Task context pack
         run: flutter test test/collab/collab_task_context_test.dart --reporter expanded
 

@@ -40,6 +40,9 @@ Future<TurnOutcome> runTurnObserved({
   final completer = Completer<TurnOutcome>();
   var phase = CollabActivityPhase.thinking;
   var detail = '';
+  var thoughtSummary = '';
+  var toolName = '';
+  var toolStatus = '';
   var buffer = StringBuffer();
   var attemptId = '';
   var lastEmit = DateTime.fromMillisecondsSinceEpoch(0);
@@ -48,7 +51,18 @@ Future<TurnOutcome> runTurnObserved({
     final stamp = DateTime.now();
     if (!force && stamp.difference(lastEmit) < throttle) return;
     lastEmit = stamp;
-    onActivity(CollabActivity(phase: phase, detail: detail, text: buffer.toString(), attemptId: attemptId, at: stamp));
+    onActivity(
+      CollabActivity(
+        phase: phase,
+        detail: detail,
+        text: buffer.toString(), // 只有回答正文
+        attemptId: attemptId,
+        thoughtSummary: thoughtSummary, // 只有公开摘要
+        toolName: toolName,
+        toolStatus: toolStatus,
+        at: stamp,
+      ),
+    );
   }
 
   void settle(TurnOutcome outcome) {
@@ -63,13 +77,19 @@ Future<TurnOutcome> runTurnObserved({
       .listen(
         (event) {
           switch (event) {
-            case CollabTurnStage(stage: final stage, detail: final stageDetail):
+            case CollabTurnStage(:final stage, :final detail stageDetail, :final summary, :final toolStatus status):
               detail = stageDetail;
+              // 摘要只接受提供方明确公开的那一份；reasoning delta 在上游就被丢掉。
+              if (summary.isNotEmpty) thoughtSummary = summary;
               phase = switch (stage) {
                 'tool' => CollabActivityPhase.tool,
                 'replying' => CollabActivityPhase.replying,
                 _ => CollabActivityPhase.thinking,
               };
+              if (phase == CollabActivityPhase.tool) {
+                toolName = detail;
+                toolStatus = status;
+              }
               // 阶段变化不节流：工具/思考只来一两次，漏了界面就停在上一句。
               push(force: true);
             case CollabTurnText(:final delta):
