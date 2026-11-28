@@ -88,6 +88,9 @@ jobs:
       - name: Team session restore
         run: flutter test test/collab/team_session_restore_test.dart --reporter expanded
 
+      - name: GitHub delivery
+        run: flutter test test/collab/github_delivery_test.dart --reporter expanded
+
       - name: Stop really cancels
         run: flutter test test/collab/collab_stop_test.dart --reporter expanded
 

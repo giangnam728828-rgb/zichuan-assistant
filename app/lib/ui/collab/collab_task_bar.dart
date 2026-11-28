@@ -14,7 +14,16 @@ import '../theme/app_icons.dart';
 import '../theme/motion.dart';
 
 class CollabTaskBar extends StatefulWidget {
-  const CollabTaskBar({super.key, required this.task, this.onOpenSource, this.onResume, this.busy = false});
+  const CollabTaskBar({
+    super.key,
+    required this.task,
+    this.onOpenSource,
+    this.onResume,
+    this.onTriggerBuild,
+    this.onConfigureCredential,
+    this.triggering = false,
+    this.busy = false,
+  });
 
   final CollabTaskContext task;
 
@@ -23,6 +32,15 @@ class CollabTaskBar extends StatefulWidget {
 
   /// 任务没跑完但当前没人在跑：给一个「继续」。
   final VoidCallback? onResume;
+
+  /// 触发仓库里的 Actions 构建（需要 repo + branch + 凭据）。
+  final VoidCallback? onTriggerBuild;
+
+  /// 打开凭据面板（Token 只进安全存储）。
+  final VoidCallback? onConfigureCredential;
+
+  /// 正在触发 / 等待构建结果。
+  final bool triggering;
 
   /// 这一轮正在跑（不显示「继续」）。
   final bool busy;
@@ -200,11 +218,50 @@ class _CollabTaskBarState extends State<CollabTaskBar> {
           if (task.credentialRef == null && task.repo != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                '凭据：这次对话里没有可用的 GitHub 凭据，提交/构建会停在权限这一步。',
-                style: row?.copyWith(color: colors.onSurfaceVariant),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '凭据：这次对话里没有可用的 GitHub 凭据，提交/构建会停在权限这一步。',
+                      style: row?.copyWith(color: colors.onSurfaceVariant),
+                    ),
+                  ),
+                  if (widget.onConfigureCredential != null)
+                    TextButton(
+                      key: const ValueKey('collab-configure-credential'),
+                      onPressed: widget.onConfigureCredential,
+                      child: const Text('配置'),
+                    ),
+                ],
               ),
             ),
+          if (task.buildStatus.isNotEmpty || task.runUrl != null || task.commitSha != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '构建：${task.buildStatus}${task.commitSha == null ? '' : ' · ${task.commitSha!.substring(0, task.commitSha!.length < 7 ? task.commitSha!.length : 7)}'}',
+              style: row?.copyWith(color: colors.onSurface),
+            ),
+            if (task.runUrl case final url?)
+              InkWell(
+                onTap: () => _copy(url),
+                borderRadius: BorderRadius.circular(6),
+                child: Text('运行记录：${_clip(url, 60)}（点按复制）', style: row?.copyWith(color: colors.primary)),
+              ),
+            if (task.artifactUrl case final url?)
+              InkWell(
+                onTap: () => _copy(url),
+                borderRadius: BorderRadius.circular(6),
+                child: Text('产物：点按复制下载链接', style: row?.copyWith(color: colors.primary)),
+              ),
+          ] else if (task.repo != null && task.branch != null && widget.onTriggerBuild != null) ...[
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              key: const ValueKey('collab-trigger-build'),
+              onPressed: widget.triggering ? null : widget.onTriggerBuild,
+              icon: const Icon(AppIcons.play, size: 16),
+              label: Text(widget.triggering ? '正在等待构建…' : '在 GitHub 上构建'),
+            ),
+          ],
           if (task.result.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text('结果：${_clip(task.result, 160)}', style: theme.textTheme.bodySmall),

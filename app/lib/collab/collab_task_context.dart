@@ -128,6 +128,10 @@ final class CollabTaskContext {
     this.pending = const [],
     this.testStatus = '',
     this.buildStatus = '',
+    this.commitSha,
+    this.runId,
+    this.runUrl,
+    this.artifactUrl,
     this.result = '',
     this.failure,
     required this.createdAt,
@@ -183,7 +187,19 @@ final class CollabTaskContext {
   final List<String> pending;
 
   final String testStatus;
+
+  /// 构建状态：只用 GitHub 真实结果填（「构建成功 / 构建失败 / 排队中 …」）。
   final String buildStatus;
+
+  /// 提交到哪个 commit（真实 SHA）。
+  final String? commitSha;
+
+  /// 对应的 Actions run id 与链接。
+  final int? runId;
+  final String? runUrl;
+
+  /// 产物下载链接（有产物时才有）。
+  final String? artifactUrl;
 
   /// 最终结果（裁决首句 / 团队汇总）。
   final String result;
@@ -217,6 +233,10 @@ final class CollabTaskContext {
     List<String>? pending,
     String? testStatus,
     String? buildStatus,
+    String? commitSha,
+    int? runId,
+    String? runUrl,
+    String? artifactUrl,
     String? result,
     String? failure,
     DateTime? updatedAt,
@@ -239,6 +259,10 @@ final class CollabTaskContext {
     pending: pending ?? this.pending,
     testStatus: testStatus ?? this.testStatus,
     buildStatus: buildStatus ?? this.buildStatus,
+    commitSha: commitSha ?? this.commitSha,
+    runId: runId ?? this.runId,
+    runUrl: runUrl ?? this.runUrl,
+    artifactUrl: artifactUrl ?? this.artifactUrl,
     result: result ?? this.result,
     failure: failure ?? this.failure,
     createdAt: createdAt,
@@ -264,6 +288,10 @@ final class CollabTaskContext {
     if (pending.isNotEmpty) 'pending': pending,
     if (testStatus.isNotEmpty) 'testStatus': testStatus,
     if (buildStatus.isNotEmpty) 'buildStatus': buildStatus,
+    if (commitSha != null) 'commitSha': commitSha,
+    if (runId != null) 'runId': runId,
+    if (runUrl != null) 'runUrl': runUrl,
+    if (artifactUrl != null) 'artifactUrl': artifactUrl,
     if (result.isNotEmpty) 'result': result,
     if (failure != null) 'failure': failure,
     'createdAt': createdAt.toIso8601String(),
@@ -311,6 +339,10 @@ final class CollabTaskContext {
     ],
     testStatus: json['testStatus'] as String? ?? '',
     buildStatus: json['buildStatus'] as String? ?? '',
+    commitSha: json['commitSha'] as String?,
+    runId: (json['runId'] as num?)?.toInt(),
+    runUrl: json['runUrl'] as String?,
+    artifactUrl: json['artifactUrl'] as String?,
     result: json['result'] as String? ?? '',
     failure: json['failure'] as String?,
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),

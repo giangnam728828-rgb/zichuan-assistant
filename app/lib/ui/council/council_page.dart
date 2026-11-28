@@ -23,6 +23,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../collab/collab_approval_banner.dart';
 import '../../collab/collab_context_pack.dart';
 import '../../collab/collab_task_context.dart';
+import '../../collab/github_delivery.dart';
 import '../../collab/collab_approvals.dart';
 import '../../collab/collab_conversations.dart';
 import '../../collab/collab_export.dart';
@@ -49,6 +50,7 @@ import '../theme/app_icons.dart';
 import '../collab/collab_members.dart';
 import '../collab/collab_kit.dart';
 import '../collab/collab_task_bar.dart';
+import '../collab/github_credential_sheet.dart';
 import '../collab/collab_timeline.dart';
 import '../chat/render/markdown_body.dart';
 
@@ -932,6 +934,36 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     }
   }
 
+  /// 正在触发 / 等待构建的 task（输入栏不被这条禁用）。
+  String? _buildingTaskId;
+
+  /// 打开凭据面板；保存成功后任务条上的「配置」会消失（下次构建读到新 token）。
+  Future<void> _configureCredential() async {
+    final changed = await showGitHubCredentialSheet(context);
+    if (!mounted || !changed) return;
+    setState(() {});
+  }
+
+  /// 在 GitHub 上触发仓库既有的 Actions，并把真实结果写回任务。
+  Future<void> _triggerBuild(CollabTaskContext task) async {
+    setState(() => _buildingTaskId = task.id);
+    try {
+      final result = await ref.read(collabDeliveryProvider).triggerBuild(
+        repo: task.repo,
+        branch: task.branch,
+        interval: const Duration(seconds: 5),
+      );
+      if (!mounted) return;
+      final updated = collabTaskWithDelivery(task, result);
+      await ref.read(collabTaskProvider.notifier).patch(task.id, (current) => updated);
+      setState(() => _error = result.error);
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _buildingTaskId = null);
+    }
+  }
+
   /// 资料编号：复制到剪贴板（原文已经在任务条里展开了）。
   void _copySourceId(String id) {
     Clipboard.setData(ClipboardData(text: id));
@@ -1216,6 +1248,9 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
           busy: _busy || (task.id == _taskId && (_latestRun(_conversation)?.phase.isTerminal == false)),
           onResume: () => unawaited(_resumeTask(task.id)),
           onOpenSource: _copySourceId,
+          onTriggerBuild: () => unawaited(_triggerBuild(task)),
+          onConfigureCredential: () => unawaited(_configureCredential()),
+          triggering: _buildingTaskId == task.id,
         ),
         gap: 4,
       );
