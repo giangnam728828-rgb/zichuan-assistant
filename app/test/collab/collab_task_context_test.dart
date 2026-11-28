@@ -201,6 +201,20 @@ void main() {
       expect(pre.notes.join(), contains('凭据'));
     });
 
+    test('只是句子里带了「之前」：不拦（这条曾把普通提问挡掉）', () {
+      final pre = collabTaskPreflight(goal: '切走之前的那一问', pack: const CollabContextPack());
+      expect(pre.blocking, isNull);
+    });
+
+    test('指代 + 要动作 + 短句才拦；长句自带上下文不拦', () {
+      final long = '按前面那一大段方案执行，同时注意 ${'细节' * 40}';
+      expect(collabTaskPreflight(goal: long, pack: const CollabContextPack()).blocking, isNull);
+      expect(
+        collabTaskPreflight(goal: '照上面的方案改', pack: const CollabContextPack()).blocking,
+        isNotNull,
+      );
+    });
+
     test('普通提问：既无拦阻也无提醒', () {
       final pre = collabTaskPreflight(goal: '解释一下这段代码', pack: const CollabContextPack());
       expect(pre.isEmpty, isTrue);

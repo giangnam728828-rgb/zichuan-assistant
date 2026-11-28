@@ -432,10 +432,19 @@ final class CollabTaskPreflight {
   bool get isEmpty => blocking == null && notes.isEmpty;
 }
 
-/// 用户这句话是不是在用「上面 / 前面 / 刚才 / 之前 / 那个方案 / 继续」指代。
+/// 用户这句话是不是在用「上面 / 前面 / 刚才 / 之前 / 那个方案」指代。
 bool collabGoalRefersBack(String text) => RegExp(
-  r'(上面|前面|刚才|之前|此前|那个方案|这份方案|该方案|这套方案|上一条|继续)',
+  r'(上面|前面|刚才|之前|此前|那个方案|这份方案|该方案|这套方案|上一条)',
 ).hasMatch(text);
+
+/// 这句话是不是**要求去做**（而不是随口带了个「之前」）。
+///
+/// 「切走之前的那一问」也会命中「之前」，但那不是在指代任务资料——只看指代
+/// 词就拦，会把普通提问一起挡掉。所以还要有动作或对象：
+/// 「按 / 照 / 根据 / 执行 / 做 / 改 / 继续 / 完成」或者「方案 / 要求 / 计划 / 任务」。
+bool collabGoalAsksToAct(String text) =>
+    RegExp(r'(按|照|根据|依据|执行|照做|做|改|修|继续|完成|落地|实现|推进|开始)').hasMatch(text) ||
+    RegExp(r'(方案|要求|计划|任务|资料|步骤)').hasMatch(text);
 
 /// 发送前检查：指代有没有资料、要提交有没有仓库与凭据。
 ///
@@ -448,7 +457,11 @@ CollabTaskPreflight collabTaskPreflight({
   String? credentialRef,
 }) {
   final refers = collabGoalRefersBack(goal);
-  if (refers && pack.isEmpty) {
+  // 三个条件同时成立才拦：在指代、确实是要干活、而且这句话很短（长句通常
+  // 自带上下文，不需要拦）。
+  final acts = collabGoalAsksToAct(goal);
+  final brief = goal.trim().length <= 60;
+  if (refers && acts && brief && pack.isEmpty) {
     return const CollabTaskPreflight(
       blocking: '你说的「上面 / 前面」在这次对话里没有找到对应内容。'
           '它可能在另一条聊天里：把那段方案贴进来，或先在聊天里说完再让成员做。',
