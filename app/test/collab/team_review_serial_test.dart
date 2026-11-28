@@ -8,9 +8,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dsh_app/council/collab_models.dart';
+import 'package:dsh_app/council/collab_orchestrator.dart';
 import 'package:dsh_app/team/team_models.dart';
 import 'package:dsh_app/team/team_orchestrator.dart';
 import 'package:dsh_app/team/team_store.dart';
+import 'package:dsh_app/team/team_tasks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final class _ScriptedDriver implements CollabSessionDriver {
@@ -33,7 +35,7 @@ final class _ScriptedDriver implements CollabSessionDriver {
   @override
   Future<String> openSession(SeatSpec seat, {String? workspaceId}) async {
     final id = 's${_seq++}';
-    _owner[id] = seat.label.isEmpty ? seat.id : (seat.label ?? seat.id);
+    _owner[id] = (seat.label?.isNotEmpty ?? false) ? seat.label! : seat.id;
     return id;
   }
 
