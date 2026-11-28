@@ -18,6 +18,7 @@ import '../settings/settings_screen.dart';
 import '../theme/theme.dart';
 import '../../state/drawer_view_state.dart' show drawerSelectionProvider;
 import '../sessions/sessions_page.dart';
+import '../tasks/task_center_page.dart';
 import 'bottom_nav.dart';
 import 'root_tab.dart';
 import 'shell_insets.dart';
@@ -215,6 +216,8 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
     final keys = widget.pageKeys ?? _keys;
     return switch (tab) {
       RootTab.chat => KeyedSubtree(key: keys[RootTab.chat], child: widget.chat),
+      RootTab.tasks => KeyedSubtree(key: keys[RootTab.tasks], child: const TaskCenterPage()),
+      // 抽屉里的历史仍走这个隐藏标签；底部导航不再出现它。
       RootTab.history => KeyedSubtree(key: keys[RootTab.history], child: const SessionsPage()),
       RootTab.tools => KeyedSubtree(key: keys[RootTab.tools], child: const AllFeaturesPage()),
       RootTab.settings => KeyedSubtree(key: keys[RootTab.settings], child: const SettingsScreen()),

@@ -139,6 +139,8 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
         intents.send(TabIntent.scrollBottom);
       case RootTab.history:
         intents.send(TabIntent.focusSearch);
+      case RootTab.tasks:
+        Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
       case RootTab.tools || RootTab.settings:
         Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
     }

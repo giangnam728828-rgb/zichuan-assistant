@@ -115,7 +115,7 @@ class BottomNav extends ConsumerWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    for (final tab in RootTab.values)
+                    for (final tab in _visibleTabs)
                       Expanded(
                         child: _TabKey(
                           tab: tab,
@@ -124,10 +124,10 @@ class BottomNav extends ConsumerWidget {
                           reduceAnimations: reduce,
                           badge: switch (tab) {
                             RootTab.chat => badges.chatRunning,
-                            RootTab.history => badges.pending > 0 || badges.running,
+                            RootTab.tasks => badges.pending > 0 || badges.running,
                             _ => false,
                           },
-                          badgeCount: tab == RootTab.history ? badges.pending : 0,
+                          badgeCount: tab == RootTab.tasks ? badges.pending : 0,
                           badgeBusy: tab == RootTab.chat ? badges.chatRunning : badges.pending == 0 && badges.running,
                           onTap: () => _onTap(context, ref, tab),
                           onLongPress: switch (tab) {
@@ -135,9 +135,9 @@ class BottomNav extends ConsumerWidget {
                               HapticFeedback.mediumImpact();
                               switchTab(context, RootTab.chat, intent: TabIntent.newChat);
                             },
-                            RootTab.history => () {
+                            RootTab.tasks => () {
                               HapticFeedback.mediumImpact();
-                              switchTab(context, RootTab.history, intent: TabIntent.focusSearch);
+                              switchTab(context, RootTab.tasks);
                             },
                             _ => null,
                           },
@@ -196,16 +196,18 @@ class _TabKey extends StatelessWidget {
 
   static IconData iconOf(RootTab tab) => switch (tab) {
     RootTab.chat => AppIcons.chat,
-    RootTab.history => AppIcons.history,
+    RootTab.tasks => AppIcons.multiSelect,
     RootTab.tools => AppIcons.tool,
     RootTab.settings => AppIcons.settings,
+    RootTab.history => AppIcons.history, // 抽屉用，底部不展示
   };
 
   static String labelOf(RootTab tab) => switch (tab) {
     RootTab.chat => '对话',
-    RootTab.history => '历史',
+    RootTab.tasks => '任务',
     RootTab.tools => '工具',
     RootTab.settings => '设置',
+    RootTab.history => '历史', // 抽屉用，底部不展示
   };
 
   @override

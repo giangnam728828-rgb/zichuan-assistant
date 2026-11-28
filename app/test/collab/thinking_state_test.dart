@@ -60,7 +60,13 @@ void main() {
     expect(activity.text, '这是回答正文');
     expect(activity.toolName, 'read_file');
     expect(activity.toolStatus, '执行中');
-    expect(activity.label, contains('read_file'));
+    // label 由 phase 决定：thinking 阶段只显示「正在思考…」，工具名要等
+    // phase=tool 才进 label（见下一条断言）。
+    expect(activity.label, '正在思考…');
+    expect(
+      activity.copyWith(phase: CollabActivityPhase.tool).label,
+      contains('read_file'),
+    );
 
     final next = activity.copyWith(phase: CollabActivityPhase.replying, thoughtSummary: '');
     expect(next.thoughtSummary, isEmpty, reason: '摘要可以被之后的阶段清掉');

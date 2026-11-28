@@ -8,8 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// 底部四标签。顺序即左右次序，切换动画的方向由它决定。
-enum RootTab { chat, history, tools, settings }
+/// 底部四标签（v3 · 5.1）：对话 / 任务 / 工具 / 设置。
+///
+/// `history` 保留为**隐藏别名**：从左向右滑打开的历史抽屉仍通过它切换；底部
+/// 导航不再显示这个标签。顺序即左右次序，切换动画的方向由它决定。
+enum RootTab { chat, tasks, tools, settings, history }
 
 /// 一次性的跨标签意图。
 enum TabIntent {
