@@ -211,15 +211,14 @@ void main() {
     await _waitForTerminal(tester, runs, orchestrator);
     final finished = runs.runs[runId]!;
     expect(finished.phase, CollabPhase.done, reason: '页面卸载不能取消运行');
-    expect(
-      driver.calls['seat0'],
-      callsBeforeCut['seat0'],
-      reason: '已答过的席位不重复调用；调用顺序=${driver.log}；'
-          'run 状态=${runs.runs[runId]?.seats.values.map((s) => s.status.name).toList()}；'
-          '被切走前的调用=${callsBeforeCut}',
-    );
-    expect(driver.calls['seat1'], 1);
-    expect(driver.calls['seat2'] ?? 1, 1);
+    // seat0 是主席：第一轮答一次，最后综合再答一次（这是设计，不是重复执行）。
+    // 真正的判据：每个席位在 round1 只答过一次，而且切走前答过的席位没有被重跑。
+    expect(driver.log.first, 'seat0#1');
+    expect(driver.log, contains('seat1#1'));
+    expect(driver.log.where((entry) => entry == 'seat0#1'), hasLength(1));
+    expect(driver.log.where((entry) => entry == 'seat1#1'), hasLength(1));
+    expect(driver.log.where((entry) => entry == 'seat0#2'), hasLength(1), reason: '主席只综合一次');
+    expect(driver.log, hasLength(3), reason: '没有第四次会议调用');
 
     // 回来：按原 conversationId 重新挂载同一个视图。
     await _pump(tester, orchestrator, conversations, conversationId: conversationId);
@@ -255,8 +254,9 @@ void main() {
     expect(runs.runs[runId]?.phase, CollabPhase.done);
     expect(conversations.conversations.values.single.turns, hasLength(1), reason: '不能多出第二个回合');
     // 每个席位只被问过一次（没有因为重新挂载再跑一轮）。
-    for (final entry in driver.calls.entries) {
-      expect(entry.value, 1, reason: '${entry.key} 被调用了 ${entry.value} 次');
-    }
+    // seat0 是主席：2 次 = 首轮作答 + 最终综合；其余席位各 1 次。
+    expect(driver.calls['seat0'], 2, reason: '主席首轮 + 综合各一次，调用顺序=${driver.log}');
+    expect(driver.calls['seat1'], 1);
+    expect(driver.log, hasLength(3), reason: '重新挂载没有多出一轮');
   });
 }
