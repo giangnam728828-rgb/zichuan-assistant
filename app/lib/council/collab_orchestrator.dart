@@ -478,7 +478,9 @@ final class CollabOrchestrator {
     Future<void> Function(SeatSpec seat, TurnOutcome outcome) apply,
   ) async {
     if (seats.isEmpty) return;
-    final maxWorkers = _require(runId).spec.maxConcurrency.clamp(1, seats.length);
+    // v3 · 2.5：席位执行永远逐位进行。字段 maxConcurrency 只保留旧配置的
+    // 可读性，不再当并行开关用（历史里存过 3 的会话也按 1 跑）。
+    const maxWorkers = 1;
     var index = 0;
     Future<void> worker() async {
       while (true) {

@@ -257,7 +257,8 @@ final class CouncilSpec {
     ],
     mode: CollabMode.values.firstWhere((m) => m.name == json['mode'], orElse: () => CollabMode.quick),
     chairId: json['chairId'] as String?,
-    maxConcurrency: (json['maxConcurrency'] as num?)?.toInt() ?? 1,
+    // 旧会话里存过 2/3 的配置在这里规范化到 1，不让老议会继续并发。
+    maxConcurrency: ((json['maxConcurrency'] as num?)?.toInt() ?? 1).clamp(1, 1).toInt(),
     seatTimeout: Duration(milliseconds: (json['seatTimeoutMs'] as num?)?.toInt() ?? 90000),
     budgetCalls: (json['budgetCalls'] as num?)?.toInt() ?? 16,
     workspaceId: json['workspaceId'] as String?,

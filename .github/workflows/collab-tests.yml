@@ -73,6 +73,9 @@ jobs:
       - name: Mode panel anchor
         run: flutter test test/collab/conversation_mode_panel_test.dart --reporter expanded
 
+      - name: Strict serial execution
+        run: flutter test test/collab/team_serial_execution_test.dart --reporter expanded
+
       - name: Council sequential answers
         run: flutter test test/collab/council_sequential_test.dart --reporter expanded
 

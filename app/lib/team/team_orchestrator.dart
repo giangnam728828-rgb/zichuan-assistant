@@ -18,6 +18,7 @@ import '../collab/collab_session_book.dart';
 import '../council/collab_models.dart';
 import '../council/collab_orchestrator.dart';
 import 'team_models.dart';
+import 'team_run_scheduler.dart';
 import 'team_store.dart';
 import 'team_tasks.dart';
 
@@ -110,6 +111,10 @@ final class TeamOrchestrator {
 
   /// 正在执行任务图的团队：防止同一张图被重复驱动。
   final _runActive = <String>{};
+
+  /// **唯一**的模型请求通道（v3 · 2.4）：群聊、规划、任务执行、审核、返工、
+  /// 汇总、恢复全部排在同一条队列里。同一团队同一时刻只有一个请求在飞。
+  final _scheduler = TeamRunScheduler();
 
   /// 每个团队的定时唤醒。
   final _wakeTimers = <String, Timer>{};
@@ -411,6 +416,8 @@ final class TeamOrchestrator {
   Future<void> cancel(String teamId) async {
     _abortedAt[teamId] = _clock();
     final first = _aborted.add(teamId);
+    // 队列里还没开始的成员不再启动（方案 2.7：取消后队列正确结束）。
+    _scheduler.clearQueue(teamId);
     for (final sessionId in _inflight[teamId]?.toList() ?? const <String>[]) {
       unawaited(_driver.cancel(sessionId).catchError((_) {}));
     }
@@ -567,11 +574,10 @@ final class TeamOrchestrator {
       }
       final ready = readyTasks(settled);
       if (ready.isEmpty) return;
-      final byOwner = <String, TeamTask>{};
-      for (final task in ready) {
-        byOwner.putIfAbsent(task.ownerId, () => task);
-      }
-      await _eachAll(byOwner.keys.toList(), (ownerId) => _runTask(teamId, runId, byOwner[ownerId]!));
+      // v3 · 2.3：严格一次一个。即使三个任务互不依赖，也按创建顺序排队；
+      // 上一项的结果落盘后才重算依赖、再拿下一项。
+      final next = ready.first;
+      await _runTask(teamId, runId, next);
     }
   }
 
@@ -805,7 +811,7 @@ final class TeamOrchestrator {
     final state = await load(teamId);
     final run = state?.run;
     if (state == null || run == null || run.isTerminal) return state;
-    if (_runActive.contains(teamId) || _active.contains(teamId)) return state;
+    if (_runActive.contains(teamId) || _active.contains(teamId) || _scheduler.isBusy(teamId)) return state;
     final reset = [
       for (final task in run.tasks)
         if (task.status == TeamTaskStatus.running) task.copyWith(status: TeamTaskStatus.pending) else task,
@@ -857,10 +863,15 @@ final class TeamOrchestrator {
     return one.length <= limit ? one : '${one.substring(0, limit)}…';
   }
 
-  /// 任务图执行不设并发上限：同一成员一次只拿一个，实际并发等于成员数。
+  /// 顺序跑一组（v3：默认严格一个接一个）。
+  ///
+  /// 保留这个方法是为了兼容仍可能用到它的路径；即使有并发参数也不再真正
+  /// 并行——所有模型调用本来就会被 [_scheduler] 排到同一条队列。
   Future<void> _eachAll(List<String> ids, Future<void> Function(String id) task) async {
-    if (ids.isEmpty) return;
-    await Future.wait([for (final id in ids) task(id)]);
+    for (final id in ids) {
+      if (_aborted.contains(id)) return;
+      await task(id);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -984,6 +995,10 @@ final class TeamOrchestrator {
   }
 
   /// 一位队友的一轮正文：开会话、问、落答案或失败，失败重试一次。
+  ///
+  /// **所有**模型调用都从这里进 [_scheduler]：群聊回合、主管规划、任务执行、
+  /// 审核、返工、汇总、恢复。上一个请求真的结束（返回/失败/取消）之后，下一个
+  /// 才会拿到通道——不是靠 UI 隐藏气泡，是底层串行。
   Future<({String text, String? toId})?> _runMateTurn(
     String teamId,
     TeamState snapshot,
@@ -995,23 +1010,28 @@ final class TeamOrchestrator {
 
     /// 规划/审核/汇总这类内部调用不把原文写进群聊。
     bool append = true,
-  }) async {
-    // 「谁在跑」和实时过程只在这里记账：群聊回合和任务图的规划/执行/审核/
-    // 汇总都走这个入口，页面上谁在动一目了然；跑完（含失败、取消）一起擦掉，
-    // 不留一条「还在动」的残影。
-    _setRunning(teamId, mate.id, on: true);
-    try {
-      return await _runMateTurnBody(
-        teamId,
-        snapshot,
-        mate,
-        attachments,
-        promptOverride: promptOverride,
-        append: append,
-      );
-    } finally {
-      _setRunning(teamId, mate.id, on: false);
-    }
+  }) {
+    return _scheduler.run(
+      teamId,
+      () async {
+        // 「谁在跑」和实时过程只在这里记账：页面上谁在动一目了然；跑完
+        // （含失败、取消）一起擦掉，不留一条「还在动」的残影。
+        _setRunning(teamId, mate.id, on: true);
+        try {
+          return await _runMateTurnBody(
+            teamId,
+            snapshot,
+            mate,
+            attachments,
+            promptOverride: promptOverride,
+            append: append,
+          );
+        } finally {
+          _setRunning(teamId, mate.id, on: false);
+        }
+      },
+      label: mate.name,
+    );
   }
 
   Future<({String text, String? toId})?> _runMateTurnBody(
