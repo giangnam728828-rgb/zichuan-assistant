@@ -3943,7 +3943,7 @@ class L10nZh extends L10n {
   String get chatGeneratingSteerHint => '生成中 · 可直接插话';
 
   @override
-  String get chatComposerHint => '给 DSH 发消息…';
+  String get chatComposerHint => '给知川发消息…';
 
   @override
   String get chatComposerMode => '模式';

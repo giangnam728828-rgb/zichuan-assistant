@@ -36,6 +36,7 @@ class AppPage extends StatefulWidget {
     this.showLargeTitle = true,
     this.padBottom = true,
     this.solidBar = true,
+    this.showBack = true,
   });
 
   final String title;
@@ -62,6 +63,12 @@ class AppPage extends StatefulWidget {
   /// the bar title. False uses the shared [TopFade] instead.
   final bool solidBar;
 
+  /// 顶部是否画返回按钮（v4.4 · S2）。
+  ///
+  /// 设置是底部主标签页之一：它不是「从别处推进来的」，左上角出现一个返回
+  /// 箭头只会让人以为会退回上一页。二级页（模型、权限……）保持 true。
+  final bool showBack;
+
   /// The widest the page's column gets: the chat's reading width.
   static const contentWidth = AppSpace.readingWidth;
 
@@ -78,12 +85,14 @@ class AppPage extends StatefulWidget {
     required List<Widget> children,
     List<Widget> actions = const [],
     bool solidBar = true,
+    bool showBack = true,
   }) => AppPage(
     key: key,
     title: title,
     subtitle: subtitle,
     actions: actions,
     solidBar: solidBar,
+    showBack: showBack,
     slivers: [SliverList.list(children: children)],
   );
 
@@ -147,7 +156,9 @@ class _AppPageState extends State<AppPage> {
     final theme = Theme.of(context);
     final padding = MediaQuery.paddingOf(context);
     const barHeight = 56.0;
-    final top = padding.top + barHeight;
+    // 没有返回按钮时标题再往上收 14dp：主标签页不需要为那颗按钮留出整条栏高，
+    // 顶部空白太大会显得「像被推歪了」（任务书 4.5）。
+    final top = padding.top + (widget.showBack ? barHeight : 42.0);
     // Wide windows: one centred column (zero on phones). A phone on its side
     // keeps the column and the bar's keys clear of the cutout or navigation
     // bar, on both sides alike.
@@ -238,14 +249,16 @@ class _AppPageState extends State<AppPage> {
                     child: NavigationToolbar(
                       centerMiddle: true,
                       middleSpacing: 8,
-                      leading: Center(
-                        widthFactor: 1,
-                        child: GlassIconButton(
-                          icon: AppIcons.back,
-                          tooltip: l10n.commonBack,
-                          onPressed: () => Navigator.of(context).maybePop(),
-                        ),
-                      ),
+                      leading: widget.showBack
+                          ? Center(
+                              widthFactor: 1,
+                              child: GlassIconButton(
+                                icon: AppIcons.back,
+                                tooltip: l10n.commonBack,
+                                onPressed: () => Navigator.of(context).maybePop(),
+                              ),
+                            )
+                          : const SizedBox(width: 44),
                       middle: ValueListenableBuilder<double>(
                         valueListenable: _offset,
                         builder: (context, offset, child) {

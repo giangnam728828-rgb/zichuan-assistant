@@ -152,7 +152,9 @@ void main() {
   testWidgets('⑤ 往下翻时导航收起，往上翻/停下后回来（方案第 3 步 IA）', (tester) async {
     // 窗口压矮一点，历史列表才有可滚的余量：外壳已经把页面抬到导航之上，
     // 页面自己不再额外垫一整条导航高度（v4.3 · P0-E）。
-    useWindow(tester, const Size(390, 620));
+    // v4.4 · S1：拖到离底部 48dp 以内会**强制展开**（任务书 2.6），所以这里
+    // 用 520 高 + 120dp 的位移，保证停在列表中间而不是末尾。
+    useWindow(tester, const Size(390, 520));
     mockClipboard(tester);
     await tester.pumpWidget(homeApp());
     await pumpFrames(tester, 8);
@@ -167,7 +169,7 @@ void main() {
     await pumpFrames(tester, 8);
 
     // 往下翻：导航让位。
-    await tester.drag(find.byType(SessionsPage), const Offset(0, -260));
+    await tester.drag(find.byType(SessionsPage), const Offset(0, -120));
     await pumpFrames(tester, 10);
     expect(navOpacity(), lessThan(0.3), reason: '往下读时导航收起');
 
@@ -176,7 +178,7 @@ void main() {
     expect(navOpacity(), lessThan(0.3), reason: '停住时导航不回弹');
 
     // 往上翻：回来（先走 120ms 延迟，再等动画）。
-    await tester.drag(find.byType(SessionsPage), const Offset(0, 160));
+    await tester.drag(find.byType(SessionsPage), const Offset(0, 80));
     await tester.pump(const Duration(milliseconds: 60));
     await tester.pump(const Duration(milliseconds: 220));
     await pumpFrames(tester, 8);

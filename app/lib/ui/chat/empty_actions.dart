@@ -464,8 +464,12 @@ class SuggestionCards extends StatelessWidget {
   }
 }
 
-/// B3：建议改成一行**横向可滚**的 chip（不再占 2×2 卡片的位置）。
-/// 每枚只有图标和名字，点了把文字填进输入条（[onSuggestion] 不直接发送）。
+/// B3：建议改成紧凑的小胶囊（图标 + 名字），点了把文字填进输入条
+/// （[onSuggestion] 不直接发送）。
+///
+/// V4.4 · S2：一行放不下就**自动换行**，不再要求用户左右滑（任务书三）。
+/// 宽度由内容决定，行距/列距统一 [gap]；大字号、窄屏都自然折行，最后一枚
+/// 不会被裁掉。仍是原来的小胶囊，不退回 2×2 大卡片。
 class SuggestionChips extends StatelessWidget {
   const SuggestionChips({
     super.key,
@@ -480,40 +484,37 @@ class SuggestionChips extends StatelessWidget {
   final ValueChanged<ChatSuggestion> onSuggestion;
   final int firstIndex;
 
+  /// 旧版横向单行的高度；保留给外部按需引用，布局已不再依赖它。
   static const height = 40.0;
+
+  /// 横向与纵向间距（换行后两行之间也是这个值）。
   static const gap = 8.0;
 
   @override
   Widget build(BuildContext context) {
     if (suggestions.isEmpty) return const SizedBox.shrink();
-    // 四个固定建议：一行 Row 就够，不做懒加载（也给别处留下"页面里只有
-    // 一个 ListView"的简单事实）。
-    return SizedBox(
-      height: height,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        clipBehavior: Clip.none,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < suggestions.length; i++)
-              Padding(
-                padding: EdgeInsets.only(left: i == 0 ? 0 : gap),
-                child: FadeSlideIn(
-                  index: firstIndex + i,
-                  child: AnimatedOpacity(
-                    opacity: enabled ? 1 : 0.5,
-                    duration: AppMotion.of(context, AppMotion.quick),
-                    child: _SuggestionChip(
-                      suggestion: suggestions[i],
-                      onTap: enabled ? () => onSuggestion(suggestions[i]) : null,
-                    ),
-                  ),
-                ),
+    // 顺序与点击语义不变，只是把 Row + 横向滚动换成 Wrap：
+    // - 320/360dp 下自然折成两三行；
+    // - 2 倍字号下按实际测量宽度换行；
+    // - 不再有「第三枚只露一半、要手动往左滑」的情况。
+    return Wrap(
+      spacing: gap,
+      runSpacing: gap,
+      crossAxisAlignment: WrapCrossAlignment.start,
+      children: [
+        for (var i = 0; i < suggestions.length; i++)
+          FadeSlideIn(
+            index: firstIndex + i,
+            child: AnimatedOpacity(
+              opacity: enabled ? 1 : 0.5,
+              duration: AppMotion.of(context, AppMotion.quick),
+              child: _SuggestionChip(
+                suggestion: suggestions[i],
+                onTap: enabled ? () => onSuggestion(suggestions[i]) : null,
               ),
-          ],
-        ),
-      ),
+            ),
+          ),
+      ],
     );
   }
 }

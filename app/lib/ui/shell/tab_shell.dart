@@ -5,11 +5,12 @@
 // - 四个页面用固定 GlobalKey：宽窄屏切换时搬家而不是重建；同一时刻只有一套布局。
 // - 外壳统一做 200ms 淡入 + 8dp 方向位移；减少动画时直接切换。
 // - 键盘弹起导航收起，收起后延迟 120ms 再显示，和列表留白用同一条曲线。
+// - 滚动收起由 [NavigationCollapseController] 判定：只认手指拖动，程序滚动
+//   （流式跟随、animateTo、恢复位置）一律不参与；双阈值迟滞防抖动。
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../chat/shared/conversation_transition.dart';
@@ -20,6 +21,7 @@ import '../../state/drawer_view_state.dart' show drawerSelectionProvider;
 import '../sessions/sessions_page.dart';
 import '../tasks/task_center_page.dart';
 import 'bottom_nav.dart';
+import 'nav_collapse.dart';
 import 'root_tab.dart';
 import 'shell_insets.dart';
 
@@ -67,21 +69,14 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
   };
 
   Timer? _warm;
-  Timer? _navBack;
   RootTab _last = RootTab.chat;
   double _direction = 1;
-  bool _keyboardUp = false;
 
-  /// 滚动收起（方案第 3 步 IA：滚动收起 / 恢复）。
+  /// 收缩判定（v4.4 · S1）：只认手指拖动，双阈值迟滞，接近底部强制展开。
   ///
-  /// 内容往下翻时导航让位（读得多的时候屏幕更大），往上翻或停下就回来。
-  /// 和键盘联动共用同一条 [_reveal]，所以底部留白、输入栏位置都跟着连续变；
-  /// 键盘在的时候以键盘为准（别和输入法抢）。
-  bool _scrolledAway = false;
-  Timer? _scrollBack;
-
-  /// 上一次滚动位置：用像素差判断方向（dragDetails 在合成滚动里不总带 delta）。
-  double _lastPixels = 0;
+  /// 动画仍然只有一条 [_reveal]：导航位移、页面抬升、列表留白共用它，
+  /// 不会出现两个控制器抢同一段底部几何。
+  late final _nav = NavigationCollapseController(onChange: _onNavChanged);
 
   bool get _reduce => MediaQuery.maybeDisableAnimationsOf(context) ?? false;
   bool get _compact => MediaQuery.sizeOf(context).height < ShellMetrics.compactHeight;
@@ -114,84 +109,46 @@ class _TabShellState extends ConsumerState<TabShell> with TickerProviderStateMix
     _syncKeyboard(MediaQuery.of(context).viewInsets.bottom > 0);
   }
 
-  /// 列表滚动：向下累计超过阈值就收起，向上或停止 180ms 内恢复。
-  bool _onScroll(ScrollNotification n) {
-
-    if (_keyboardUp) return false;
-    if (n.metrics.axis != Axis.vertical) return false;
-    switch (n) {
-      case ScrollUpdateNotification(:final metrics):
-        final delta = metrics.pixels - _lastPixels;
-        _lastPixels = metrics.pixels;
-        if (delta > 1 && !_scrolledAway && metrics.pixels > 24) {
-          _scrolledAway = true;
-          _scrollBack?.cancel();
-          _reveal.reverse();
-        } else if ((delta < -1 || metrics.pixels <= 0) && _scrolledAway) {
-          _scheduleNavBack();
-        }
-      case OverscrollNotification(:final metrics):
-        // 已经拖到列表顶（往回翻的尽头）：导航立刻回来。
-        if (metrics.pixels <= 0 && _scrolledAway) _scheduleNavBack();
-      case UserScrollNotification(direction: ScrollDirection.reverse):
-        // 往回翻（手指往下推、看更早的内容）：导航回来。
-        if (_scrolledAway) _scheduleNavBack();
-      case ScrollEndNotification():
-      case UserScrollNotification(direction: ScrollDirection.idle):
-        // 停下来不抢着弹回来：往下读时导航保持让位（常用 App 的习性）。
-        // 只有往上翻或回到顶部才恢复（见上面 ScrollUpdateNotification 的分支）。
-        break;
-      default:
-        break;
-    }
-    return false;
-  }
-
-  void _scheduleNavBack() {
-
-    _scrolledAway = false;
-    _scrollBack?.cancel();
-    // 与键盘收起同一条延迟：滚动刚停时不立刻弹回来，避免抖动。
-    _scrollBack = Timer(ShellMetrics.navReturnDelay, () {
-      if (mounted && !_keyboardUp) _reveal.forward();
-    });
-  }
-
-  void _syncKeyboard(bool up) {
-    if (up == _keyboardUp) return;
-    _keyboardUp = up;
-    _navBack?.cancel();
-    if (up) {
-      _scrollBack?.cancel();
-      _scrolledAway = false;
-    }
-    if (up) {
-      // 键盘弹起：导航立刻收起。
+  /// 目标状态变了才动动画：收起立刻、展开已在控制器里等过 120ms。
+  void _onNavChanged(bool collapsed) {
+    if (!mounted) return;
+    if (collapsed) {
       _reveal.reverse();
     } else {
-      // 键盘收起：延迟 120ms，避开输入法动画，导航和列表留白共用同一条曲线。
-      _navBack = Timer(ShellMetrics.navReturnDelay, () {
-        if (mounted) _reveal.forward();
-      });
+      _reveal.forward();
     }
   }
+
+  /// 外壳的滚动入口：先过滤掉「不是当前聊天列表」的通知，再交给判定器。
+  ///
+  /// - 任务 / 工具 / 设置页滚动不该影响聊天（任务书 2.7）。
+  /// - 历史页仍是「读得更早」的同一套体感，保留参与。
+  bool _onScroll(ScrollNotification n) {
+    final tab = ref.read(rootTabProvider);
+    if (tab != RootTab.chat && tab != RootTab.history) return false;
+    return _nav.handle(n);
+  }
+
+  void _syncKeyboard(bool up) => _nav.setKeyboard(up);
 
   @override
   void dispose() {
     _warm?.cancel();
-    _navBack?.cancel();
-    _scrollBack?.cancel();
+    _nav.dispose();
     _reveal.dispose();
     _switch.dispose();
     super.dispose();
   }
 
   void _onTabChanged(RootTab tab, {required bool reduce}) {
-    // 换标签等于换一份列表：滚动基线归零，免得用上一个标签的位置判方向。
-    _lastPixels = 0;
     // build 里直接改集合：这一帧本来就会重建，不需要 setState。
     _built.add(tab);
     if (tab == _last) return;
+    // 真的换了标签才归零：手势残量与收起状态都重来，免得拿上一个标签的
+    // 位置判方向（任务书 2.6「新对话 / 换会话时导航正常显示」）。
+    // 不能放在上面的 return 之前——每次 build（角标刷新等）都 reset 会把
+    // 一次手势的累计位移清掉，滚动就再也判不出来了。
+    _nav.reset();
     // 真正离开历史标签：那里的多选跟着结束（预热不算，因为预热不改变 _last）。
     if (_last == RootTab.history) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

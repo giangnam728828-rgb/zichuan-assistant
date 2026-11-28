@@ -61,19 +61,25 @@ void main() {
         final composer = tester.getRect(find.byType(Composer));
         final chips = [for (var i = 0; i < 4; i++) _suggestion(tester, i)];
 
-        // B3：一行 40 的 chip 从输入栏的同一条 12 开始，一个 8 的间隙排下去；
-        // 四个放不下就横着滑，不再挤成两行卡片。
+        // v4.4 · S2：小胶囊从输入栏的同一条 12 开始，放不下就换行，
+        // 每枚都在输入栏右缘以内（.wrap 后不再有横向滚动）。
         expect(composer.left, moreOrLessEquals(12, epsilon: 0.5));
         expect(width - composer.right, moreOrLessEquals(12, epsilon: 0.5));
         expect(chips.first.left, moreOrLessEquals(composer.left, epsilon: 0.5));
-        expect(chips.first.height, moreOrLessEquals(EmptyActions.height, epsilon: 0.5));
+        expect(chips.first.height, greaterThanOrEqualTo(EmptyActions.height - 0.5));
         for (var i = 1; i < chips.length; i++) {
-          expect(chips[i].left - chips[i - 1].right, moreOrLessEquals(SuggestionChips.gap, epsilon: 0.5));
-          expect(chips[i].height, moreOrLessEquals(chips.first.height, epsilon: 0.5));
-          expect(chips[i].center.dy, moreOrLessEquals(chips.first.center.dy, epsilon: 0.5));
+          final prev = chips[i - 1];
+          final cur = chips[i];
+          if ((cur.top - prev.top).abs() < 0.5) {
+            expect(cur.left - prev.right, moreOrLessEquals(SuggestionChips.gap, epsilon: 0.5));
+          } else {
+            expect(cur.top, greaterThan(prev.bottom));
+            expect(cur.left, moreOrLessEquals(composer.left, epsilon: 0.5));
+          }
         }
-        // 四个排完比屏还宽：右端越过输入栏，说明整行能横滑而不是被压扁。
-        expect(chips.last.right, greaterThan(composer.right));
+        for (final c in chips) {
+          expect(c.right, lessThanOrEqualTo(composer.right + 0.5), reason: '不允许超出输入栏右缘');
+        }
 
         // 问候语也在这条 12 上（B3 的左对齐）。
         final greeting = tester.getRect(find.text('下午好'));

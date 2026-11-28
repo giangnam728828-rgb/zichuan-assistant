@@ -135,6 +135,15 @@ jobs:
       - name: v4.3 timeline follows growing messages
         run: flutter test test/collab/v43_scroll_follow_test.dart --reporter expanded
 
+      - name: v4.4 nav collapse (gesture-only, hysteresis)
+        run: flutter test test/shell/nav_collapse_test.dart --reporter expanded
+
+      - name: v4.4 shell keeps tab state and keyboard geometry
+        run: flutter test test/shell/tab_shell_test.dart --reporter expanded
+
+      - name: v4.4 settings tile long value
+        run: flutter test test/ui/settings_tile_text_test.dart --reporter expanded
+
       - name: Team core
         run: flutter test test/team --reporter expanded
 

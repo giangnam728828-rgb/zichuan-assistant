@@ -245,17 +245,15 @@ void main() {
     await o.dispose();
   });
 
-  test('预算硬上限：重试耗尽预算后立即 failed，不再发主席调用', () async {
-    final driver = FakeDriver({
-      // seat0 两次都失败 → 多花一次调用；3 席 + 1 重试 = 4 次，正好花光
-      'seat0': const FakeScript(FakeKind.fail),
-    });
-    final o = make(driver);
-    await o.submit(spec(budgetCalls: 4));
+  test('不再有预算硬上限：调用次数超过旧上限也照常跑完', () async {
+    // v4.4 · 1.4：budgetCalls 只是历史字段，不再当闸门用。这里给一个远低于
+    // 实际调用次数的数字，运行必须仍然 done，并把真实次数记下来。
+    final o = make(FakeDriver({}));
+    await o.submit(spec(budgetCalls: 2));
     final done = await waitTerminal(o, 'run1');
-    expect(done.phase, CollabPhase.failed);
-    expect(done.failure, contains('预算'));
-    expect(done.verdict, isNull);
+    expect(done.phase, CollabPhase.done);
+    expect(done.verdict, isNotNull);
+    expect(done.callsUsed, greaterThan(2));
     await o.dispose();
   });
 
@@ -320,10 +318,12 @@ void main() {
     await o.dispose();
   });
 
-  test('参数校验：席位过少、预算不够都拒绝提交', () async {
+  test('参数校验：席位过少拒绝提交；预算数字不再参与校验', () async {
     final o = make(FakeDriver({}));
     await expectLater(o.submit(spec(seats: 1)), throwsArgumentError);
-    await expectLater(o.submit(spec(budgetCalls: 2)), throwsArgumentError);
+    // 预算再小也能开跑（V4.4 取消了硬上限），这里只确认不抛。
+    final run = await o.submit(spec(budgetCalls: 1));
+    expect(run.phase, isNot(CollabPhase.failed));
     await o.dispose();
   });
 

@@ -147,6 +147,7 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     _timers.clear();
     _waitTicker?.cancel();
     _sub?.cancel();
+    _paint?.cancel();
     _inbox?.dispose();
     _draft.dispose();
     _scroll.dispose();
@@ -252,13 +253,23 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
     if (mates.isEmpty) {
       final catalog = ref.read(currentModelCatalogProvider);
       if (catalog != null) {
+        // V4.4 · 7.5：默认给一支「有身份」的小队，而不是「队友 1/2」这种
+        // 占位名。名字可以随时改，brief 也会进入主管的规划提示词。
+        const roles = [
+          ('队长', '负责拆解任务、分派队友、审核并汇总最终结果'),
+          ('研究员', '查资料、读代码、把事实、约束和风险讲清楚'),
+          ('实现者', '动手改代码、跑命令，交付可运行的结果'),
+          ('审查者', '检查错误、回归风险和遗漏，必要时要求返工'),
+        ];
         for (final group in catalog.groups) {
           for (final info in group.models) {
             if (mates.length >= 2) break;
+            final (name, brief) = roles[mates.length];
             mates.add(
               Teammate(
                 id: 'mate-${DateTime.now().microsecondsSinceEpoch}-${mates.length}',
-                name: '队友 ${mates.length + 1}',
+                name: name,
+                brief: brief,
                 provider: info.provider,
                 model: info.id,
               ),
@@ -346,11 +357,34 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
       final current = _team;
       if (!mounted || current == null || current.id != state.id) return;
       _lastBeatAt = DateTime.now();
-      setState(() => _team = state);
       _invalidateHistory();
       _armWaitTicker();
       _syncTaskProgress(state);
+      // 与议会同一条规则：逐 delta 的事件合并到 ~30ms 一帧再上屏；
+      // 终态（全部完成/失败）立即刷，状态徽标不会慢半拍。
+      _pushTeam(state);
     });
+  }
+
+  TeamState? _pendingTeam;
+  Timer? _paint;
+
+  void _pushTeam(TeamState state) {
+    _pendingTeam = state;
+    if (state.running.isEmpty) {
+      _flushTeam();
+      return;
+    }
+    _paint ??= Timer(const Duration(milliseconds: 32), _flushTeam);
+  }
+
+  void _flushTeam() {
+    _paint?.cancel();
+    _paint = null;
+    final state = _pendingTeam;
+    _pendingTeam = null;
+    if (!mounted || state == null) return;
+    setState(() => _team = state);
   }
 
   /// 把团队的任务图与运行状态写进任务上下文（落盘）。
@@ -1090,7 +1124,7 @@ class _TeamModeViewState extends ConsumerState<TeamModeView> {
         controller: _draft,
         // 后台还有队友在答（切走再回来）：仍显示停止键，不能重复发。
         busy: _busy || (team?.running.isNotEmpty ?? false),
-        hint: '说点什么，@ 一位队友',
+        hint: '给团队发送消息…',
         onSend: _send,
         onStop: _stop,
         onChanged: _saveDraft,

@@ -58,6 +58,7 @@ import 'about_page.dart';
 import 'appearance/appearance_page.dart';
 import 'background_guide_page.dart';
 import 'diagnostics_page.dart';
+import 'index/spot_anchor.dart' show anchorSpot;
 import 'interface_page.dart';
 import 'language_tile.dart';
 import 'linux_environment_page.dart';
@@ -101,7 +102,6 @@ class SettingsScreen extends ConsumerWidget {
     final prefs = canEditReplyPrefs(ref)
         ? (replyPrefsSummary(ref) == null ? l10n.commonNotSet : l10n.hubValueSet)
         : null;
-    final model = _modelLabel(ref);
     // 能力.
     final phone = android || ios ? ref.watch(phoneProvider) : null;
     final phoneValue = phone == null || !phone.loaded || !phone.status.ready
@@ -128,6 +128,8 @@ class SettingsScreen extends ConsumerWidget {
 
     final page = AppPage.list(
       title: l10n.commonSettings,
+      // 设置是底部主标签之一：左上角不该出现「返回」。
+      showBack: false,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -144,12 +146,9 @@ class SettingsScreen extends ConsumerWidget {
           rowHeightTwoLine: SettingsMetrics.hubRowHeightTwoLine,
           monochrome: true,
           children: [
-            SettingsTile(
-              icon: AppIcons.providers,
-              spot: SettingsIndex.entry(SettingsPageId.models),
-              value: text(model),
-              onTap: () => _push(context, const ProvidersPage()),
-            ),
+            // 模型入口只保留顶部「当前配置」卡里的那一处（v4.4 · S2 ·
+            // 任务书 4.3）：同名、同跳转的两个入口会让人以为进了两个不同的
+            // 模型页。搜索索引的锚点已挪到那张卡的 _ConfigRow 上，仍可定位。
             SettingsTile(
               icon: AppIcons.permissions,
               spot: SettingsIndex.entry(SettingsPageId.permission),
@@ -357,19 +356,6 @@ class SettingsScreen extends ConsumerWidget {
     return (permissionName(value, name), value == 'danger-full-access' || value == 'auto');
   }
 
-  /// 模型's value: the new-chat default the host has, else the catalog's own;
-  /// null until either is known.
-  String? _modelLabel(WidgetRef ref) {
-    final catalog = ref.watch(currentModelCatalogProvider);
-    final settings = ref.exists(engineSettingsProvider) ? ref.watch(engineSettingsProvider).value : null;
-    final selection = settings == null ? null : defaultModelSelection(settings);
-    final model = selection ?? catalog?.defaultSelection;
-    if (model == null) return null;
-    return [
-      modelShortName(model, catalog),
-      if (model.reasoningEffort case final effort?) effortLabel(effort),
-    ].join(' · ');
-  }
 }
 
 /// The hub's 当前配置 card: who is signed in (or which host isn't this phone),
@@ -577,6 +563,8 @@ class _SettingsOverviewState extends ConsumerState<SettingsOverview> {
                   label: l10n.hubConfigModel,
                   value: modelLabel,
                   note: effort == null ? null : effortLabel(effort),
+                  // 设置里唯一的模型入口：搜索「模型」也落到这一行。
+                  spot: SettingsIndex.entry(SettingsPageId.models),
                   onTap: () => _push(const ProvidersPage()),
                 ),
               ],
@@ -590,7 +578,14 @@ class _SettingsOverviewState extends ConsumerState<SettingsOverview> {
 
 /// One line of the 当前配置 card: 图标、名字、右侧的当前值与箭头。
 class _ConfigRow extends StatelessWidget {
-  const _ConfigRow({required this.icon, required this.label, required this.value, this.note, required this.onTap});
+  const _ConfigRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.note,
+    required this.onTap,
+    this.spot,
+  });
 
   final IconData icon;
   final String label;
@@ -600,13 +595,18 @@ class _ConfigRow extends StatelessWidget {
   final String? note;
   final VoidCallback onTap;
 
+  /// 设置索引的定位锚点（模型行用它保留「搜索 → 跳到模型」的能力）。
+  final SettingSpot? spot;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final colors = DshColors.of(context);
     final note = this.note;
-    return InkWell(
+    return anchorSpot(
+      spot,
+      InkWell(
       onTap: onTap,
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 48),
@@ -640,6 +640,7 @@ class _ConfigRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
       ),
     );
   }

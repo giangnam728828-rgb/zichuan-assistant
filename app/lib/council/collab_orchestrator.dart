@@ -10,8 +10,9 @@
 //    [resume] 从盘上的状态继续，已答过的席位不重复提问。
 // 2. 手机并发有上限。[CouncilSpec.maxConcurrency] 决定同时在飞的席位数，
 //    单席超过 [CouncilSpec.seatTimeout] 记超时，失败重试一次。
-// 3. 预算有硬上限。[CouncilSpec.budgetCalls] 是调用次数上限，用尽即
-//    failed，绝不多发一次请求。
+// 3. 不设调用次数硬上限（V4.4 · 1.4）。[CollabRun.callsUsed] 只用来展示
+//    「这次跑了几次」；正常讨论不会因为一个固定数字被掐断。防止无限循环靠
+//    结构本身：单席位最多重试 1 次、返工/追加轮数有上限，且每一轮都落盘。
 //
 // 这里不碰 Flutter：驱动接口 [CollabSessionDriver] 在生产里由
 // [DshCollabDriver]（包 DshClient）实现，测试里由 Fake 实现。
@@ -139,8 +140,6 @@ abstract interface class CollabStreamingDriver {
 }
 
 class _Cancelled implements Exception {}
-
-class _BudgetExceeded implements Exception {}
 
 /// 议会/团队的编排器。
 final class CollabOrchestrator {
@@ -384,8 +383,6 @@ final class CollabOrchestrator {
       }
     } on _Cancelled {
       await _transition(runId, CollabPhase.cancelled);
-    } on _BudgetExceeded {
-      await _transition(runId, CollabPhase.failed, failure: '预算用尽：这次运行已达到调用次数上限');
     }
   }
 
@@ -563,9 +560,8 @@ final class CollabOrchestrator {
     var last = const TurnOutcome(kind: TurnKind.failed, error: '没有结果');
     while (attempts < 2) {
       attempts++;
-      // 预算：每次调用前计数并检查，超限立即停下。
+      // 只计数，不设上限：调用次数用于展示与导出，不再作为终止条件。
       final before = await _update(runId, (r) {
-        if (r.callsUsed >= r.spec.budgetCalls) throw _BudgetExceeded();
         return r.copyWith(
           callsUsed: r.callsUsed + 1,
           seats: {
@@ -865,9 +861,6 @@ final class CollabOrchestrator {
     for (final seat in spec.seats) {
       if (seat.id.isEmpty) throw ArgumentError('席位 id 不能为空');
       if (!ids.add(seat.id)) throw ArgumentError('席位 id 重复：${seat.id}');
-    }
-    if (spec.budgetCalls < spec.estimatedCalls) {
-      throw ArgumentError('预算 ${spec.budgetCalls} 少于预计调用 ${spec.estimatedCalls}');
     }
   }
 }

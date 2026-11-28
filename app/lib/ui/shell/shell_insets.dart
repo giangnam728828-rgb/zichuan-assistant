@@ -33,7 +33,11 @@ abstract final class ShellMetrics {
   /// 底部整组在动画值 [t] 时占的高度：导航 + 间隙 + 安全区。
   ///
   /// 外壳抬页面、页面算列表留白都只读这一个公式，两处不会再各写一份漂开。
-  static double extentAt(double t, {required double safeBottom}) => (navHeight + navGap + safeBottom) * t;
+  ///
+  /// **安全区不随 [t] 消失**（v4.4 · S1）：导航收起后页面要一直铺到屏幕底，
+  /// 若连手势条那 34dp 一起归零，输入栏最后一行会压在手势条底下。键盘弹起
+  /// 时系统已经把 `padding.bottom` 抵消成 0，这里也不会白留一段。
+  static double extentAt(double t, {required double safeBottom}) => safeBottom + (navHeight + navGap) * t;
 }
 
 /// 底部占用的动画状态：0 = 完全收起（键盘弹起），1 = 完全展开。

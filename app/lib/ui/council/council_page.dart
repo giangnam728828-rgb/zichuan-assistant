@@ -156,6 +156,7 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     }
     _timers.clear();
     _sub?.cancel();
+    _paint?.cancel();
     _waitTicker?.cancel();
     _inbox?.dispose();
     _draft.dispose();
@@ -560,6 +561,31 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
     return _orchestrator = created;
   }
 
+  /// 待上屏的最新快照与合并定时器（32ms ≈ 30fps，肉眼仍是连续流式）。
+  CollabRun? _pendingRun;
+  Timer? _paint;
+
+  void _pushRun(CollabRun run) {
+    _pendingRun = run;
+    if (run.phase.isTerminal) {
+      _flushRun();
+      return;
+    }
+    _paint ??= Timer(const Duration(milliseconds: 32), _flushRun);
+  }
+
+  void _flushRun() {
+    _paint?.cancel();
+    _paint = null;
+    final run = _pendingRun;
+    _pendingRun = null;
+    if (!mounted || run == null) return;
+    setState(() {
+      _runs[run.id] = run;
+      if (run.phase.isTerminal) _busy = false;
+    });
+  }
+
   void _listen() {
     if (_sub != null) return;
     final orchestrator = _orchestrator;
@@ -573,13 +599,12 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       final conversation = _conversation;
       if (conversation != null && !conversation.turns.any((turn) => turn.runId == run.id)) return;
       _lastBeatAt = DateTime.now();
-      setState(() {
-        _runs[run.id] = run;
-        if (run.phase.isTerminal) _busy = false;
-      });
       _syncTurn(run);
       _rememberSeatSessions(run);
       _armWaitTicker();
+      // 正文/思考是逐 delta 来的：把 UI 刷新合并到 ~30ms 一帧（任务书 6.2），
+      // 否则每个 token 都要重建整个时间线。终态立即刷，状态不会落后。
+      _pushRun(run);
     });
   }
 
@@ -1178,7 +1203,7 @@ class _CouncilModeViewState extends ConsumerState<CouncilModeView> {
       composer: CollabComposer(
         controller: _draft,
         busy: _busy,
-        hint: conversation != null && conversation.seats.length < 2 ? '先添加至少两位成员' : '向议会提问，成员会各自作答',
+        hint: conversation != null && conversation.seats.length < 2 ? '先添加至少两位成员' : '向议会提问…',
         onSend: _send,
         onStop: _stop,
         onChanged: _saveDraft,

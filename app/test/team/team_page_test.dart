@@ -262,11 +262,11 @@ void main() {
 
     await tester.tap(find.byTooltip('点名'));
     await _settleAnim(tester);
-    await tester.tap(find.text('队友 1').last);
+    await tester.tap(find.text('队长').last);
     await _settleAnim(tester);
 
     final field = tester.widget<TextField>(find.byType(TextField));
-    expect(field.controller?.text, '@队友 1 ');
+    expect(field.controller?.text, '@队长 ');
   });
 
   testWidgets('发送：消息上屏，队友答复随后到，落盘的是新会话', (tester) async {
@@ -279,7 +279,7 @@ void main() {
 
     expect(find.byType(CollabUserBubble), findsOneWidget);
     // 没点名：默认第一位是主管，先由他接活。
-    expect(find.textContaining('主管 队友 1'), findsOneWidget);
+    expect(find.textContaining('主管 队长'), findsOneWidget);
     expect(find.byType(CollabMessage), findsOneWidget);
     expect(find.textContaining('收到'), findsOneWidget);
 
@@ -300,12 +300,12 @@ void main() {
 
     expect(find.text('团队成员'), findsOneWidget);
     expect(find.text('2/6（至少 2 位）'), findsOneWidget);
-    expect(find.text('队友 1'), findsOneWidget);
-    expect(find.text('队友 2'), findsOneWidget);
+    expect(find.text('队长'), findsOneWidget);
+    expect(find.text('研究员'), findsOneWidget);
     expect(find.text('添加队友'), findsOneWidget);
 
     // 默认第一位是主管：展开第二位看操作项；两位时不给移除。
-    await tester.tap(find.text('队友 2'));
+    await tester.tap(find.text('研究员'));
     await _settleAnim(tester);
     expect(find.text('名字/任务'), findsOneWidget);
     expect(find.text('只读'), findsOneWidget);
@@ -327,14 +327,14 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('team-members')));
     await _settleAnim(tester);
-    await tester.tap(find.text('队友 2'));
+    await tester.tap(find.text('研究员'));
     await _settleAnim(tester);
     await tester.tap(find.text('设为主管'));
     await _settleAnim(tester);
     expect(find.text('取消主管'), findsOneWidget);
     await tester.tapAt(const Offset(5, 5));
     await _settleAnim(tester);
-    expect(find.textContaining('主管 队友 2'), findsOneWidget);
+    expect(find.textContaining('主管 研究员'), findsOneWidget);
 
     await _send(tester, '这周做什么');
     await _waitForIdle(tester, store, teamId);

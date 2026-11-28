@@ -4161,7 +4161,7 @@ class L10nEn extends L10n {
   String get chatGeneratingSteerHint => 'Generating · Type to steer';
 
   @override
-  String get chatComposerHint => 'Message DSH…';
+  String get chatComposerHint => 'Message Zhichuan…';
 
   @override
   String get chatComposerMode => 'Mode';

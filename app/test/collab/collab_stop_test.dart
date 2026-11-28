@@ -122,8 +122,11 @@ void main() {
     addTearDown(orchestrator.dispose);
 
     final run = await orchestrator.submit(_councilSpec());
-    // 等它真的开跑（有一个席位在飞）。
-    await Future<void>.delayed(const Duration(milliseconds: 80));
+    // 等它真的开跑（有一个席位在飞）。轮询而不是死等 80ms：CI 上磁盘
+    // 落盘慢一点就会偶发「还没开始」，那是测试脆弱，不是停止失效。
+    for (var i = 0; i < 80 && driver.calls.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
     expect(driver.calls, isNotEmpty, reason: '先确认真的在跑，否则「停止」测不到东西');
 
     await orchestrator.cancel(run.id);

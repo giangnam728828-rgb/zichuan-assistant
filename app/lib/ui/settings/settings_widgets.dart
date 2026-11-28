@@ -153,6 +153,8 @@ class SettingsTile extends StatelessWidget {
     this.danger = false,
     this.chevron,
     this.tinted = true,
+    this.valueMaxLines = 1,
+    this.valueOverflow = TextOverflow.ellipsis,
   }) : assert(title != null || spot != null);
 
   /// Null for a plain row that lines up with [InfoRow]s.
@@ -182,6 +184,13 @@ class SettingsTile extends StatelessWidget {
   /// tinted disc: the default for rows on secondary pages.
   final bool tinted;
 
+  /// 右侧值的最大行数与溢出方式（v4.4 · S2）。
+  ///
+  /// 默认单行 + 省略号：模型名再长也只在自己的那一格里收尾，绝不把左边的
+  /// 标题压成「每行一个汉字」。徽章/数量等特殊 value 可传 null 保留固有尺寸。
+  final int? valueMaxLines;
+  final TextOverflow? valueOverflow;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -193,7 +202,13 @@ class SettingsTile extends StatelessWidget {
     final title = this.title ?? spot!.title(context.l10n);
     return anchorSpot(
       spot,
-      InkWell(
+      LayoutBuilder(
+        builder: (context, constraints) {
+          // 右侧值最多占这一行的 58%（至少留 42% 给标题），超了就在自己的
+          // 范围内省略。用 ConstrainedBox 而不是 Flexible：短值仍然只占自然
+          // 宽度，左边的标题能多拿空间，只有长值才会被卡住。
+          final valueMax = (constraints.maxWidth * 0.58).clamp(96.0, constraints.maxWidth);
+          return InkWell(
         onTap: onTap,
         splashFactory: rowSplash(context),
         highlightColor: scheme.onSurface.withValues(alpha: 0.05),
@@ -230,6 +245,8 @@ class SettingsTile extends StatelessWidget {
                     children: [
                       Text(
                         title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: settingsTitleStyle(context)?.copyWith(color: danger ? colors.danger : scheme.onSurface),
                       ),
                       if (subtitle case final sub?) ...[
@@ -241,9 +258,15 @@ class SettingsTile extends StatelessWidget {
                 ),
                 if (value case final value?) ...[
                   const SizedBox(width: 12),
-                  DefaultTextStyle.merge(
-                    style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-                    child: value,
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: valueMax),
+                    child: DefaultTextStyle.merge(
+                      maxLines: valueMaxLines,
+                      overflow: valueOverflow,
+                      textAlign: TextAlign.end,
+                      style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+                      child: value,
+                    ),
                   ),
                 ],
                 if (trailing case final trailing?) ...[
@@ -258,6 +281,8 @@ class SettingsTile extends StatelessWidget {
             ),
           ),
         ),
+          );
+        },
       ),
     );
   }

@@ -79,41 +79,42 @@ void main() {
   });
 
   group('geometry', () {
-    testWidgets('suggestions: one row of chips, left aligned with the composer', (tester) async {
+    testWidgets('suggestions: wrap onto more rows, left aligned with the composer', (tester) async {
       await _pumpChat(tester);
       expect(tester.takeException(), isNull);
       final composer = tester.getRect(find.byType(Composer));
-      // 固定四个，一行排完，不做懒加载。
+      // 固定四个，按内容宽排；放不下就换行（v4.4 · S2）。
       final visible = defaultSuggestions.toList();
       final chips = [for (final s in visible) _suggestion(tester, s.label)];
 
-      // One row, every chip the height of the quiet pills.
+      // 小胶囊高度不变。
       for (final c in chips) {
-        expect(c.height, moreOrLessEquals(EmptyActions.height, epsilon: 0.5));
-        expect(c.top, moreOrLessEquals(chips[0].top, epsilon: 0.5));
+        expect(c.height, greaterThanOrEqualTo(EmptyActions.height - 0.5));
       }
-      // The first chip starts where the composer does; the rest follow with
-      // the gap, in order.
       expect(chips[0].left, moreOrLessEquals(composer.left, epsilon: 0.5));
       for (var i = 1; i < chips.length; i++) {
-        expect(chips[i].left - chips[i - 1].right, moreOrLessEquals(SuggestionChips.gap, epsilon: 0.5));
+        final prev = chips[i - 1];
+        final cur = chips[i];
+        if ((cur.top - prev.top).abs() < 0.5) {
+          // 同一行：间距 8。
+          expect(cur.left - prev.right, moreOrLessEquals(SuggestionChips.gap, epsilon: 0.5));
+        } else {
+          // 换行：回到左边线，纵向也隔 8。
+          expect(cur.top, greaterThan(prev.bottom));
+          expect(cur.left, moreOrLessEquals(composer.left, epsilon: 0.5));
+        }
       }
-      // Every chip fits its name whole.
+      // 一行放不下时确实换了行，而且每一枚都在输入栏右缘以内（不再需要横滑）。
+      expect(chips.any((c) => c.top > chips.first.bottom), isTrue, reason: '四个小胶囊在 390dp 上应换行');
       for (final s in visible) {
+        expect(_suggestion(tester, s.label).right, lessThanOrEqualTo(composer.right + 0.5), reason: '${s.label} 超出右缘');
         expect(_cut(tester, s.label), isFalse, reason: '${s.label} is cut');
       }
-      // The row is wider than the screen: the last chip starts past the
-      // composer's right edge and a sideways drag brings it in.
-      final last = defaultSuggestions.last;
-      expect(find.text(last.label), findsOneWidget);
-      final before = _suggestion(tester, last.label);
-      expect(before.right, greaterThan(composer.right));
-      await tester.drag(find.byType(SuggestionChips), const Offset(-260, 0));
-      await tester.pumpAndSettle();
-      final after = _suggestion(tester, last.label);
-      expect(after.left, lessThan(before.left));
-      expect(after.left, lessThan(composer.right));
-      expect(_cut(tester, last.label), isFalse, reason: '${last.label} is cut');
+      // 没有横向滚动容器了。
+      expect(
+        find.descendant(of: find.byType(SuggestionChips), matching: find.byType(SingleChildScrollView)),
+        findsNothing,
+      );
     });
 
     testWidgets('workspace chip: same height, left aligned, both sides read equal', (tester) async {
@@ -150,7 +151,7 @@ void main() {
       expect(_rect(tester, _workspaceLabel).height, greaterThan(EmptyActions.height));
     });
 
-    testWidgets('a narrow phone: the chip row scrolls instead of wrapping', (tester) async {
+    testWidgets('a narrow phone: the chips wrap instead of scrolling', (tester) async {
       await _pumpChat(tester, size: const Size(260, 700));
       expect(tester.takeException(), isNull);
       final visible = [
@@ -158,10 +159,9 @@ void main() {
           if (find.text(s.label).evaluate().isNotEmpty) _suggestion(tester, s.label),
       ];
       expect(visible, hasLength(greaterThanOrEqualTo(2)));
-      for (var i = 1; i < visible.length; i++) {
-        expect(visible[i].top, moreOrLessEquals(visible[0].top, epsilon: 0.5));
-        expect(visible[i].left, greaterThan(visible[i - 1].left));
-      }
+      // 260dp：必然多行；每行从左开始。
+      expect(visible.any((c) => c.top > visible[0].bottom), isTrue);
+      expect(visible[0].left, moreOrLessEquals(visible[0].left, epsilon: 0.01));
     });
 
     testWidgets('no workspace chosen on a remote host: the chip names the one it falls back to', (tester) async {
