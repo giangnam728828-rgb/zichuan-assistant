@@ -84,6 +84,9 @@ jobs:
       - name: Conversation routing
         run: flutter test test/collab/conversation_nav_test.dart --reporter expanded
 
+      - name: View switch keepalive
+        run: flutter test test/collab/view_switch_keepalive_test.dart --reporter expanded
+
       - name: Run keepalive
         run: flutter test test/collab/run_keepalive_test.dart --reporter expanded
 
